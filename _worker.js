@@ -27,8 +27,8 @@ const handleWs = async (req, userID, proxyIP) => {
   ws.accept();
   const stream = new ReadableStream({
     start(controller) {
-      const earlyHeader = req.headers.get('sec-websocket-protocol') || '';
-      const { earlyData, error } = base64ToBuffer(earlyHeader);
+      const earlyheader = req.headers.get('sec-websocket-protocol') || '';
+      const { earlyData, error } = base64ToBuffer(earlyheader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       const onMessage = (e) => controller.enqueue(e.data);
@@ -71,25 +71,35 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
+  let socket, fallback;
   try {
-    const socket = await connectAndWrite(remote, addr, port, rawData);
+    const primaryConnection = connectAndWrite(remote, addr, port, rawData);
+    const fallbackConnection = connectAndWrite(remote, proxyIP, port, rawData);
+    socket = await primaryConnection;
+    fallback = await fallbackConnection;
     await forwardData(socket, ws, header, async () => {
-      const fallback = await connectAndWrite(remote, proxyIP, port, rawData);
       fallback.closed.finally(() => closeWs(ws));
       await forwardData(fallback, ws, header);
     });
-  } catch {
-    closeWs(ws);
+  } catch (error) {
+     closeWs(ws);
+  } finally {
+     if (socket) {
+      socket.closed.finally(() => closeWs(ws));
+    }
+    if (fallback) {
+      fallback.closed.finally(() => closeWs(ws));
+    }
   }
 };
 const connectAndWrite = async (remote, addr, port, rawData) => {
-  if (remote.value?.writable && remote.value?.readable && !remote.value?.closed) {
-    await writeToRemote(remote.value, rawData);
-  } else {
-    remote.value = await connect({ hostname: addr, port });
-    await writeToRemote(remote.value, rawData);
-  }
-  return remote.value;
+    if (remote.value?.writable && remote.value?.readable && !remote.value?.closed) {
+      await writeToRemote(remote.value, rawData);
+    } else {
+      remote.value = await connect({ hostname: addr, port });
+      await writeToRemote(remote.value, rawData);
+    }
+    return remote.value;
 };
 const parseVlessHeader = (buf, userID) => {
   try {
@@ -107,7 +117,7 @@ const parseVlessHeader = (buf, userID) => {
     const portOffset = cmdOffset + 1;
     const port = view.getUint16(portOffset);
     const addrTypeOffset = portOffset + 2;
-    const addrType = view.getUint8(addrTypeOffset);   
+    const addrType = view.getUint8(addrTypeOffset);    
     let addrLen;
     if (addrType === 2) {
       addrLen = view.getUint8(addrTypeOffset + 1);
@@ -168,61 +178,67 @@ const forwardData = async (socket, ws, header, retry) => {
     retry();
   }
 };
-const base64ToBuffer = (base64Str) => {
-  if (base64Str.includes('-') || base64Str.includes('_')) {
-    base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-  }
-  const binaryStr = atob(base64Str);
-  const len = binaryStr.length;
-  const buffer = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    buffer[i] = binaryStr.charCodeAt(i);
-  }
-  return { earlyData: buffer.buffer, error: null };
+const base64ToBuffer = base64Str => {
+    if (base64Str.includes('-') || base64Str.includes('_')) {
+      base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+    }    
+    const binaryStr = atob(base64Str);
+    const len = binaryStr.length;
+    const buffer = new Uint8Array(len);  
+    for (let i = 0; i < len; i++) {
+      buffer[i] = binaryStr.charCodeAt(i);
+    }   
+    return { earlyData: buffer.buffer, error: null };
 };
 const closeWs = (ws) => {
-  if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
-    ws.close();
-  }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+            ws.close();
+        }
 };
 const stringify = (arr, offset = 0) => {
   const byteToHex = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
-  const segments = [4, 2, 2, 2, 6];
+  const segments = [4, 2, 2, 2, 6];  
   let result = '';
-  let currentOffset = offset;
+  let currentOffset = offset;  
   for (const len of segments) {
     result += Array.from(arr.slice(currentOffset, currentOffset + len), b => byteToHex[b]).join('');
     result += '-';
     currentOffset += len;
-  }
+  }  
   return result.slice(0, -1).toLowerCase();
 };
 const handleUDP = async (ws, header, rawData) => {
+  const dnsFetch = async (offset, length) => {
+    try {
+      const response = await fetch("https://cloudflare-dns.com/dns-query", {
+        method: "POST",
+        headers: { "content-type": "application/dns-message" },
+        body: rawData.slice(offset, offset + length),
+      });
+      return response.arrayBuffer();
+    } catch {
+      return null;
+    }
+  };
   const tasks = [];
-  let idx = 0;
+  let idx = 0;  
   while (idx < rawData.byteLength) {
-    const len = new DataView(rawData).getUint16(idx);
-    tasks.push(sendDns(ws, header, rawData.slice(idx + 2, idx + 2 + len)));
+    const len = new Uint16Array(rawData.buffer, idx, 1)[0];  
+    tasks.push((async () => {
+      const dnsResult = await dnsFetch(idx + 2, len);
+      if (!dnsResult) return;
+      const udpSizeBuffer = new Uint8Array(2);
+      udpSizeBuffer[0] = (dnsResult.byteLength >> 8) & 0xff;
+      udpSizeBuffer[1] = dnsResult.byteLength & 0xff;
+      const outputBuffer = new Uint8Array(header.length + 2 + dnsResult.byteLength);
+      outputBuffer.set(header, 0);
+      outputBuffer.set(udpSizeBuffer, header.length);
+      outputBuffer.set(new Uint8Array(dnsResult), header.length + 2);
+      if (ws.readyState === WebSocket.OPEN) ws.send(outputBuffer.buffer);
+    })());
     idx += 2 + len;
   }
   await Promise.all(tasks);
-};
-const sendDns = async (ws, header, query) => {
-  try {
-    const response = await fetch("https://cloudflare-dns.com/dns-query", {
-      method: "POST",
-      headers: { "Content-Type": "application/dns-message" },
-      body: query
-    });
-    const dnsResult = await response.arrayBuffer();
-    const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-    const outputBuffer = new Uint8Array(header.length + udpSizeBuffer.length + dnsResult.byteLength);
-    outputBuffer.set(header);
-    outputBuffer.set(udpSizeBuffer, header.length);
-    outputBuffer.set(new Uint8Array(dnsResult), header.length + udpSizeBuffer.length);
-    if (ws.readyState === WebSocket.OPEN) ws.send(outputBuffer.buffer);
-  } catch {
-  }
 };
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
