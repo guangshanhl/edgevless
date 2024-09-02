@@ -122,7 +122,6 @@ const parseVlessHeader = (buf, userID) => {
       : addrType === 2
       ? new TextDecoder().decode(new Uint8Array(buf, addrValIdx, addrLen))
       : Array.from(new Uint8Array(buf, addrValIdx, 16)).map(b => b.toString(16).padStart(2, "0")).join(":");
-
     return {
       hasError: false,
       addr: addrVal,
