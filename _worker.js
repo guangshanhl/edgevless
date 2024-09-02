@@ -143,46 +143,39 @@ const parseVlessHeader = (buf, userID) => {
     return { hasError: true };
   }
 };
-
 const forwardData = async (socket, ws, header, retry) => {
   if (ws.readyState !== WebSocket.OPEN) {
     closeWs(ws);
     return;
   }
-  const bufferSize = 4096;
-  const buffer = new Uint8Array(bufferSize);
-  let bufferOffset = 0;
+  let hasData = false;
   let firstChunk = true;
+  const headerLength = header.length;
+
   try {
     await socket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        if (firstChunk) {
-          buffer.set(header, 0);
-          bufferOffset = header.length;
-          firstChunk = false;
-        }
-        if (bufferOffset + chunk.byteLength > bufferSize) {
-          ws.send(buffer.slice(0, bufferOffset));
-          bufferOffset = 0;
-        }
-        buffer.set(chunk, bufferOffset);
-        bufferOffset += chunk.byteLength;
-        if (bufferOffset === bufferSize) {
-          ws.send(buffer);
-          bufferOffset = 0;
-        }
-      },
-      close() {
-        if (bufferOffset > 0) {
-          ws.send(buffer.slice(0, bufferOffset));
+        hasData = true;
+        try {
+          if (firstChunk) {
+            const combinedBuffer = new Uint8Array(headerLength + chunk.byteLength);
+            combinedBuffer.set(header, 0);
+            combinedBuffer.set(new Uint8Array(chunk), headerLength);
+            ws.send(combinedBuffer.buffer);
+            firstChunk = false;
+          } else {
+            ws.send(chunk);
+          }
+        } catch {
+          closeWs(ws);
         }
       }
     }));
-  } catch (err) {
+  } catch {
     closeWs(ws);
   }
   if (!hasData && retry) {
-    retry().catch(err => console.error('Retry error:', err));
+    retry();
   }
 };
 
