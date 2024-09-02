@@ -101,12 +101,11 @@ const connectAndWrite = async (remote, addr, port, rawData) => {
 const parseVlessHeader = (buf, userID) => {
   try {
     const view = new DataView(buf);
-    const uuidBytes = new Uint8Array(buf.slice(1, 17));
-    const useruuid = stringify(uuidBytes);
+    const useruuid = stringify(new Uint8Array(buf.slice(1, 17)));
     if (useruuid !== userID) {
       return { hasError: true };
     }
-    const version = view.getUint8(0);
+    const version = new Uint8Array(buf.slice(0, 1));
     const optLenOffset = 17;
     const optLen = view.getUint8(optLenOffset);
     const cmdOffset = optLenOffset + 1 + optLen;
@@ -115,34 +114,34 @@ const parseVlessHeader = (buf, userID) => {
     const portOffset = cmdOffset + 1;
     const port = view.getUint16(portOffset);
     const addrTypeOffset = portOffset + 2;
-    const addrType = view.getUint8(addrTypeOffset);
+    const addrType = view.getUint8(addrTypeOffset);    
     let addrLen;
-    let addrVal;
-    const addrValIdx = addrTypeOffset + 1;
-    if (addrType === 1) {
+    if (addrType === 2) {
+      addrLen = view.getUint8(addrTypeOffset + 1);
+    } else if (addrType === 1) {
       addrLen = 4;
-      addrVal = Array.from(new Uint8Array(buf, addrValIdx, addrLen)).join(".");
-    } else if (addrType === 2) {
-      addrLen = view.getUint8(addrValIdx);
-      addrVal = new TextDecoder().decode(new Uint8Array(buf, addrValIdx + 1, addrLen));
-    } else if (addrType === 3) {
-      addrLen = 16;
-      addrVal = Array.from(new Uint8Array(buf, addrValIdx, addrLen)).map(b => b.toString(16).padStart(2, "0")).join(":");
     } else {
-      return { hasError: true };
+      addrLen = 16;
     }
+    const addrValIdx = addrTypeOffset + (addrType === 2 ? 2 : 1);
+    const addrVal = addrType === 1
+      ? Array.from(new Uint8Array(buf, addrValIdx, 4)).join(".")
+      : addrType === 2
+      ? new TextDecoder().decode(new Uint8Array(buf, addrValIdx, addrLen))
+      : Array.from(new Uint8Array(buf, addrValIdx, 16)).map(b => b.toString(16).padStart(2, "0")).join(":");
     return {
       hasError: false,
       addr: addrVal,
       port,
       idx: addrValIdx + addrLen,
-      ver: new Uint8Array([version]),
+      ver: version,
       isUDP
     };
   } catch {
     return { hasError: true };
   }
 };
+
 const forwardData = async (socket, ws, header, retry) => {
   if (ws.readyState !== WebSocket.OPEN) {
     closeWs(ws);
@@ -151,17 +150,16 @@ const forwardData = async (socket, ws, header, retry) => {
   let hasData = false;
   let firstChunk = true;
   const headerLength = header.length;
-
   try {
     await socket.readable.pipeTo(new WritableStream({
       async write(chunk) {
         hasData = true;
         try {
           if (firstChunk) {
-            const combinedBuffer = new Uint8Array(headerLength + chunk.byteLength);
-            combinedBuffer.set(header, 0);
-            combinedBuffer.set(new Uint8Array(chunk), headerLength);
-            ws.send(combinedBuffer.buffer);
+            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
+            outputBuffer.set(header);
+            outputBuffer.set(new Uint8Array(chunk), headerLength);
+            ws.send(outputBuffer.buffer);
             firstChunk = false;
           } else {
             ws.send(chunk);
@@ -225,27 +223,24 @@ const handleUDP = async (ws, header, rawData) => {
     }
   };
   const tasks = [];
-  let idx = 0;
+  let idx = 0;  
   while (idx < rawData.byteLength) {
-    const len = new Uint16Array(rawData.buffer, idx, 1)[0];
+    const len = new Uint16Array(rawData.buffer, idx, 1)[0];  
     tasks.push((async () => {
       const dnsResult = await dnsFetch(idx + 2, len);
-      if (dnsResult) {
-        const udpSizeBuffer = new Uint8Array(2);
-        udpSizeBuffer[0] = (dnsResult.byteLength >> 8) & 0xff;
-        udpSizeBuffer[1] = dnsResult.byteLength & 0xff;
-        const outputBuffer = new Uint8Array(header.length + 2 + dnsResult.byteLength);
-        outputBuffer.set(header, 0);
-        outputBuffer.set(udpSizeBuffer, header.length);
-        outputBuffer.set(new Uint8Array(dnsResult), header.length + 2);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(outputBuffer.buffer);
-        }
-      }
+      if (!dnsResult) return;
+      const udpSizeBuffer = new Uint8Array(2);
+      udpSizeBuffer[0] = (dnsResult.byteLength >> 8) & 0xff;
+      udpSizeBuffer[1] = dnsResult.byteLength & 0xff;
+      const outputBuffer = new Uint8Array(header.length + 2 + dnsResult.byteLength);
+      outputBuffer.set(header, 0);
+      outputBuffer.set(udpSizeBuffer, header.length);
+      outputBuffer.set(new Uint8Array(dnsResult), header.length + 2);
+      if (ws.readyState === WebSocket.OPEN) ws.send(outputBuffer.buffer);
     })());
     idx += 2 + len;
   }
-  await Promise.allSettled(tasks);
+  await Promise.all(tasks);
 };
 
 const getConfig = (userID, host) => `
