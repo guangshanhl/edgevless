@@ -48,7 +48,7 @@ const handleWs = async (req, userID, proxyIP) => {
       };
     }
   });
-  let remote = { value: null };
+  let remote = { value: null, writer: null };
   let udpWrite = null;
   let isDns = false;
   stream.pipeTo(new WritableStream({
