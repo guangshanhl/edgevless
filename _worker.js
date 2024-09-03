@@ -25,22 +25,29 @@ const handleHttp = (req, userID) => {
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
+  const addEventListeners = (ws, controller) => {
+    const onMessage = (e) => controller.enqueue(e.data);
+    const onClose = () => controller.close();
+    const onError = (err) => controller.error(err);    
+    ws.addEventListener("message", onMessage);
+    ws.addEventListener("close", onClose);
+    ws.addEventListener("error", onError);    
+    return { onMessage, onClose, onError };
+  };
+  const removeEventListeners = (ws, listeners) => {
+    ws.removeEventListener("message", listeners.onMessage);
+    ws.removeEventListener("close", listeners.onClose);
+    ws.removeEventListener("error", listeners.onError);
+  };
   const stream = new ReadableStream({
     start(controller) {
       const earlyheader = req.headers.get('sec-websocket-protocol') || '';
       const { earlyData, error } = base64ToBuffer(earlyheader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      const onMessage = (e) => controller.enqueue(e.data);
-      const onClose = () => controller.close();
-      const onError = (err) => controller.error(err);
-      ws.addEventListener("message", onMessage);
-      ws.addEventListener("close", onClose);
-      ws.addEventListener("error", onError);
+      const listeners = addEventListeners(ws, controller);     
       return () => {
-        ws.removeEventListener("message", onMessage);
-        ws.removeEventListener("close", onClose);
-        ws.removeEventListener("error", onError);
+        removeEventListeners(ws, listeners);
         closeWs(ws);
       };
     }
@@ -52,7 +59,7 @@ const handleWs = async (req, userID, proxyIP) => {
     async write(chunk) {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remote.value) return writeToRemote(remote.value, chunk);
-      const { hasError, addr = '', port = 443, idx, ver = new Uint8Array([0, 0]), isUDP } = parseVlessHeader(chunk, userID);
+      const { hasError, addr, port, idx, ver, isUDP } = parseVlessHeader(chunk, userID);
       if (hasError) return;
       const resHeader = new Uint8Array([ver[0], 0]);
       const rawData = chunk.slice(idx);
