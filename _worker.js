@@ -1,4 +1,5 @@
 import { connect } from "cloudflare:sockets";
+
 export default {
   async fetch(req, env) {
     const userID = env.UUID || "d342d11e-d424-4583-b36e-524ab1f0afa4";
@@ -12,6 +13,7 @@ export default {
     }
   }
 };
+
 const handleHttp = (req, userID) => {
   const path = new URL(req.url).pathname;
   if (path === "/") return new Response(JSON.stringify(req.cf, null, 4));
@@ -22,33 +24,26 @@ const handleHttp = (req, userID) => {
   }
   return new Response("Not found", { status: 404 });
 };
+
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
-  const addEventListeners = (ws, controller) => {
-    const onMessage = (e) => controller.enqueue(e.data);
-    const onClose = () => controller.close();
-    const onError = (err) => controller.error(err);    
-    ws.addEventListener("message", onMessage);
-    ws.addEventListener("close", onClose);
-    ws.addEventListener("error", onError);    
-    return { onMessage, onClose, onError };
-  };
-  const removeEventListeners = (ws, listeners) => {
-    ws.removeEventListener("message", listeners.onMessage);
-    ws.removeEventListener("close", listeners.onClose);
-    ws.removeEventListener("error", listeners.onError);
-  };
-
   const stream = new ReadableStream({
     start(controller) {
       const earlyheader = req.headers.get('sec-websocket-protocol') || '';
       const { earlyData, error } = base64ToBuffer(earlyheader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      const listeners = addEventListeners(ws, controller);     
+      const onMessage = (e) => controller.enqueue(e.data);
+      const onClose = () => controller.close();
+      const onError = (err) => controller.error(err);
+      ws.addEventListener("message", onMessage);
+      ws.addEventListener("close", onClose);
+      ws.addEventListener("error", onError);
       return () => {
-        removeEventListeners(ws, listeners);
+        ws.removeEventListener("message", onMessage);
+        ws.removeEventListener("close", onClose);
+        ws.removeEventListener("error", onError);
         closeWs(ws);
       };
     }
@@ -60,7 +55,7 @@ const handleWs = async (req, userID, proxyIP) => {
     async write(chunk) {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remote.value) return writeToRemote(remote.value, chunk);
-      const { hasError, addr, port, idx, ver, isUDP } = parseVlessHeader(chunk, userID);
+      const { hasError, addr = '', port = 443, idx, ver = new Uint8Array([0, 0]), isUDP } = parseVlessHeader(chunk, userID);
       if (hasError) return;
       const resHeader = new Uint8Array([ver[0], 0]);
       const rawData = chunk.slice(idx);
@@ -74,25 +69,15 @@ const handleWs = async (req, userID, proxyIP) => {
   return new Response(null, { status: 101, webSocket: client });
 };
 const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
-  let socket, fallback;
   try {
-    const primaryConnection = connectAndWrite(remote, addr, port, rawData);
-    const fallbackConnection = connectAndWrite(remote, proxyIP, port, rawData);
-    socket = await primaryConnection;
-    fallback = await fallbackConnection;
+    const socket = await connectAndWrite(remote, addr, port, rawData);
     await forwardData(socket, ws, header, async () => {
+      const fallback = await connectAndWrite(remote, proxyIP, port, rawData);
       fallback.closed.finally(() => closeWs(ws));
       await forwardData(fallback, ws, header);
     });
-  } catch (error) {
-     closeWs(ws);
-  } finally {
-     if (socket) {
-      socket.closed.finally(() => closeWs(ws));
-    }
-    if (fallback) {
-      fallback.closed.finally(() => closeWs(ws));
-    }
+  } catch {
+    closeWs(ws);
   }
 };
 const writeToRemote = async (socketWriter, chunk) => {
@@ -151,32 +136,38 @@ const parseVlessHeader = (buf, userID) => {
     return { hasError: true };
   }
 };
+
 const forwardData = async (socket, ws, header, retry) => {
   if (ws.readyState !== WebSocket.OPEN) {
     closeWs(ws);
     return;
   }
+  let hasData = false;
   let firstChunk = true;
   const headerLength = header.length;
   try {
     await socket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        if (firstChunk) {
-          const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
-          outputBuffer.set(header);
-          outputBuffer.set(new Uint8Array(chunk), headerLength);
-          ws.send(outputBuffer.buffer);
-          firstChunk = false;
-        } else {
-          ws.send(chunk);
+        hasData = true;
+        try {
+          if (firstChunk) {
+            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
+            outputBuffer.set(header);
+            outputBuffer.set(new Uint8Array(chunk), headerLength);
+            ws.send(outputBuffer.buffer);
+            firstChunk = false;
+          } else {
+            ws.send(chunk);
+          }
+        } catch {
+          closeWs(ws);
         }
       }
     }));
-  } catch (err) {
+  } catch {
     closeWs(ws);
   }
-
-  if (retry) {
+  if (!hasData && retry) {
     retry();
   }
 };
@@ -193,11 +184,13 @@ const base64ToBuffer = base64Str => {
     }   
     return { earlyData: buffer.buffer, error: null };
 };
+
 const closeWs = (ws) => {
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
             ws.close();
         }
 };
+
 const stringify = (arr, offset = 0) => {
   const byteToHex = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
   const segments = [4, 2, 2, 2, 6];  
@@ -210,6 +203,7 @@ const stringify = (arr, offset = 0) => {
   }  
   return result.slice(0, -1).toLowerCase();
 };
+
 const handleUDP = async (ws, header, rawData) => {
   const dnsFetch = async (offset, length) => {
     try {
@@ -243,6 +237,7 @@ const handleUDP = async (ws, header, rawData) => {
   }
   await Promise.all(tasks);
 };
+
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
