@@ -23,7 +23,8 @@ const handleHttp = (req, userID) => {
   return new Response("Not found", { status: 404 });
 };
 const handleWs = async (req, userID, proxyIP) => {
-  const [client, ws] = new WebSocketPair();
+  const webSocketPair = new WebSocketPair();
+	const [client, ws] = Object.values(webSocketPair);
   ws.accept();
   const stream = new ReadableStream({
     start(controller) {
