@@ -135,48 +135,35 @@ const parseVlessHeader = (buf, userID) => {
   }
 };
 const forwardData = async (socket, ws, header, retry) => {
-  if (ws.readyState !== WebSocket.OPEN) {
-    closeWs(ws);
-    return;
-  }
-  let hasData = false;
+  if (ws.readyState !== WebSocket.OPEN) return closeWs(ws);
   let firstChunk = true;
-  const headerLength = header.length;
   try {
     await socket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        hasData = true;
-        try {
-          if (firstChunk) {
-            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
-            outputBuffer.set(header);
-            outputBuffer.set(new Uint8Array(chunk), headerLength);
-            ws.send(outputBuffer.buffer);
-            firstChunk = false;
-          } else {
-            ws.send(chunk);
-          }
-        } catch {
-          closeWs(ws);
+        if (firstChunk) {
+          const outputBuffer = new Uint8Array(header.length + chunk.byteLength);
+          outputBuffer.set(header);
+          outputBuffer.set(new Uint8Array(chunk), header.length);
+          ws.send(outputBuffer.buffer);
+          firstChunk = false;
+        } else {
+          ws.send(chunk);
         }
       }
     }));
   } catch {
     closeWs(ws);
   }
-  if (!hasData && retry) {
-    retry();
-  }
+  if (retry && firstChunk) retry();
 };
-const base64ToBuffer = base64Str => {
-    const base64 = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-    const binaryStr = atob(base64);
-    const len = binaryStr.length;
-    const buffer = new Uint8Array(len);  
-    for (let i = 0; i < len; i++) {
-        buffer[i] = binaryStr.charCodeAt(i);
-    }   
-    return { earlyData: buffer.buffer, error: null };
+const base64ToBuffer = (base64Str) => {
+  const binaryStr = atob(base64Str.replace(/-/g, '+').replace(/_/g, '/'));
+  const len = binaryStr.length;
+  const buffer = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    buffer[i] = binaryStr.charCodeAt(i);
+  }
+  return buffer.buffer;
 };
 const closeWs = (ws) => {
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
