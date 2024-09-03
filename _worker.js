@@ -231,6 +231,54 @@ const stringify = (arr, offset = 0) => {
   return result.join('').toLowerCase();
 };
 
+const handleUDP = async (ws, header, rawData) => {
+  const cache = new Map();
+  const dnsFetch = async (offset, length) => {
+    const key = `${offset}-${length}`;
+    if (cache.has(key)) {
+      return cache.get(key);
+    }
+
+    try {
+      const response = await fetch("https://cloudflare-dns.com/dns-query", {
+        method: "POST",
+        headers: { "content-type": "application/dns-message" },
+        body: rawData.slice(offset, offset + length),
+      });
+      const result = await response.arrayBuffer();
+      cache.set(key, result);
+      return result;
+    } catch {
+      return null;
+    }
+  };
+
+  const tasks = [];
+  let idx = 0;
+
+  while (idx < rawData.byteLength) {
+    const len = new Uint16Array(rawData.buffer, idx, 1)[0];
+    tasks.push((async () => {
+      const dnsResult = await dnsFetch(idx + 2, len);
+      if (!dnsResult) return;
+
+      const udpSizeBuffer = new Uint8Array(2);
+      udpSizeBuffer[0] = (dnsResult.byteLength >> 8) & 0xff;
+      udpSizeBuffer[1] = dnsResult.byteLength & 0xff;
+
+      const outputBuffer = new Uint8Array(header.length + 2 + dnsResult.byteLength);
+      outputBuffer.set(header, 0);
+      outputBuffer.set(udpSizeBuffer, header.length);
+      outputBuffer.set(new Uint8Array(dnsResult), header.length + 2);
+
+      if (ws.readyState === WebSocket.OPEN) ws.send(outputBuffer.buffer);
+    })());
+    idx += len + 2;
+  }
+
+  await Promise.all(tasks);
+};
+
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
