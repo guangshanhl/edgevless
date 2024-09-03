@@ -25,11 +25,14 @@ const handleHttp = (req, userID) => {
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
+  const earlyheader = req.headers.get('sec-websocket-protocol') || '';
+  const { earlyData, error } = base64ToBuffer(earlyheader);
+  if (error) return controller.error(error);
+  let remote = { value: null };
+  let udpWrite = null;
+  let isDns = false;
   const stream = new ReadableStream({
     start(controller) {
-      const earlyheader = req.headers.get('sec-websocket-protocol') || '';
-      const { earlyData, error } = base64ToBuffer(earlyheader);
-      if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       const onMessage = (e) => controller.enqueue(e.data);
       const onClose = () => controller.close();
@@ -45,9 +48,6 @@ const handleWs = async (req, userID, proxyIP) => {
       };
     }
   });
-  let remote = { value: null };
-  let udpWrite = null;
-  let isDns = false;
   stream.pipeTo(new WritableStream({
     async write(chunk) {
       if (isDns && udpWrite) return udpWrite(chunk);
@@ -135,26 +135,38 @@ const parseVlessHeader = (buf, userID) => {
   }
 };
 const forwardData = async (socket, ws, header, retry) => {
-  if (ws.readyState !== WebSocket.OPEN) return closeWs(ws);
+  if (ws.readyState !== WebSocket.OPEN) {
+    closeWs(ws);
+    return;
+  }
+  let hasData = false;
   let firstChunk = true;
+  const headerLength = header.length;
   try {
     await socket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        if (firstChunk) {
-          const outputBuffer = new Uint8Array(header.length + chunk.byteLength);
-          outputBuffer.set(header);
-          outputBuffer.set(new Uint8Array(chunk), header.length);
-          ws.send(outputBuffer.buffer);
-          firstChunk = false;
-        } else {
-          ws.send(chunk);
+        hasData = true;
+        try {
+          if (firstChunk) {
+            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
+            outputBuffer.set(header);
+            outputBuffer.set(new Uint8Array(chunk), headerLength);
+            ws.send(outputBuffer.buffer);
+            firstChunk = false;
+          } else {
+            ws.send(chunk);
+          }
+        } catch {
+          closeWs(ws);
         }
       }
     }));
   } catch {
     closeWs(ws);
   }
-  if (retry && firstChunk) retry();
+  if (!hasData && retry) {
+    retry();
+  }
 };
 const base64ToBuffer = (base64Str) => {
   const binaryStr = atob(base64Str.replace(/-/g, '+').replace(/_/g, '/'));
