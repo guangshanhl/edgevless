@@ -29,7 +29,7 @@ const handleHttpRequest = async (request, userID) => {
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
-  const readableStream = createWstream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+  const readableStream = createWSStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
@@ -79,19 +79,17 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     return tcpSocket;
   }
 };
-const createWstream = (webSocket, earlyDataHeader) => {
-  let isCancelled = false;
+const createWSStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => !isCancelled && controller.enqueue(event.data));
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel() {
-      isCancelled = true;
       closeWebSocket(webSocket);
     }
   });
@@ -130,11 +128,11 @@ const forwardToData = async (remoteSocket, webSocket, vlessResponseHeader, retry
     closeWebSocket(webSocket);
     return;
   }
-  let hasIncomingData = false;
+  let hasData = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        hasIncomingData = true;
+        hasData = true;
         const dataToSend = vlessResponseHeader
           ? new Uint8Array([...vlessResponseHeader, ...new Uint8Array(chunk)]).buffer
           : chunk;
@@ -145,7 +143,7 @@ const forwardToData = async (remoteSocket, webSocket, vlessResponseHeader, retry
   } catch {
     closeWebSocket(webSocket);
   }
-  if (!hasIncomingData && retry) retry();
+  if (!hasData && retry) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
