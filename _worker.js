@@ -30,7 +30,7 @@ const handleHttp = (req, userID) => {
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
-  const cache = new Map(); // 缓存 WebSocket 数据
+  const cache = new Map();
 
   const stream = new ReadableStream({
     start(controller) {
@@ -42,10 +42,8 @@ const handleWs = async (req, userID, proxyIP) => {
       const onMessage = (e) => {
         const key = e.data.byteLength;
         if (cache.has(key)) {
-          // 从缓存中读取数据
           controller.enqueue(cache.get(key));
         } else {
-          // 缓存新数据
           cache.set(key, e.data);
           controller.enqueue(e.data);
         }
