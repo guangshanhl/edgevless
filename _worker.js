@@ -14,13 +14,13 @@ export default {
 };
 const handleHttp = (req, userID) => {
   const path = new URL(req.url).pathname;
-  const handlers = {
-    '/': () => new Response(JSON.stringify(req.cf, null, 4)),
-    [`/${userID}`]: () => new Response(getConfig(userID, req.headers.get("Host")), {
+  if (path === "/") return new Response(JSON.stringify(req.cf, null, 4));
+  if (path === `/${userID}`) {
+    return new Response(getConfig(userID, req.headers.get("Host")), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
-    })
-  };
-  return handlers[path] ? handlers[path]() : new Response("Not found", { status: 404 });
+    });
+  }
+  return new Response("Not found", { status: 404 });
 };
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
