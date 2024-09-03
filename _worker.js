@@ -30,6 +30,8 @@ const handleHttp = (req, userID) => {
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
+  const cache = new Map(); // 缓存 WebSocket 数据
+
   const stream = new ReadableStream({
     start(controller) {
       const earlyheader = req.headers.get('sec-websocket-protocol') || '';
@@ -37,7 +39,18 @@ const handleWs = async (req, userID, proxyIP) => {
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
 
-      const onMessage = (e) => controller.enqueue(e.data);
+      const onMessage = (e) => {
+        const key = e.data.byteLength;
+        if (cache.has(key)) {
+          // 从缓存中读取数据
+          controller.enqueue(cache.get(key));
+        } else {
+          // 缓存新数据
+          cache.set(key, e.data);
+          controller.enqueue(e.data);
+        }
+      };
+
       const onClose = () => controller.close();
       const onError = (err) => controller.error(err);
 
