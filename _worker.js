@@ -83,7 +83,7 @@ const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
   }
 };
 const connectAndWrite = async (remote, addr, port, rawData) => {
-    if (remote.value?.writable && !remote.value?.closed) {
+    if (remote.value?.writable && remote.value?.readable && !remote.value?.closed) {
       await writeToRemote(remote.value, rawData);
     } else {
       remote.value = await connect({ hostname: addr, port });
@@ -168,14 +168,15 @@ const forwardData = async (socket, ws, header, retry) => {
     retry();
   }
 };
-const base64ToBuffer = (base64Str) => {
-  const binaryStr = atob(base64Str.replace(/-/g, '+').replace(/_/g, '/'));
-  const len = binaryStr.length;
-  const buffer = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    buffer[i] = binaryStr.charCodeAt(i);
-  }
-  return buffer.buffer;
+const base64ToBuffer = base64Str => {
+    const base64 = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const buffer = new Uint8Array(len);  
+    for (let i = 0; i < len; i++) {
+        buffer[i] = binaryStr.charCodeAt(i);
+    }   
+    return { earlyData: buffer.buffer, error: null };
 };
 const closeWs = (ws) => {
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
