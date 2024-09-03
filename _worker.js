@@ -140,51 +140,32 @@ const forwardData = async (socket, ws, header, retry) => {
     return;
   }
   let hasData = false;
+  let firstChunk = true;
   const headerLength = header.length;
-  const bufferSize = 16 * 1024;
-  const buffer = new Uint8Array(bufferSize);
-  let bufferOffset = 0;
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      hasData = true;
-      const chunkSize = chunk.byteLength;
-      let position = 0;
-      while (position < chunkSize) {
-        const remainingBufferSpace = bufferSize - bufferOffset;
-        const bytesToCopy = Math.min(remainingBufferSpace, chunkSize - position);
-        buffer.set(new Uint8Array(chunk, position, bytesToCopy), bufferOffset);
-        bufferOffset += bytesToCopy;
-        position += bytesToCopy;
-        if (bufferOffset === bufferSize) {
-          await sendBufferedData(ws, header, buffer, bufferOffset);
-          bufferOffset = 0;
+  try {
+    await socket.readable.pipeTo(new WritableStream({
+      async write(chunk) {
+        hasData = true;
+        try {
+          if (firstChunk) {
+            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
+            outputBuffer.set(header);
+            outputBuffer.set(new Uint8Array(chunk), headerLength);
+            ws.send(outputBuffer.buffer);
+            firstChunk = false;
+          } else {
+            ws.send(chunk);
+          }
+        } catch {
+          closeWs(ws);
         }
       }
-    }
-  });
-  try {
-    await socket.readable.pipeTo(writableStream);
-    if (bufferOffset > 0) {
-      await sendBufferedData(ws, header, buffer, bufferOffset);
-    }
-  } catch (error) {
+    }));
+  } catch {
+    closeWs(ws);
   }
   if (!hasData && retry) {
     retry();
-  }
-};
-const sendBufferedData = async (ws, header, buffer, length) => {
-  if (ws.readyState !== WebSocket.OPEN) {
-    closeWs(ws);
-    return;
-  }
-  try {
-    const outputBuffer = new Uint8Array(header.length + length);
-    outputBuffer.set(header);
-    outputBuffer.set(buffer.subarray(0, length), header.length);
-    ws.send(outputBuffer.buffer);
-  } catch (error) {
-    closeWs(ws);
   }
 };
 const base64ToBuffer = base64Str => {
