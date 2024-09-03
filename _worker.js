@@ -1,5 +1,4 @@
 import { connect } from "cloudflare:sockets";
-
 export default {
   async fetch(req, env) {
     const userID = env.UUID || "d342d11e-d424-4583-b36e-524ab1f0afa4";
@@ -13,7 +12,6 @@ export default {
     }
   }
 };
-
 const handleHttp = (req, userID) => {
   const path = new URL(req.url).pathname;
   if (path === "/") return new Response(JSON.stringify(req.cf, null, 4));
@@ -24,7 +22,6 @@ const handleHttp = (req, userID) => {
   }
   return new Response("Not found", { status: 404 });
 };
-
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
@@ -136,7 +133,6 @@ const parseVlessHeader = (buf, userID) => {
     return { hasError: true };
   }
 };
-
 const forwardData = async (socket, ws, header, retry) => {
   if (ws.readyState !== WebSocket.OPEN) {
     closeWs(ws);
@@ -171,7 +167,6 @@ const forwardData = async (socket, ws, header, retry) => {
     retry();
   }
 };
-
 const base64ToBuffer = base64Str => {
     if (base64Str.includes('-') || base64Str.includes('_')) {
       base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
@@ -184,13 +179,11 @@ const base64ToBuffer = base64Str => {
     }   
     return { earlyData: buffer.buffer, error: null };
 };
-
 const closeWs = (ws) => {
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
             ws.close();
         }
 };
-
 const stringify = (arr, offset = 0) => {
   const byteToHex = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
   const segments = [4, 2, 2, 2, 6];  
@@ -203,7 +196,6 @@ const stringify = (arr, offset = 0) => {
   }  
   return result.slice(0, -1).toLowerCase();
 };
-
 const handleUDP = async (ws, header, rawData) => {
   const dnsFetch = async (offset, length) => {
     try {
@@ -237,7 +229,6 @@ const handleUDP = async (ws, header, rawData) => {
   }
   await Promise.all(tasks);
 };
-
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
