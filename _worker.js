@@ -82,7 +82,7 @@ const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
   }
 };
 
-const writeToRemote = async (socketWriter, chunk) => {
+const writeToRemote = async (socket, chunk) => {
   await socketWriter.write(chunk);
 };
 
