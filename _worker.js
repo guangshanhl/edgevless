@@ -100,13 +100,25 @@ const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
 };
 
 const connectAndWrite = async (remote, addr, port, rawData) => {
-  if (remote.value?.writable && !remote.value?.closed) {
-    await writeToRemote(remote.value, rawData);
-  } else {
-    remote.value = await connect({ hostname: addr, port });
-    await writeToRemote(remote.value, rawData);
+  const maxRetries = 3;
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    try {
+      if (remote.value?.writable && !remote.value?.closed) {
+        await writeToRemote(remote.value, rawData);
+      } else {
+        remote.value = await connect({ hostname: addr, port });
+        await writeToRemote(remote.value, rawData);
+      }
+      return remote.value;
+    } catch (err) {
+      attempt++;
+      if (attempt >= maxRetries) {
+        throw err;
+      }
+    }
   }
-  return remote.value;
 };
 
 const parseVlessHeader = (buf, userID) => {
