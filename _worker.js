@@ -25,10 +25,10 @@ const handleHttp = (req, userID) => {
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
-  const earlyheader = req.headers.get('sec-websocket-protocol') || '';
-  const { earlyData, error } = base64ToBuffer(earlyheader);
   const stream = new ReadableStream({
     start(controller) {
+      const earlyheader = req.headers.get('sec-websocket-protocol') || '';
+      const { earlyData, error } = base64ToBuffer(earlyheader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       const onMessage = (e) => controller.enqueue(e.data);
@@ -95,35 +95,39 @@ const parseVlessHeader = (buf, userID) => {
   try {
     const view = new DataView(buf);
     const useruuid = stringify(new Uint8Array(buf.slice(1, 17)));
-    if (useruuid !== userID) return { hasError: true };
-    const version = buf[0];
+    if (useruuid !== userID) {
+      return { hasError: true };
+    }
+    const version = new Uint8Array(buf.slice(0, 1));
     const optLenOffset = 17;
-    const optLen = buf[optLenOffset];
+    const optLen = view.getUint8(optLenOffset);
     const cmdOffset = optLenOffset + 1 + optLen;
-    const cmd = buf[cmdOffset];
+    const cmd = view.getUint8(cmdOffset);
     const isUDP = cmd === 2;
     const portOffset = cmdOffset + 1;
     const port = view.getUint16(portOffset);
     const addrTypeOffset = portOffset + 2;
-    const addrType = buf[addrTypeOffset];    
+    const addrType = view.getUint8(addrTypeOffset);    
     let addrLen;
     if (addrType === 2) {
-      addrLen = buf[addrTypeOffset + 1];
+      addrLen = view.getUint8(addrTypeOffset + 1);
+    } else if (addrType === 1) {
+      addrLen = 4;
     } else {
-      addrLen = addrType === 1 ? 4 : 16;
+      addrLen = 16;
     }
     const addrValIdx = addrTypeOffset + (addrType === 2 ? 2 : 1);
     const addrVal = addrType === 1
-      ? Array.from(buf.slice(addrValIdx, addrValIdx + 4)).join(".")
+      ? Array.from(new Uint8Array(buf, addrValIdx, 4)).join(".")
       : addrType === 2
-      ? new TextDecoder().decode(buf.slice(addrValIdx, addrValIdx + addrLen))
-      : Array.from(buf.slice(addrValIdx, addrValIdx + 16)).map(b => b.toString(16).padStart(2, "0")).join(":");
+      ? new TextDecoder().decode(new Uint8Array(buf, addrValIdx, addrLen))
+      : Array.from(new Uint8Array(buf, addrValIdx, 16)).map(b => b.toString(16).padStart(2, "0")).join(":");
     return {
       hasError: false,
       addr: addrVal,
       port,
       idx: addrValIdx + addrLen,
-      ver: new Uint8Array([version]),
+      ver: version,
       isUDP
     };
   } catch {
@@ -164,9 +168,16 @@ const forwardData = async (socket, ws, header, retry) => {
     retry();
   }
 };
-const base64ToBuffer = (base64Str) => {
-    const binaryStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-    const buffer = Uint8Array.from(atob(binaryStr), c => c.charCodeAt(0));
+const base64ToBuffer = base64Str => {
+    if (base64Str.includes('-') || base64Str.includes('_')) {
+      base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+    }    
+    const binaryStr = atob(base64Str);
+    const len = binaryStr.length;
+    const buffer = new Uint8Array(len);  
+    for (let i = 0; i < len; i++) {
+      buffer[i] = binaryStr.charCodeAt(i);
+    }   
     return { earlyData: buffer.buffer, error: null };
 };
 const closeWs = (ws) => {
