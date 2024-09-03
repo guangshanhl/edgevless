@@ -83,7 +83,7 @@ const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
   }
 };
 const connectAndWrite = async (remote, addr, port, rawData) => {
-    if (remote.value?.writable && remote.value?.readable && !remote.value?.closed) {
+    if (remote.value?.writable && !remote.value?.closed) {
       await writeToRemote(remote.value, rawData);
     } else {
       remote.value = await connect({ hostname: addr, port });
