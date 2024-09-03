@@ -25,22 +25,30 @@ const handleHttp = (req, userID) => {
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
   ws.accept();
+  const addEventListeners = (ws, controller) => {
+    const onMessage = (e) => controller.enqueue(e.data);
+    const onClose = () => controller.close();
+    const onError = (err) => controller.error(err);    
+    ws.addEventListener("message", onMessage);
+    ws.addEventListener("close", onClose);
+    ws.addEventListener("error", onError);    
+    return { onMessage, onClose, onError };
+  };
+  const removeEventListeners = (ws, listeners) => {
+    ws.removeEventListener("message", listeners.onMessage);
+    ws.removeEventListener("close", listeners.onClose);
+    ws.removeEventListener("error", listeners.onError);
+  };
+
   const stream = new ReadableStream({
     start(controller) {
       const earlyheader = req.headers.get('sec-websocket-protocol') || '';
       const { earlyData, error } = base64ToBuffer(earlyheader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      const onMessage = (e) => controller.enqueue(e.data);
-      const onClose = () => controller.close();
-      const onError = (err) => controller.error(err);
-      ws.addEventListener("message", onMessage);
-      ws.addEventListener("close", onClose);
-      ws.addEventListener("error", onError);
+      const listeners = addEventListeners(ws, controller);     
       return () => {
-        ws.removeEventListener("message", onMessage);
-        ws.removeEventListener("close", onClose);
-        ws.removeEventListener("error", onError);
+        removeEventListeners(ws, listeners);
         closeWs(ws);
       };
     }
@@ -52,7 +60,7 @@ const handleWs = async (req, userID, proxyIP) => {
     async write(chunk) {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remote.value) return writeToRemote(remote.value, chunk);
-      const { hasError, addr = '', port = 443, idx, ver = new Uint8Array([0, 0]), isUDP } = parseVlessHeader(chunk, userID);
+      const { hasError, addr, port, idx, ver, isUDP } = parseVlessHeader(chunk, userID);
       if (hasError) return;
       const resHeader = new Uint8Array([ver[0], 0]);
       const rawData = chunk.slice(idx);
@@ -64,11 +72,6 @@ const handleWs = async (req, userID, proxyIP) => {
     }
   }));
   return new Response(null, { status: 101, webSocket: client });
-};
-const writeToRemote = async (socket, chunk) => {
-  const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
 };
 const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
   let socket, fallback;
@@ -92,14 +95,18 @@ const handleTCP = async (remote, addr, port, rawData, ws, header, proxyIP) => {
     }
   }
 };
+const writeToRemote = async (socketWriter, chunk) => {
+  await socketWriter.write(chunk);
+};
 const connectAndWrite = async (remote, addr, port, rawData) => {
-    if (remote.value?.writable && remote.value?.readable && !remote.value?.closed) {
-      await writeToRemote(remote.value, rawData);
-    } else {
-      remote.value = await connect({ hostname: addr, port });
-      await writeToRemote(remote.value, rawData);
-    }
-    return remote.value;
+  if (remote.value?.writable && remote.value?.readable && !remote.value?.closed) {
+    await writeToRemote(remote.writer, rawData);
+  } else {
+    remote.value = await connect({ hostname: addr, port });
+    remote.writer = remote.value.writable.getWriter();
+    await writeToRemote(remote.writer, rawData);
+  }
+  return remote.value;
 };
 const parseVlessHeader = (buf, userID) => {
   try {
@@ -149,35 +156,31 @@ const forwardData = async (socket, ws, header, retry) => {
     closeWs(ws);
     return;
   }
-  let hasData = false;
   let firstChunk = true;
   const headerLength = header.length;
   try {
     await socket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        hasData = true;
-        try {
-          if (firstChunk) {
-            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
-            outputBuffer.set(header);
-            outputBuffer.set(new Uint8Array(chunk), headerLength);
-            ws.send(outputBuffer.buffer);
-            firstChunk = false;
-          } else {
-            ws.send(chunk);
-          }
-        } catch {
-          closeWs(ws);
+        if (firstChunk) {
+          const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
+          outputBuffer.set(header);
+          outputBuffer.set(new Uint8Array(chunk), headerLength);
+          ws.send(outputBuffer.buffer);
+          firstChunk = false;
+        } else {
+          ws.send(chunk);
         }
       }
     }));
-  } catch {
+  } catch (err) {
     closeWs(ws);
   }
-  if (!hasData && retry) {
+
+  if (retry) {
     retry();
   }
 };
+
 const base64ToBuffer = base64Str => {
     if (base64Str.includes('-') || base64Str.includes('_')) {
       base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
