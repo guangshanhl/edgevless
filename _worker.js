@@ -37,7 +37,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   const readableStream = createWSStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
 
   let udpStreamWrite = null, isDns = false;
-  socketMap.set(webSocket, { socket: null, closed: false });  // 将 WebSocket 连接初始化为 Map 条目
+  socketMap.set(webSocket, { value: null });  // 将 WebSocket 连接初始化为 Map 条目
 
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
