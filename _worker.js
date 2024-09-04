@@ -1,7 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-
-const socketMap = new Map();
-
 export default {
   async fetch(request, env) {
     try {
@@ -15,7 +12,6 @@ export default {
     }
   }
 };
-
 const handleHttpRequest = async (request, userID) => {
   const url = new URL(request.url);
   switch (url.pathname) {
@@ -30,53 +26,41 @@ const handleHttpRequest = async (request, userID) => {
       return new Response('Not found', { status: 404 });
   }
 };
-
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const readableStream = createWSStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
-
-  let udpStreamWrite = null, isDns = false;
-  socketMap.set(webSocket, { value: null });  // 将 WebSocket 连接初始化为 Map 条目
-
+  let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
-      const socketEntry = socketMap.get(webSocket);
-
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
-      if (socketEntry && socketEntry.socket) return await writeToRemote(socketEntry.socket, chunk);
-
+      if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
       const { hasError, addressRemote, portRemote, rawDataIndex, vlessVersion, isUDP } = processVlessHeader(chunk, userID);
       if (hasError) return;
-
       const vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
-
       if (isUDP) {
         isDns = portRemote === 53;
         if (isDns) {
           udpStreamWrite = await handleUDP(webSocket, vlessResponseHeader, rawClientData);
         }
       } else {
-        handleTCP(webSocket, addressRemote, portRemote, rawClientData, vlessResponseHeader, proxyIP);
+        handleTCP(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, proxyIP);
       }
     }
   })); 
-
   return new Response(null, { status: 101, webSocket: client });
 };
-
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
   writer.releaseLock();
 };
-
-const handleTCP = async (webSocket, addressRemote, portRemote, rawClientData, vlessResponseHeader, proxyIP) => {
+const handleTCP = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, proxyIP) => {
   try {
-    const tcpSocket = await connectAndWrite(webSocket, addressRemote, portRemote, rawClientData);
+    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, vlessResponseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(webSocket, proxyIP || addressRemote, portRemote, rawClientData);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, vlessResponseHeader);
     });
@@ -84,21 +68,17 @@ const handleTCP = async (webSocket, addressRemote, portRemote, rawClientData, vl
     closeWebSocket(webSocket);
   }
 };
-
-const connectAndWrite = async (webSocket, address, port, rawClientData) => {
-  const socketEntry = socketMap.get(webSocket);
-
-  if (socketEntry && socketEntry.socket && !socketEntry.closed) {
-    await writeToRemote(socketEntry.socket, rawClientData);
-    return socketEntry.socket;
+const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+  if (remoteSocket.value && !remoteSocket.value.closed) {
+    await writeToRemote(remoteSocket.value, rawClientData);
+    return remoteSocket.value;
   } else {
     const tcpSocket = await connect({ hostname: address, port });
-    socketMap.set(webSocket, { socket: tcpSocket, closed: false });
+    remoteSocket.value = tcpSocket;
     await writeToRemote(tcpSocket, rawClientData);
     return tcpSocket;
   }
 };
-
 const createWSStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
@@ -106,10 +86,7 @@ const createWSStream = (webSocket, earlyDataHeader) => {
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
-      webSocket.addEventListener('close', () => {
-        controller.close();
-        socketMap.set(webSocket, { ...socketMap.get(webSocket), closed: true });
-      });
+      webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel() {
@@ -182,7 +159,6 @@ const closeWebSocket = socket => {
   if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
     socket.close();
   }
-  socketMap.set(socket, { ...socketMap.get(socket), closed: true });
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
