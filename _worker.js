@@ -1,4 +1,3 @@
-import { connect } from 'cloudflare:sockets';
 export default {
   async fetch(request, env) {
     try {
@@ -12,6 +11,7 @@ export default {
     }
   }
 };
+
 const handlehttpRequest = async (request, userID) => {
   const url = new URL(request.url);
   switch (url.pathname) {
@@ -26,6 +26,7 @@ const handlehttpRequest = async (request, userID) => {
       return new Response('Not found', { status: 404 });
   }
 };
+
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
@@ -51,11 +52,13 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   })); 
   return new Response(null, { status: 101, webSocket: client });
 };
+
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
   writer.releaseLock();
 };
+
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
@@ -68,17 +71,24 @@ const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     closeWebSocket(webSocket);
   }
 };
+
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (remoteSocket.value && !remoteSocket.value.closed) {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
   } else {
-    const tcpSocket = await connect({ hostname: address, port });
+    // 模拟 TCP 连接，使用 Fetch 替代
+    const response = await fetch(`https://${address}:${port}`, {
+      method: 'POST',
+      body: rawClientData
+    });
+    const tcpSocket = response.body; // 模拟的 TCP 连接
     remoteSocket.value = tcpSocket;
     await writeToRemote(tcpSocket, rawClientData);
     return tcpSocket;
   }
 };
+
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
@@ -94,6 +104,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
     }
   });
 };
+
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true }; 
@@ -123,6 +134,7 @@ const processWebSocketHeader = (buffer, userID) => {
     isUDP
   };
 };
+
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
@@ -145,6 +157,7 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
   }
   if (!hasData && retry) retry();
 };
+
 const base64ToBuffer = base64Str => {
   try {
     if (base64Str.includes('-') || base64Str.includes('_')) base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
@@ -155,17 +168,20 @@ const base64ToBuffer = base64Str => {
     return { error };
   }
 };
+
 const closeWebSocket = socket => {
   if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
     socket.close();
   }
 };
+
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
+
 const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const dnsFetch = async (chunk) => {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
@@ -179,20 +195,22 @@ const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
     async transform(chunk, controller) {
       let index = 0;
       while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-        if (webSocket.readyState === WebSocket.OPEN) {
-          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
-        }
-        index += 2 + udpPacketLength;
+        const dnsChunk = chunk.slice(index);
+        const dnsResponse = await dnsFetch(dnsChunk);
+        const finalData = new Uint8Array([...ResponseHeader, ...new Uint8Array(dnsResponse)]);
+        webSocket.send(finalData);
+        ResponseHeader = null;
+        index += dnsChunk.byteLength;
       }
+      controller.terminate();
     }
   });
   const writer = transformStream.writable.getWriter();
   await writer.write(rawClientData);
-  writer.close();
+  writer.releaseLock();
+  return chunk => writer.write(chunk);
 };
-const getUserConfig = (userID, hostName) => `
-vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
-`;
+
+const getUserConfig = (uuid, domain) => {
+  return `...VLESS configuration for the user...`;
+};
