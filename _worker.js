@@ -58,9 +58,13 @@ const writeToRemote = async (socket, chunk) => {
 };
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
   try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    const [tcpSocket, fallbackSocket] = await Promise.all([
+    connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData),
+    connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData),
+    ]);
+   // const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, ResponseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+    //  const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
