@@ -1,6 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 
-const socketMap = new Map();
+const socketMap = new Map();  // 存储 WebSocket 连接及其对应的远程套接字
+const TIMEOUT_DURATION = 30000;  // 设定超时时间为 30 秒
 
 export default {
   async fetch(request, env) {
@@ -37,11 +38,12 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   const readableStream = createWSStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
 
   let udpStreamWrite = null, isDns = false;
-  socketMap.set(webSocket, { socket: null, closed: false });  // 将 WebSocket 连接初始化为 Map 条目
+  socketMap.set(webSocket, { socket: null, closed: false, timeoutId: resetTimeout(webSocket) });  // 初始化时设置超时计时器
 
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
       const socketEntry = socketMap.get(webSocket);
+      resetTimeout(webSocket);  // 每次收到数据时重置超时计时器
 
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
       if (socketEntry && socketEntry.socket) return await writeToRemote(socketEntry.socket, chunk);
@@ -61,7 +63,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
         handleTCP(webSocket, addressRemote, portRemote, rawClientData, vlessResponseHeader, proxyIP);
       }
     }
-  })); 
+  }));
 
   return new Response(null, { status: 101, webSocket: client });
 };
@@ -93,7 +95,7 @@ const connectAndWrite = async (webSocket, address, port, rawClientData) => {
     return socketEntry.socket;
   } else {
     const tcpSocket = await connect({ hostname: address, port });
-    socketMap.set(webSocket, { socket: tcpSocket, closed: false });
+    socketMap.set(webSocket, { socket: tcpSocket, closed: false, timeoutId: resetTimeout(webSocket) });
     await writeToRemote(tcpSocket, rawClientData);
     return tcpSocket;
   }
@@ -105,10 +107,13 @@ const createWSStream = (webSocket, earlyDataHeader) => {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('message', event => {
+        resetTimeout(webSocket);  // 每次接收数据时重置超时计时器
+        controller.enqueue(event.data);
+      });
       webSocket.addEventListener('close', () => {
         controller.close();
-        socketMap.set(webSocket, { ...socketMap.get(webSocket), closed: true });
+        closeWebSocket(webSocket);
       });
       webSocket.addEventListener('error', err => controller.error(err));
     },
@@ -117,6 +122,19 @@ const createWSStream = (webSocket, earlyDataHeader) => {
     }
   });
 };
+
+const resetTimeout = (webSocket) => {
+  const socketEntry = socketMap.get(webSocket);
+  if (socketEntry && socketEntry.timeoutId) {
+    clearTimeout(socketEntry.timeoutId);  // 清除之前的计时器
+  }
+  // 设置新的超时计时器
+  return setTimeout(() => {
+    closeWebSocket(webSocket);
+  }, TIMEOUT_DURATION);
+};
+
+
 const processVlessHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true }; 
@@ -178,11 +196,15 @@ const base64ToBuffer = base64Str => {
     return { error };
   }
 };
-const closeWebSocket = socket => {
-  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-    socket.close();
+const closeWebSocket = (socket) => {
+  const socketEntry = socketMap.get(socket);
+  if (socketEntry) {
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+      socket.close();
+    }
+    clearTimeout(socketEntry.timeoutId);  // 清除超时计时器
+    socketMap.delete(socket);  // 从 Map 中移除
   }
-  socketMap.set(socket, { ...socketMap.get(socket), closed: true });
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
