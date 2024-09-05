@@ -51,51 +51,29 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   })); 
   return new Response(null, { status: 101, webSocket: client });
 };
-const writeToRemote = async (socket, chunk) => {
+const writeToRemote = async (socket, chunks) => {
   const writer = socket.writable.getWriter();
-  await writer.write(chunk);
+  const combinedChunk = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    combinedChunk.set(chunk, offset);
+    offset += chunk.length;
+  }
+  await writer.write(combinedChunk);
   writer.releaseLock();
 };
-const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, ResponseHeader) => {
-  const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-  await forwardToData(tcpSocket, webSocket, ResponseHeader);
-};
-
-const handleFallback = async (remoteSocket, address, port, rawClientData, webSocket, ResponseHeader) => {
-  const fallbackSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-  fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-  await forwardToData(fallbackSocket, webSocket, ResponseHeader);
-};
-
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
-  let fallbackSocket;
-  
   try {
-    // 使用 Promise.race 处理主连接和备用连接的并发情况
-    const mainConnectionPromise = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader);
-    const fallbackPromise = new Promise(async (resolve) => {
-      try {
-        fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-        await forwardToData(fallbackSocket, webSocket, ResponseHeader);
-        resolve();
-      } catch (error) {
-        console.error('Error with fallback connection:', error);
-        closeWebSocket(webSocket);
-        resolve();  // Ensure that fallback completion is handled
-      }
+    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    await forwardToData(tcpSocket, webSocket, ResponseHeader, async () => {
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+      await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
-    
-    // 等待主连接完成或备用连接启动
-    await Promise.race([mainConnectionPromise, fallbackPromise]);
-  } catch (error) {
-    console.error('Error handling TCP request:', error);
-  } finally {
-    // 确保主连接和备用连接都被正确关闭
-    if (fallbackSocket) fallbackSocket.close();
+  } catch {
     closeWebSocket(webSocket);
   }
 };
-
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (remoteSocket.value && !remoteSocket.value.closed) {
     await writeToRemote(remoteSocket.value, rawClientData);
