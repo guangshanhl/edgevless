@@ -192,11 +192,23 @@ const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
     });
     return dnsResult;
   };
-  return async (chunk) => {
-    const dnsResponse = await dnsFetch(chunk);
-    const dataToSend = new Uint8Array([...ResponseHeader, ...new Uint8Array(dnsResponse)]).buffer;
-    webSocket.send(dataToSend);
-  };
+  const transformStream = new TransformStream({
+    async transform(chunk, controller) {
+      let index = 0;
+      while (index < chunk.byteLength) {
+        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
+        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+        if (webSocket.readyState === WebSocket.OPEN) {
+          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+        }
+        index += 2 + udpPacketLength;
+      }
+    }
+  });
+  const writer = transformStream.writable.getWriter();
+  await writer.write(rawClientData);
+  writer.close();
 };
 const getUserConfig = (userID, hostName) => `
 vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
