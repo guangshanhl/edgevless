@@ -51,15 +51,9 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   })); 
   return new Response(null, { status: 101, webSocket: client });
 };
-const writeToRemote = async (socket, chunks) => {
+const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  const combinedChunk = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    combinedChunk.set(chunk, offset);
-    offset += chunk.length;
-  }
-  await writer.write(combinedChunk);
+  await writer.write(chunk);
   writer.releaseLock();
 };
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
@@ -172,32 +166,56 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
-  const dnsFetch = async (chunk) => {
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'content-type': 'application/dns-message' },
-      body: chunk
-    });
-    return response.arrayBuffer();
+const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
+  const dnsFetchBatch = async (chunks) => {
+    const batchRequest = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      batchRequest.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      const response = await fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/dns-message' },
+        body: batchRequest
+      });
+      if (!response.ok) throw new Error('DNS fetch failed');
+      return response.arrayBuffer();
+    } catch (error) {
+      return new ArrayBuffer(0);
+    }
   };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
-      let index = 0;
-      while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-        if (webSocket.readyState === WebSocket.OPEN) {
-          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+      const processChunk = async () => {
+        const dnsChunks = [];
+        let index = 0;
+        while (index < chunk.byteLength) {
+          const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+          dnsChunks.push(chunk.slice(index + 2, index + 2 + udpPacketLength));
+          index += 2 + udpPacketLength;
         }
-        index += 2 + udpPacketLength;
-      }
+        const dnsResults = await dnsFetchBatch(dnsChunks);
+        let resultOffset = 0;
+        for (const dnsChunk of dnsChunks) {
+          const udpSizeBuffer = new Uint8Array([(dnsChunk.byteLength >> 8) & 0xff, dnsChunk.byteLength & 0xff]);
+          if (webSocket.readyState === WebSocket.OPEN) {
+            const resultLength = new DataView(dnsResults, resultOffset, 2).getUint16(0);
+            webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResults, resultOffset + 2, resultLength)]).buffer);
+            resultOffset += 2 + resultLength;
+          }
+        }
+      };
+      await processChunk();
     }
   });
   const writer = transformStream.writable.getWriter();
-  await writer.write(rawClientData);
-  writer.close();
+  try {
+    await writer.write(rawClientData);
+  } finally {
+    writer.close();
+  }
 };
 const getUserConfig = (userID, hostName) => `
 vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
