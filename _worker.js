@@ -166,14 +166,26 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
+const dnsCache = new Map();
 const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const dnsFetch = async (chunk) => {
+    const cacheKey = chunk.toString('hex');
+    const cachedResult = dnsCache.get(cacheKey);
+    if (cachedResult && cachedResult.expireTime > Date.now()) {
+      return cachedResult.data;
+    }
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
       headers: { 'content-type': 'application/dns-message' },
       body: chunk
     });
-    return response.arrayBuffer();
+    const dnsResult = await response.arrayBuffer();
+    const ttl = 24 * 60 * 60 * 1000;
+    dnsCache.set(cacheKey, {
+      data: dnsResult,
+      expireTime: Date.now() + ttl
+    });
+    return dnsResult;
   };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
@@ -185,6 +197,7 @@ const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
         if (webSocket.readyState === WebSocket.OPEN) {
           webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
         }
+
         index += 2 + udpPacketLength;
       }
     }
