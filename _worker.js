@@ -129,10 +129,7 @@ const processWebSocketHeader = (buffer, userID) => {
   };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (webSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(webSocket);
-    return;
-  }
+  if (webSocket.readyState !== WebSocket.OPEN) { closeWebSocket(webSocket); return; }
   let hasData = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
@@ -161,9 +158,7 @@ const base64ToBuffer = base64Str => {
   }
 };
 const closeWebSocket = socket => {
-  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-    socket.close();
-  }
+  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) socket.close();
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
@@ -185,10 +180,7 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     });
     const dnsResult = await response.arrayBuffer();
     const ttl = 24 * 60 * 60 * 1000;
-    dnsCache.set(cacheKey, {
-      data: dnsResult,
-      expireTime: Date.now() + ttl
-    });
+    dnsCache.set(cacheKey, { data: dnsResult, expireTime: Date.now() + ttl });
     return dnsResult;
   };
   return async (chunk) => {
