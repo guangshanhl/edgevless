@@ -128,22 +128,33 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     closeWebSocket(webSocket);
     return;
   }
+
   let hasData = false;
+  const bufferSize = Math.max(1024, ResponseHeader?.length || 0); // Allocate a reasonable buffer size
+  const buffer = new Uint8Array(bufferSize);
+
   try {
-    await remoteSocket.readable.pipeTo(new WritableStream({
-      async write(chunk) {
-        hasData = true;
-        const dataToSend = ResponseHeader
-          ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer
-          : chunk;
-        webSocket.send(dataToSend);
+    for await (const chunk of remoteSocket.readable) {
+      hasData = true;
+      let dataToSend;
+      if (ResponseHeader) {
+        buffer.set(ResponseHeader, 0);
+        buffer.set(chunk, ResponseHeader.length);
+        dataToSend = buffer.slice(0, ResponseHeader.length + chunk.length);
         ResponseHeader = null;
+      } else {
+        dataToSend = chunk;
       }
-    }));
-  } catch {
+      webSocket.send(dataToSend);
+    }
+  } catch (error) {
+    console.error('Error forwarding data:', error);
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) retry();
+
+  if (!hasData && retry) {
+    await retry();
+  }
 };
 const base64ToBuffer = base64Str => {
   try {
