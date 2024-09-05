@@ -152,7 +152,7 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     closeWebSocket(webSocket);
   }
   if (!hasData && retry) {
-    retry();
+    await retry();
   }
 };
 const base64ToBuffer = base64Str => {
@@ -194,7 +194,6 @@ const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
       let index = 0;
       while (index < chunk.byteLength) {
         const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        try {
           const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
           const combinedBuffer = new Uint8Array(ResponseHeader.length + 2 + dnsResult.byteLength);
           combinedBuffer.set(ResponseHeader, 0);
@@ -203,8 +202,6 @@ const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
           if (webSocket.readyState === WebSocket.OPEN) {
             webSocket.send(combinedBuffer.buffer);
           }
-        } catch (error) {
-        }
         index += 2 + udpPacketLength;
       }
     }
