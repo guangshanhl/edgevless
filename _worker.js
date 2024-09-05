@@ -167,23 +167,25 @@ const stringify = (arr, offset = 0) => {
     .join('-').toLowerCase();
 };
 const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
-  const dnsFetch = async (chunk) => {
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
+  const dnsFetch = async (chunks) => {
+  const requests = chunks.map(chunk => 
+    fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
       headers: { 'content-type': 'application/dns-message' },
       body: chunk
-    });
-    return response.arrayBuffer();
-  };
+    }).then(response => response.arrayBuffer())
+  );
+  return await Promise.all(requests);
+};
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
       let index = 0;
       while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+        const udpSizeBuffer = new Uint8Array(2 + dnsResult.byteLength);
+        udpSizeBuffer.set([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff], 0);
+        udpSizeBuffer.set(new Uint8Array(dnsResult), 2);
         if (webSocket.readyState === WebSocket.OPEN) {
-          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer]).buffer);
         }
         index += 2 + udpPacketLength;
       }
