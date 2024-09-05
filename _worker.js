@@ -1,5 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-const dnsCache = new Map();
 export default {
   async fetch(request, env) {
     try {
@@ -38,15 +37,15 @@ const handlewsRequest = async (request, userID, proxyIP) => {
       if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
       const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
-      const responseHeader = new Uint8Array([Version[0], 0]);
+      const ResponseHeader = new Uint8Array([Version[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       if (isUDP) {
         isDns = portRemote === 53;
         if (isDns) {
-          udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
+          udpStreamWrite = await handleudpRequest(webSocket, ResponseHeader, rawClientData);
         }
       } else {
-        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+        handletcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP);
       }
     }
   })); 
@@ -57,13 +56,13 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
+    await forwardToData(tcpSocket, webSocket, ResponseHeader, async () => {
       const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      await forwardToData(fallbackSocket, webSocket, responseHeader);
+      await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
   } catch {
     closeWebSocket(webSocket);
@@ -86,17 +85,14 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocketListeners(webSocket, controller);
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('close', () => controller.close());
+      webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel() {
       closeWebSocket(webSocket);
     }
   });
-};
-const webSocketListeners = (webSocket, controller) => {
-  webSocket.addEventListener('message', event => controller.enqueue(event.data));
-  webSocket.addEventListener('close', () => controller.close());
-  webSocket.addEventListener('error', err => controller.error(err));
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
@@ -127,18 +123,24 @@ const processWebSocketHeader = (buffer, userID) => {
     isUDP
   };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (webSocket.readyState !== WebSocket.OPEN) { closeWebSocket(webSocket); return; }
+const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
+  }
   let hasData = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        hasData = true;
-        const dataToSend = responseHeader
-          ? new Uint8Array([...responseHeader, ...new Uint8Array(chunk)]).buffer
-          : chunk;
-        webSocket.send(dataToSend);
-        responseHeader = null;
+       hasData = true;
+       if (ResponseHeader) {
+        const dataToSend = new ArrayBuffer(chunk.byteLength + ResponseHeader.byteLength);
+        new Uint8Array(dataToSend, 0).set(ResponseHeader);
+        new Uint8Array(dataToSend, ResponseHeader.byteLength).set(chunk);
+        chunk = dataToSend;
+      }
+      webSocket.send(chunk);
+      ResponseHeader = null;
       }
     }));
   } catch {
@@ -157,7 +159,9 @@ const base64ToBuffer = base64Str => {
   }
 };
 const closeWebSocket = socket => {
-  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) socket.close();
+  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+    socket.close();
+  }
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
@@ -165,7 +169,8 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
+const dnsCache = new Map();
+const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const dnsFetch = async (chunk) => {
     const cacheKey = chunk.toString('hex');
     const cachedResult = dnsCache.get(cacheKey);
@@ -179,14 +184,30 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     });
     const dnsResult = await response.arrayBuffer();
     const ttl = 24 * 60 * 60 * 1000;
-    dnsCache.set(cacheKey, { data: dnsResult, expireTime: Date.now() + ttl });
+    dnsCache.set(cacheKey, {
+      data: dnsResult,
+      expireTime: Date.now() + ttl
+    });
     return dnsResult;
   };
-  return async (chunk) => {
-    const dnsResponse = await dnsFetch(chunk);
-    const dataToSend = new Uint8Array([...responseHeader, ...new Uint8Array(dnsResponse)]).buffer;
-    webSocket.send(dataToSend);
-  };
+  const transformStream = new TransformStream({
+    async transform(chunk, controller) {
+      let index = 0;
+      while (index < chunk.byteLength) {
+        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
+        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+        if (webSocket.readyState === WebSocket.OPEN) {
+          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+        }
+
+        index += 2 + udpPacketLength;
+      }
+    }
+  });
+  const writer = transformStream.writable.getWriter();
+  await writer.write(rawClientData);
+  writer.close();
 };
 const getUserConfig = (userID, hostName) => `
 vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
