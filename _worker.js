@@ -31,8 +31,7 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const readableStream = createWebSocketStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
-  const remoteSocket = { value: null };
-  let udpStreamWrite = null, isDns = false;
+  let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
