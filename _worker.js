@@ -56,41 +56,43 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
+const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, ResponseHeader) => {
+  const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+  await forwardToData(tcpSocket, webSocket, ResponseHeader);
+};
+
+const handleFallback = async (remoteSocket, address, port, rawClientData, webSocket, ResponseHeader) => {
+  const fallbackSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+  fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+  await forwardToData(fallbackSocket, webSocket, ResponseHeader);
+};
+
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
-  let mainSocket;
   let fallbackSocket;
   
   try {
-    mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    await forwardToData(mainSocket, webSocket, ResponseHeader, async () => {
-      if (fallbackSocket) {
-        // 如果备用连接已经创建，则开始处理备用连接的数据转发
-        await forwardToData(fallbackSocket, webSocket, ResponseHeader);
-      } else {
-        // 否则创建备用连接
-        fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-        await forwardToData(fallbackSocket, webSocket, ResponseHeader);
-      }
-    });
-  } catch (error) {
-    console.error('Error with main connection:', error);
-    if (!fallbackSocket) {
+    // 使用 Promise.race 处理主连接和备用连接的并发情况
+    const mainConnectionPromise = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader);
+    const fallbackPromise = new Promise(async (resolve) => {
       try {
         fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
         await forwardToData(fallbackSocket, webSocket, ResponseHeader);
-      } catch (fallbackError) {
-        console.error('Error with fallback connection:', fallbackError);
+        resolve();
+      } catch (error) {
+        console.error('Error with fallback connection:', error);
         closeWebSocket(webSocket);
+        resolve();  // Ensure that fallback completion is handled
       }
-    } else {
-      closeWebSocket(webSocket);
-    }
+    });
+    
+    // 等待主连接完成或备用连接启动
+    await Promise.race([mainConnectionPromise, fallbackPromise]);
+  } catch (error) {
+    console.error('Error handling TCP request:', error);
   } finally {
     // 确保主连接和备用连接都被正确关闭
-    if (mainSocket) mainSocket.close();
     if (fallbackSocket) fallbackSocket.close();
+    closeWebSocket(webSocket);
   }
 };
 
