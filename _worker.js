@@ -83,7 +83,10 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) return controller.error(error);
+      if (error) {
+        controller.error(error);
+        return;
+      }
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
@@ -128,11 +131,9 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     closeWebSocket(webSocket);
     return;
   }
-
   let hasData = false;
-  const bufferSize = Math.max(1024, ResponseHeader?.length || 0); // Allocate a reasonable buffer size
+  const bufferSize = Math.max(1024, ResponseHeader?.length || 0);
   const buffer = new Uint8Array(bufferSize);
-
   try {
     for await (const chunk of remoteSocket.readable) {
       hasData = true;
@@ -148,12 +149,10 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
       webSocket.send(dataToSend);
     }
   } catch (error) {
-    console.error('Error forwarding data:', error);
     closeWebSocket(webSocket);
   }
-
   if (!hasData && retry) {
-    await retry();
+    retry();
   }
 };
 const base64ToBuffer = base64Str => {
@@ -179,24 +178,32 @@ const stringify = (arr, offset = 0) => {
 };
 const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const dnsFetch = async (chunks) => {
-  const requests = chunks.map(chunk => 
-    fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'content-type': 'application/dns-message' },
-      body: chunk
-    }).then(response => response.arrayBuffer())
-  );
-  return await Promise.all(requests);
-};
+    const promises = chunks.map(async (chunk) => {
+      const response = await fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/dns-message' },
+        body: chunk
+      });
+      return response.arrayBuffer();
+    });
+    const dnsResults = await Promise.all(promises);
+    return dnsResults;
+  };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
       let index = 0;
       while (index < chunk.byteLength) {
-        const udpSizeBuffer = new Uint8Array(2 + dnsResult.byteLength);
-        udpSizeBuffer.set([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff], 0);
-        udpSizeBuffer.set(new Uint8Array(dnsResult), 2);
-        if (webSocket.readyState === WebSocket.OPEN) {
-          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer]).buffer);
+        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+        try {
+          const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
+          const combinedBuffer = new Uint8Array(ResponseHeader.length + 2 + dnsResult.byteLength);
+          combinedBuffer.set(ResponseHeader, 0);
+          combinedBuffer.set([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff], ResponseHeader.length);
+          combinedBuffer.set(new Uint8Array(dnsResult), ResponseHeader.length + 2);
+          if (webSocket.readyState === WebSocket.OPEN) {
+            webSocket.send(combinedBuffer.buffer);
+          }
+        } catch (error) {
         }
         index += 2 + udpPacketLength;
       }
