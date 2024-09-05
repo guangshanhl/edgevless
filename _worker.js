@@ -57,17 +57,43 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
+  let mainSocket;
+  let fallbackSocket;
+  
   try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    await forwardToData(tcpSocket, webSocket, ResponseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      await forwardToData(fallbackSocket, webSocket, ResponseHeader);
+    mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    await forwardToData(mainSocket, webSocket, ResponseHeader, async () => {
+      if (fallbackSocket) {
+        // 如果备用连接已经创建，则开始处理备用连接的数据转发
+        await forwardToData(fallbackSocket, webSocket, ResponseHeader);
+      } else {
+        // 否则创建备用连接
+        fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+        await forwardToData(fallbackSocket, webSocket, ResponseHeader);
+      }
     });
-  } catch {
-    closeWebSocket(webSocket);
+  } catch (error) {
+    console.error('Error with main connection:', error);
+    if (!fallbackSocket) {
+      try {
+        fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+        await forwardToData(fallbackSocket, webSocket, ResponseHeader);
+      } catch (fallbackError) {
+        console.error('Error with fallback connection:', fallbackError);
+        closeWebSocket(webSocket);
+      }
+    } else {
+      closeWebSocket(webSocket);
+    }
+  } finally {
+    // 确保主连接和备用连接都被正确关闭
+    if (mainSocket) mainSocket.close();
+    if (fallbackSocket) fallbackSocket.close();
   }
 };
+
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (remoteSocket.value && !remoteSocket.value.closed) {
     await writeToRemote(remoteSocket.value, rawClientData);
