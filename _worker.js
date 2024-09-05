@@ -47,10 +47,6 @@ const handlewsRequest = async (request, userID, proxyIP) => {
       } else {
         handletcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP);
       }
-	  close() {
-	  },
-	  abort(reason) {
-	  },
     }
   })); 
   return new Response(null, { status: 101, webSocket: client });
@@ -84,7 +80,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
 };
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
-  const stream = new ReadableStrea({
+  return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
@@ -93,13 +89,10 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
-	pull(controller) {
-	},
-    cancel(reason) {
+    cancel() {
       closeWebSocket(webSocket);
     }
   });
-  return stream;
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
@@ -146,10 +139,6 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
         webSocket.send(dataToSend);
         ResponseHeader = null;
       }
-	  close() {
-	  },
-	  abort(reason) {
-	  },
     }));
   } catch {
     closeWebSocket(webSocket);
@@ -177,22 +166,14 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const CACHE_TTL = 86400;
-const handleudpRequest = async (webSocket, ResponseHeader, rawClientData, env) => {
+const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const dnsFetch = async (chunk) => {
-    const cacheKey = await generateCacheKey(chunk);
-    let cachedResponse = await env.DNS_CACHE.get(cacheKey, { type: 'arrayBuffer' });
-    if (cachedResponse) {
-      return cachedResponse;
-    }
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
       headers: { 'content-type': 'application/dns-message' },
       body: chunk
     });
-    const dnsResult = await response.arrayBuffer();
-    await env.DNS_CACHE.put(cacheKey, dnsResult, { expirationTtl: CACHE_TTL });
-    return dnsResult;
+    return response.arrayBuffer();
   };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
@@ -211,10 +192,6 @@ const handleudpRequest = async (webSocket, ResponseHeader, rawClientData, env) =
   const writer = transformStream.writable.getWriter();
   await writer.write(rawClientData);
   writer.close();
-};
-const generateCacheKey = async (chunk) => {
-  const digest = await crypto.subtle.digest('SHA-256', chunk);
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 };
 const getUserConfig = (userID, hostName) => `
 vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
