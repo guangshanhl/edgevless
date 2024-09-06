@@ -12,24 +12,21 @@ export default {
     }
   }
 };
-const handlehttpRequest = async (request, userID) => {
-  const url = new URL(request.url);
-  switch (url.pathname) {
-    case '/':
-      return new Response(JSON.stringify(request.cf, null, 4), { status: 200 });
-    case `/${userID}`:
-      return new Response(getUserConfig(userID, request.headers.get('Host')), {
-        status: 200,
-        headers: { "Content-Type": "text/plain;charset=utf-8" }
-      });
-    default:
-      return new Response('Not found', { status: 404 });
+const handlehttpRequest = (request, userID) => {
+  const path = new URL(request.url).pathname;
+  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
+  if (path === `/${userID}`) {
+    return new Response(getConfig(userID, request.headers.get("Host")), {
+      headers: { "Content-Type": "text/plain;charset=utf-8" }
+    });
   }
+  return new Response("Not found", { status: 404 });
 };
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
-  const readableStream = createWebSocketStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+  const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
+  const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
@@ -166,26 +163,29 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const handleudpRequest = async (webSocket, ResponseHeader, rawClientData) => {
+const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dnsFetch = async (chunk) => {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
-      headers: { 'content-type': 'application/dns-message' },
+      headers: { 'Content-Type': 'application/dns-message' },
       body: chunk
     });
     return response.arrayBuffer();
+  };
+  const processChunk = async (chunk, index) => {
+    const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+    const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
+    const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+    if (webSocket.readyState === WebSocket.OPEN) {
+      webSocket.send(new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+    }
+    return index + 2 + udpPacketLength;
   };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
       let index = 0;
       while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-        if (webSocket.readyState === WebSocket.OPEN) {
-          webSocket.send(new Uint8Array([...ResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
-        }
-        index += 2 + udpPacketLength;
+        index = await processChunk(chunk, index);
       }
     }
   });
