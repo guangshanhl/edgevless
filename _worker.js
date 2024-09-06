@@ -24,17 +24,16 @@ const handleHttp = (req, userID) => {
 };
 const handleWs = async (req, userID, proxyIP) => {
   const [client, ws] = new WebSocketPair();
-  ws.accept();
-  
+  ws.accept();  
   const stream = new ReadableStream({
     start(controller) {
       const earlyheader = req.headers.get('sec-websocket-protocol') || '';
       const { earlyData, error } = base64ToBuffer(earlyheader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-	  const onMessage = (e) => controller.enqueue(e.data);
-	  const onClose = () => controller.close();
-	  const onError = (err) => controller.error(err);	  
+      const onMessage = (e) => controller.enqueue(e.data);
+      const onClose = () => controller.close();
+      const onError = (err) => controller.error(err);	  
       const addEventListeners = () => {
         ws.addEventListener("message", onMessage);
         ws.addEventListener("close", onClose);
