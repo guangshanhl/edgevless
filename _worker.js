@@ -67,14 +67,12 @@ const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);
-    return remoteSocket.value;
+    await writeToRemote(remoteSocket.value, rawClientData);   
   } else {
-    const tcpSocket = await connect({ hostname: address, port });
-    remoteSocket.value = tcpSocket;
-    await writeToRemote(tcpSocket, rawClientData);
-    return tcpSocket;
+    remoteSocket.value = await connect({ hostname: address, port });
+    await writeToRemote(remoteSocket.value, rawClientData);
   }
+  return remoteSocket.value;
 };
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
