@@ -194,30 +194,35 @@ const handleUDP = async (ws, header, rawData) => {
         headers: { "content-type": "application/dns-message" },
         body: rawData.slice(offset, offset + length),
       });
-      return response.arrayBuffer();
-    } catch {
+      return await response.arrayBuffer();
+    } catch (error) {
       return null;
     }
   };
-  const tasks = [];
-  let idx = 0;  
+  const maxOutputBufferSize = 256;
+  let outputBuffer = new Uint8Array(maxOutputBufferSize);
+  let idx = 0;
   while (idx < rawData.byteLength) {
-    const len = new Uint16Array(rawData.buffer, idx, 1)[0];  
-    tasks.push((async () => {
-      const dnsResult = await dnsFetch(idx + 2, len);
-      if (!dnsResult) return;
-      const udpSizeBuffer = new Uint8Array(2);
-      udpSizeBuffer[0] = (dnsResult.byteLength >> 8) & 0xff;
-      udpSizeBuffer[1] = dnsResult.byteLength & 0xff;
-      const outputBuffer = new Uint8Array(header.length + 2 + dnsResult.byteLength);
-      outputBuffer.set(header, 0);
-      outputBuffer.set(udpSizeBuffer, header.length);
-      outputBuffer.set(new Uint8Array(dnsResult), header.length + 2);
-      if (ws.readyState === WebSocket.OPEN) ws.send(outputBuffer.buffer);
-    })());
+    const len = new Uint16Array(rawData.buffer, idx, 1)[0];
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const dnsResult = await dnsFetch(idx + 2, len);
+    if (!dnsResult) {
+      idx += 2 + len;
+      continue;
+    }
+    const totalSize = header.length + 2 + dnsResult.byteLength;
+    if (totalSize > outputBuffer.length) {
+      const newSize = Math.max(totalSize, outputBuffer.length * 2);
+      const newBuffer = new Uint8Array(newSize);
+      newBuffer.set(outputBuffer);
+      outputBuffer = newBuffer;
+    }
+    outputBuffer.set(header, 0);
+    new Uint16Array(outputBuffer.buffer, header.length, 1)[0] = dnsResult.byteLength;
+    outputBuffer.set(new Uint8Array(dnsResult), header.length + 2);
+    ws.send(outputBuffer.buffer, 0, totalSize);
     idx += 2 + len;
   }
-  await Promise.all(tasks);
 };
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
