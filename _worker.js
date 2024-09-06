@@ -13,13 +13,18 @@ export default {
   }
 };
 const handlehttpRequest = async (request, userID) => {
-  if (new URL(request.url)).pathname === "/") return new Response(JSON.stringify(request.cf, null, 4));
-  if (new URL(request.url)).pathname === `/${userID}`) {
-  return new Response(getConfig(userID, request.headers.get("Host")), {
-    headers: { "Content-Type": "text/plain;charset=utf-8" }
-   });
+  const url = new URL(request.url);
+  switch (url.pathname) {
+    case '/':
+      return new Response(JSON.stringify(request.cf, null, 4), { status: 200 });
+    case `/${userID}`:
+      return new Response(getUserConfig(userID, request.headers.get('Host')), {
+        status: 200,
+        headers: { "Content-Type": "text/plain;charset=utf-8" }
+      });
+    default:
+      return new Response('Not found', { status: 404 });
   }
-  return new Response("Not found", { status: 404 });
 };
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
