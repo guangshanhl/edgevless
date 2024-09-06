@@ -123,15 +123,21 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
     return;
   }
   let hasData = false;
+  let firstChunk = true;
+  const headerLength = responseHeader.length;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       async write(chunk) {
         hasData = true;
-        const dataToSend = responseHeader
-          ? new Uint8Array([...responseHeader, ...new Uint8Array(chunk)]).buffer
-          : chunk;
-        webSocket.send(dataToSend);
-        responseHeader = null;
+        if (firstChunk) {
+            const outputBuffer = new Uint8Array(headerLength + chunk.byteLength);
+            outputBuffer.set(responseHeader);
+            outputBuffer.set(new Uint8Array(chunk), headerLength);
+            ws.send(outputBuffer.buffer);
+            firstChunk = false;
+          } else {
+            ws.send(chunk);
+          }
       }
     }));
   } catch {
