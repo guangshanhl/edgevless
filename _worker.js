@@ -30,39 +30,28 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
-      try {
-        if (isDns && udpStreamWrite) {
-          await udpStreamWrite(chunk);
-        } else if (remoteSocket.value) {
-          await writeToRemote(remoteSocket.value, chunk);
-        } else {
-          const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
-          if (hasError) return;
-          const responseHeader = new Uint8Array([Version[0], 0]);
-          const rawClientData = chunk.slice(rawDataIndex);
-          if (isUDP) {
-            isDns = portRemote === 53;
-            if (isDns) {
-              udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
-            }
-          } else {
-            handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
-          }
+      if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
+      if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+      const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
+      if (hasError) return;
+      const responseHeader = new Uint8Array([Version[0], 0]);
+      const rawClientData = chunk.slice(rawDataIndex);
+      if (isUDP) {
+        isDns = portRemote === 53;
+        if (isDns) {
+          udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
         }
-      } catch (error) {
-        closeWebSocket(webSocket);
+      } else {
+        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
       }
     }
-  }));
+  })); 
   return new Response(null, { status: 101, webSocket: client });
 };
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  try {
-    await writer.write(chunk);
-  } finally {
-    writer.releaseLock();
-  }
+  await writer.write(chunk);
+  writer.releaseLock();
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
@@ -72,13 +61,13 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, responseHeader);
     });
-  } catch (error) {
+  } catch {
     closeWebSocket(webSocket);
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);
+    await writeToRemote(remoteSocket.value, rawClientData);   
   } else {
     remoteSocket.value = await connect({ hostname: address, port });
     await writeToRemote(remoteSocket.value, rawClientData);
@@ -88,30 +77,15 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
-      if (earlyDataHeader) {
-        try {
-          const earlyData = base64ToBuffer(earlyDataHeader);
-          controller.enqueue(earlyData);
-        } catch (error) {
-          controller.error(error);
-          return;
-        }
-      }
-      const onMessage = (event) => controller.enqueue(event.data);
-      const onClose = () => controller.close();
-      const onError = (error) => controller.error(error);
-      webSocket.addEventListener('message', onMessage);
-      webSocket.addEventListener('close', onClose);
-      webSocket.addEventListener('error', onError);
-      const cleanup = () => {
-        webSocket.removeEventListener('message', onMessage);
-        webSocket.removeEventListener('close', onClose);
-        webSocket.removeEventListener('error', onError);
-        closeWebSocket(webSocket);
-      };
-      controller.onabort = cleanup;
+      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+      if (error) return controller.error(error);
+      if (earlyData) controller.enqueue(earlyData);
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('close', () => controller.close());
+      webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel() {
+      closeWebSocket(webSocket);
     }
   });
 };
@@ -153,7 +127,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   try {
     const writable = new WritableStream({
       write: async (chunk) => {
-    		hasData = true;
+	      hasData = true;
         webSocket.send(responseHeader ? new Uint8Array([...responseHeader, ...chunk]) : chunk);
         responseHeader = null;
       }
