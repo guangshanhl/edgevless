@@ -89,7 +89,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true }; 
+  if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUDP = command === 2;
@@ -98,15 +98,11 @@ const processWebSocketHeader = (buffer, userID) => {
   const addressType = view.getUint8(addressIndex);
   const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : addressType === 1 ? 4 : 16;
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
-  let addressValue;
-  switch (addressType) {
-    case 1: addressValue = Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.');
-      break;
-    case 2: addressValue = new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength));
-      break;
-    case 3: addressValue = Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
-      break;
-  }
+  const addressValue = addressType === 1
+    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
     hasError: false,
     addressRemote: addressValue,
