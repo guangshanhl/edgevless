@@ -119,24 +119,16 @@ const processWebSocketHeader = (buffer, userID) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
-  const transformStream = new TransformStream({
-    start(controller) {
-      hasData = true;
-      if (responseHeader) {
-        controller.enqueue(new Uint8Array(responseHeader));
+  try {
+    const writable = new WritableStream({
+      write: async (chunk) => {
+        hasData = true;
+        const data = responseHeader ? new Uint8Array([...responseHeader, ...chunk]) : chunk;
+        webSocket.send(data);
         responseHeader = null;
       }
-    },
-    transform(chunk, controller) {
-      controller.enqueue(chunk);
-    }
-  });
-  try {
-    await remoteSocket.readable.pipeThrough(transformStream).pipeTo(new WritableStream({
-      write(chunk) {
-        webSocket.send(chunk);
-      }
-    }));
+    });
+    await remoteSocket.readable.pipeTo(writable);
   } catch {
     closeWebSocket(webSocket);
   }
