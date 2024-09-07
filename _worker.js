@@ -118,8 +118,10 @@ const processWebSocketHeader = (buffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
+  let hasData = false;
   const transformStream = new TransformStream({
     start(controller) {
+      hasData = true;
       if (responseHeader) {
         controller.enqueue(new Uint8Array(responseHeader));
         responseHeader = null;
@@ -138,7 +140,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   } catch {
     closeWebSocket(webSocket);
   }
-  if (retry) retry();
+  if (!hasData && retry) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
