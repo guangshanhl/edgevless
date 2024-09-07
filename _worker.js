@@ -118,21 +118,27 @@ const processWebSocketHeader = (buffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
-  let hasData = false;
-  try {
-    const writable = new WritableStream({
-      write: async (chunk) => {
-        hasData = true;
-        const data = responseHeader ? new Uint8Array([...responseHeader, ...chunk]) : chunk;
-        webSocket.send(data);
+  const transformStream = new TransformStream({
+    start(controller) {
+      if (responseHeader) {
+        controller.enqueue(new Uint8Array(responseHeader));
         responseHeader = null;
       }
-    });
-    await remoteSocket.readable.pipeTo(writable);
+    },
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+    }
+  });
+  try {
+    await remoteSocket.readable.pipeThrough(transformStream).pipeTo(new WritableStream({
+      write(chunk) {
+        webSocket.send(chunk);
+      }
+    }));
   } catch {
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) retry();
+  if (retry) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
