@@ -28,24 +28,23 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
-  readableStream.pipeTo(new WritableStream({
-    async write(chunk) {
-      if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
-      if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-      const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
-      if (hasError) return;
-      const responseHeader = new Uint8Array([Version[0], 0]);
-      const rawClientData = chunk.slice(rawDataIndex);
-      if (isUDP) {
-        isDns = portRemote === 53;
-        if (isDns) {
-          udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
-        }
-      } else {
-        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+  const processChunk = async (chunk) => {
+    if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
+    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
+    if (hasError) return;
+    const responseHeader = new Uint8Array([Version[0], 0]);
+    const rawClientData = chunk.slice(rawDataIndex);
+    if (isUDP) {
+      isDns = portRemote === 53;
+      if (isDns) {
+        udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
       }
+    } else {
+      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
-  })); 
+  };
+  readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
 const writeToRemote = async (socket, chunk) => {
