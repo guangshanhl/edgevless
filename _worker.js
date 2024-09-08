@@ -109,7 +109,7 @@ const processWebSocketHeader = (buffer, userID) => {
     addressRemote: addressValue,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    Version: [0],
+    vlessVersion: version,
     isUDP
   };
 };
