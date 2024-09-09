@@ -119,23 +119,24 @@ const processWebSocketHeader = (buffer, userID) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
-  try {
-    const writable = new WritableStream({
-      write: async (chunk) => {
-        hasData = true;
-        if (responseHeader) {
-          const combinedData = new Uint8Array(responseHeader.length + chunk.length);
-          combinedData.set(responseHeader, 0);
-          combinedData.set(chunk, responseHeader.length);
-          webSocket.send(combinedData);
-          responseHeader = null;
-        } else {
-          webSocket.send(chunk);
-        }
+  const writable = new WritableStream({
+    write: async (chunk) => {
+      hasData = true;
+      let combinedData;
+      if (responseHeader) {
+        combinedData = new Uint8Array(responseHeader.length + chunk.length);
+        combinedData.set(responseHeader, 0);
+        combinedData.set(chunk, responseHeader.length);
+        responseHeader = null;
+      } else {
+        combinedData = chunk;
       }
-    });
+      webSocket.send(combinedData);
+    }
+  });
+  try {
     await remoteSocket.readable.pipeTo(writable);
-  } catch {
+  } catch (error) {
     closeWebSocket(webSocket);
   }
   if (retry && !hasData) retry();
@@ -161,8 +162,8 @@ const stringify = (arr, offset = 0) => {
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dnsQueryBatches = [];
+  const dataView = new DataView(rawClientData.buffer);
   for (let index = 0; index < rawClientData.byteLength; ) {
-    const dataView = new DataView(rawClientData.buffer);
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
     dnsQueryBatches.push(dnsQuery);
@@ -175,9 +176,7 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
         headers: { 'Content-Type': 'application/dns-message' },
         body: dnsQuery
       }).then(response => response.arrayBuffer())
-      .catch(err => {
-        return null;
-      })
+      .catch(() => null)
     )
   );
   dnsResponses.forEach(dnsResult => {
