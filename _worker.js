@@ -71,10 +71,15 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
   return remoteSocket.value;
 };
+let reusableReadableStream;
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
+  if (reusableReadableStream) {
+    reusableReadableStream.cancel();
+    reusableReadableStream = null;
+  }
   const { earlyData, error } = base64ToBuffer(earlyDataHeader);
   if (error) return controller.error(error);
-  return new ReadableStream({
+  reusableReadableStream = new ReadableStream({
     start(controller) {
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
@@ -83,6 +88,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
     },
     cancel: () => closeWebSocket(webSocket)
   });
+  return reusableReadableStream;
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
