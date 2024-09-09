@@ -26,21 +26,21 @@ const handlehttpRequest = (request, userID) => {
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept(); 
-  const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
-  let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
+  const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+  const readableStream = createSocketStream(webSocket, earlyHeader);
+  let remoteSocket = { value: null }, udpWrite = null, isDns = false;
   const responseHeader = new Uint8Array(2);
   const processChunk = async (chunk) => {
-    if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
+    if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
+    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
     if (hasError) return;
     responseHeader[0] = Version[0];
     responseHeader[1] = 0;    
     const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
-      udpStreamWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
+      udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
     } else {
       handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
@@ -74,12 +74,12 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
   return remoteSocket.value;
 };
-let reusableStream;
-const createWebSocketStream = (webSocket, earlyDataHeader) => {
-  reusableStream && (reusableStream.cancel(), reusableStream = null);
-  const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+let reuseStream;
+const createSocketStream = (webSocket, earlyHeader) => {
+  reuseStream && (reuseStream.cancel(), reuseStream = null);
+  const { earlyData, error } = base64ToBuffer(earlyHeader);
   if (error) return new ReadableStream().cancel();
-  reusableStream = new ReadableStream({
+  reuseStream = new ReadableStream({
     start(controller) {
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
@@ -88,9 +88,9 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
     },
     cancel: () => closeWebSocket(webSocket)
   });
-  return reusableStream;
+  return reuseStream;
 };
-const processWebSocketHeader = (buffer, userID) => {
+const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
   if (!userIDMatch) return { hasError: true };
