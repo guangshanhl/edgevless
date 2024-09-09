@@ -16,7 +16,7 @@ const handlehttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
   if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
   if (path === `/${userID}`) {
-    return new Response(getConfig(userID, request.headers.get("Host")), {
+    return new Response(getUserConfig(userID, request.headers.get("Host")), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
