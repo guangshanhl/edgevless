@@ -76,7 +76,8 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 let reuseStream;
 const createSocketStream = (webSocket, earlyHeader) => {
-  reuseStream && (reuseStream.cancel(), reuseStream = null);
+  reusableStream?.cancel();
+  reusableStream = null;
   const { earlyData, error } = base64ToBuffer(earlyHeader);
   if (error) return new ReadableStream().cancel();
   reuseStream = new ReadableStream({
