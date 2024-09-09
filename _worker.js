@@ -27,13 +27,23 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   webSocket.accept();
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
+  
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
+  
+  // 预先分配 responseHeader 的 Uint8Array 避免重复创建
+  const responseHeader = new Uint8Array(2);
+  
   const processChunk = async (chunk) => {
     if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
     if (hasError) return;
-    const responseHeader = new Uint8Array([Version[0], 0]);
+    
+    // 设置 responseHeader 内容而不是每次创建新的 Uint8Array
+    responseHeader[0] = Version[0];
+    responseHeader[1] = 0;
+    
     const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
@@ -42,9 +52,11 @@ const handlewsRequest = async (request, userID, proxyIP) => {
       handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
   };
+  
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
+
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
