@@ -159,21 +159,24 @@ const stringify = (arr, offset = 0) => {
     .join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const batchedDnsQueries = [];
+  const dnsQueryBatches = [];
   for (let index = 0; index < rawClientData.byteLength; ) {
     const dataView = new DataView(rawClientData.buffer);
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
-    batchedDnsQueries.push(dnsQuery);
+    dnsQueryBatches.push(dnsQuery);
     index += 2 + udpPacketLength;
   }
   const dnsResponses = await Promise.all(
-    batchedDnsQueries.map(dnsQuery =>
+    dnsQueryBatches.map(dnsQuery =>
       fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/dns-message' },
         body: dnsQuery
       }).then(response => response.arrayBuffer())
+      .catch(err => {
+        return null;
+      })
     )
   );
   dnsResponses.forEach(dnsResult => {
