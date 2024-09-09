@@ -25,6 +25,7 @@ const handlehttpRequest = (request, userID) => {
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
+  let reusableStream;
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
@@ -73,7 +74,6 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
   return remoteSocket.value;
 };
-let reusableStream;
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   reusableStream && (reusableStream.cancel(), reusableStream = null);
   const { earlyData, error } = base64ToBuffer(earlyDataHeader);
