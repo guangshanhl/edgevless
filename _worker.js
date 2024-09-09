@@ -14,14 +14,27 @@ export default {
 };
 const handlehttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
-  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
-  if (path === `/${userID}`) {
-    return new Response(getConfig(userID, request.headers.get("Host")), {
-      headers: { "Content-Type": "text/plain;charset=utf-8" }
-    });
+  
+  // 预先生成包含数据的静态 JSON 对象
+  const cfData = JSON.stringify(request.cf, null, 4);
+  const host = request.headers.get("Host");
+  const getUserConfig = (userID, hostName) => `
+vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
+`;
+
+  // 使用 switch 语句来检查路径
+  switch (path) {
+    case "/":
+      return new Response(cfData, { headers: { "Content-Type": "application/json;charset=utf-8" } });
+    
+    case `/${userID}`:
+      return new Response(getUserConfig, { headers: { "Content-Type": "text/plain;charset=utf-8" } });
+    
+    default:
+      return new Response("Not found", { status: 404 });
   }
-  return new Response("Not found", { status: 404 });
 };
+
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
@@ -189,6 +202,3 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   }
   await Promise.all(promises);
 };
-const getUserConfig = (userID, hostName) => `
-vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
-`;
