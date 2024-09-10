@@ -25,16 +25,18 @@ const handleHttpRequest = (request, userID) => {
 };
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
-  webSocket.accept(); 
+  webSocket.accept();
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null };
   let udpWrite = null;
   let isDns = false;
+  let address = '';
   const processChunk = async (chunk) => {
     if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
     const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = processSocketHeader(chunk, userID);
+	address = addressRemote;
     if (hasError) return;
     const responseHeader = new Uint8Array([vlessVersion[0], 0]);    
     const rawClientData = chunk.slice(rawDataIndex);
