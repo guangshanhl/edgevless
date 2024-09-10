@@ -25,40 +25,27 @@ const handlehttpRequest = (request, userID) => {
 };
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
-  webSocket.accept();
+  webSocket.accept(); 
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null }, udpWrite = null, isDns = false;
   const responseHeader = new Uint8Array(2);
   const processChunk = async (chunk) => {
-    try {
-      if (isDns && udpWrite) return udpWrite(chunk);
-  	  if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-      const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
-      if (hasError) return;
-      responseHeader[0] = Version[0];
-      responseHeader[1] = 0;     
-      const rawClientData = chunk.slice(rawDataIndex);
-      if (isUDP) {
-        isDns = portRemote === 53;
-        udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
-      } else {
-        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
-      }
-    } catch (err) {
-      webSocket.close();
+    if (isDns && udpWrite) return udpWrite(chunk);
+    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
+    if (hasError) return;
+    responseHeader[0] = Version[0];
+    responseHeader[1] = 0;    
+    const rawClientData = chunk.slice(rawDataIndex);
+    if (isUDP) {
+      isDns = portRemote === 53;
+      udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
+    } else {
+      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
   };
-  readableStream.pipeTo(new WritableStream({
-    write: processChunk,
-    close() {
-    },
-    abort(err) {
-      webSocket.close();
-    }
-  })).catch(err => {
-    webSocket.close();
-  });
+  readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
 const writeToRemote = async (socket, chunk) => {
@@ -89,7 +76,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 let reuseStream;
 const createSocketStream = (webSocket, earlyHeader) => {
-  if (reuseStream) {
+ if (reuseStream) {
     reuseStream.cancel();
     reuseStream = null;
   }
@@ -98,22 +85,11 @@ const createSocketStream = (webSocket, earlyHeader) => {
   reuseStream = new ReadableStream({
     start(controller) {
       if (earlyData) controller.enqueue(earlyData);
-      const onMessage = (event) => controller.enqueue(event.data);
-      const onClose = () => controller.close();
-      const onError = (err) => controller.error(err);
-      webSocket.addEventListener('message', onMessage);
-      webSocket.addEventListener('close', onClose);
-      webSocket.addEventListener('error', onError);
-      controller.signal.addEventListener('abort', () => {
-        webSocket.removeEventListener('message', onMessage);
-        webSocket.removeEventListener('close', onClose);
-        webSocket.removeEventListener('error', onError);
-        closeWebSocket(webSocket);
-      });
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('close', () => controller.close());
+      webSocket.addEventListener('error', err => controller.error(err));
     },
-    cancel() {
-      closeWebSocket(webSocket);
-    }
+    cancel: () => closeWebSocket(webSocket)
   });
   return reuseStream;
 };
@@ -178,7 +154,7 @@ const base64ToBuffer = base64Str => {
     return { earlyData: null, error };
   }
 };
-const closeWebSocket = socket => {
+const closeWebSocket = webSocket => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(socket.readyState)) socket.close();
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
