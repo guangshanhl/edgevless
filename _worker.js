@@ -1,5 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-
 export default {
   async fetch(request, env) {
     try {
@@ -13,8 +12,6 @@ export default {
     }
   }
 };
-
-// Handle HTTP requests
 const handleHttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
   const host = request.headers.get('Host');
@@ -26,73 +23,43 @@ const handleHttpRequest = (request, userID) => {
   }
   return new Response('Not found', { status: 404 });
 };
-const wsConnectionPool = new Map();
-const getWebSocket = async (address) => {
-  if (wsConnectionPool.has(address)) {
-    const ws = wsConnectionPool.get(address);
-    if (ws.readyState === WebSocket.OPEN) {
-      return ws;
-    }
-    wsConnectionPool.delete(address);
-  }
-  const newWs = new WebSocket(address);
-  wsConnectionPool.set(address, newWs);
-  return newWs;
-};
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
-  webSocket.accept();
+  webSocket.accept(); 
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createSocketStream(webSocket, earlyHeader);  
+  const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null };
   let udpWrite = null;
   let isDns = false;
   const responseHeader = new Uint8Array(2);
   const processChunk = async (chunk) => {
     if (isDns && udpWrite) return udpWrite(chunk);
-    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);   
+    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
-    if (hasError) return;    
+    if (hasError) return;
     responseHeader[0] = Version[0];
     responseHeader[1] = 0;    
-    const rawClientData = chunk.slice(rawDataIndex);   
+    const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
       udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
     } else {
-      const remoteWs = await getWebSocket(`wss://${addressRemote}:${portRemote}`);
-      await handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP, remoteWs);
+      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
-  }; 
+  };
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
-};
-const tcpConnectionPool = new Map();
-const getTcpConnection = async (address, port) => {
-  const key = `${address}:${port}`;
-  if (tcpConnectionPool.has(key)) {
-    const socket = tcpConnectionPool.get(key);
-    if (!socket.closed) {
-      return socket;
-    }
-    tcpConnectionPool.delete(key);
-  }
-  const newSocket = await connect({ hostname: address, port });
-  tcpConnectionPool.set(key, newSocket);
-  return newSocket;
 };
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP, remoteWs) => {
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
-    const tcpSocket = await getTcpConnection(addressRemote, portRemote);
-    manageConnection(tcpSocket);
+    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
-      const fallbackSocket = await getTcpConnection(proxyIP || addressRemote, portRemote);
-      manageConnection(fallbackSocket);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, responseHeader);
     });
@@ -100,37 +67,46 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     closeWebSocket(webSocket);
   }
 };
-const manageConnection = async (socket, timeout = 30000) => {
-  const timer = setTimeout(() => {
-    if (!socket.closed) {
-      socket.close();
-    }
-  }, timeout); 
-  socket.closed.then(() => clearTimeout(timer));
+const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+  if (remoteSocket.value && !remoteSocket.value.closed) {
+    await writeToRemote(remoteSocket.value, rawClientData);
+  } else {
+    remoteSocket.value = await connect({ hostname: address, port });
+    await writeToRemote(remoteSocket.value, rawClientData);
+  }
+  return remoteSocket.value;
 };
-const reuseStream = new WeakMap();
+let reuseStream;
 const createSocketStream = (webSocket, earlyHeader) => {
-  if (reuseStream.has(webSocket)) {
-    reuseStream.get(webSocket).cancel();
-  } 
+  if (reuseStream) {
+    reuseStream.cancel();
+    reuseStream = null;
+  }
   const { earlyData, error } = base64ToBuffer(earlyHeader);
-  if (error) return new ReadableStream().cancel(); 
-  const stream = new ReadableStream({
+  if (error) return new ReadableStream().cancel();
+  reuseStream = new ReadableStream({
     start(controller) {
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => controller.enqueue(event.data));
-      webSocket.addEventListener('close', () => controller.close());
-      webSocket.addEventListener('error', err => controller.error(err));
-    },
-    cancel: () => closeWebSocket(webSocket)
-  }); 
-  reuseStream.set(webSocket, stream);
-  return stream;
+      const handleMessage = event => controller.enqueue(event.data);
+      const handleClose = () => controller.close();
+      const handleError = err => controller.error(err);
+      webSocket.addEventListener('message', handleMessage);
+      webSocket.addEventListener('close', handleClose);
+      webSocket.addEventListener('error', handleError);
+      controller.signal.addEventListener('abort', () => {
+        webSocket.removeEventListener('message', handleMessage);
+        webSocket.removeEventListener('close', handleClose);
+        webSocket.removeEventListener('error', handleError);
+        closeWebSocket(webSocket);
+      });
+    }
+  });
+  return reuseStream;
 };
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
-  if (!userIDMatch) return { hasError: true };  
+  if (!userIDMatch) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUDP = command === 2;
@@ -154,7 +130,7 @@ const processSocketHeader = (buffer, userID) => {
   };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket); 
+  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
   const writable = new WritableStream({
     write: async (chunk) => {
@@ -170,13 +146,12 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
       }
       webSocket.send(combinedData);
     }
-  });  
+  }); 
   try {
     await remoteSocket.readable.pipeTo(writable);
   } catch (error) {
     closeWebSocket(webSocket);
   } 
- 
   if (retry && !hasData) retry();
 };
 const base64ToBuffer = base64Str => {
@@ -228,5 +203,4 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   });
 };
 const getConfig = (userID, host) => `
-vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
-`;
+vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
