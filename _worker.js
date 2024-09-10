@@ -68,12 +68,10 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);
-  } else {
+  if (!remoteSocket.value || remoteSocket.value.closed) {
     remoteSocket.value = await connect({ hostname: address, port });
-    await writeToRemote(remoteSocket.value, rawClientData);
   }
+  await writeToRemote(remoteSocket.value, rawClientData);
   return remoteSocket.value;
 };
 let reuseStream;
@@ -97,8 +95,7 @@ const createSocketStream = (webSocket, earlyHeader) => {
 };
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
-  if (!userIDMatch) return { hasError: true };
+  if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUDP = command === 2;
