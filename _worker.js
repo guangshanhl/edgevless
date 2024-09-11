@@ -95,43 +95,30 @@ const createSocketStream = (webSocket, earlyHeader) => {
   return reuseStream;
 };
 const processSocketHeader = (buffer, userID) => {
-  if (buffer.byteLength < 24) {
-    return { hasError: true };
-  }
-  try {
-    const view = new DataView(buffer);
-    const version = view.getUint8(0);
-    const receivedUserID = stringify(new Uint8Array(buffer.slice(1, 17)));
-    if (receivedUserID !== userID) return { hasError: true, message: 'userID mismatch' };
-    const optLength = view.getUint8(17);
-    const command = view.getUint8(18 + optLength);
-    const isUDP = command === 2;
-    const portRemote = view.getUint16(18 + optLength + 1);
-    const addressIndex = 18 + optLength + 3;
-    const addressType = view.getUint8(addressIndex);
-    let addressValue = '';
-    if (addressType === 1) {
-      addressValue = Array.from(new Uint8Array(buffer.slice(addressIndex + 1, addressIndex + 5))).join('.');
-    } else if (addressType === 2) {
-      const domainLength = view.getUint8(addressIndex + 1);
-      addressValue = new TextDecoder().decode(new Uint8Array(buffer.slice(addressIndex + 2, addressIndex + 2 + domainLength)));
-    } else if (addressType === 3) {
-      addressValue = Array.from(new Uint8Array(buffer.slice(addressIndex + 1, addressIndex + 17)))
-        .map(b => b.toString(16).padStart(2, '0')).join(':');
-    }
-    const addressLength = addressType === 1 ? 4 : (addressType === 2 ? domainLength : 16);
-    const rawDataIndex = addressIndex + (addressType === 2 ? 2 : 1) + addressLength;    
-    return {
-      hasError: false,
-      addressRemote: addressValue,
-      portRemote,
-      rawDataIndex,
-      vlessVersion: new Uint8Array([version, 0]),
-      isUDP
-    };
-  } catch (error) {
-    return { hasError: true };
-  }
+  const view = new DataView(buffer);
+  const version = new Uint8Array(buffer.slice(0, 1));
+  if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
+  const optLength = view.getUint8(17);
+  const command = view.getUint8(18 + optLength);
+  const isUDP = command === 2;
+  const portRemote = view.getUint16(18 + optLength + 1);
+  const addressIndex = 18 + optLength + 3;
+  const addressType = view.getUint8(addressIndex);
+  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : addressType === 1 ? 4 : 16;
+  const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
+  const addressValue = addressType === 1
+    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');  
+  return {
+    hasError: false,
+    addressRemote: addressValue,
+    portRemote,
+    rawDataIndex: addressValueIndex + addressLength,
+    vlessVersion: version,
+    isUDP
+  };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
@@ -169,11 +156,8 @@ const closeWebSocket = webSocket => {
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
-  return segments.map(len => {
-    const segment = Array.from(arr.slice(offset, offset + len), byte => byteToHex[byte]);
-    offset += len;
-    return segment.join('');
-  }).join('-').toLowerCase();
+  return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
+    .join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dataView = new DataView(rawClientData.buffer);
@@ -183,30 +167,32 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     index += 2 + udpPacketLength;
     return dnsQuery;
   });
-  const dnsResponses = await Promise.all(
-    dnsQueryBatches.map(dnsQuery =>
-      fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
-        body: dnsQuery
-      }).then(response => response.arrayBuffer())
-      .catch(() => null)
-    )
-  );
-  let totalLength = responseHeader.length;
-  dnsResponses.forEach(dnsResult => totalLength += 2 + dnsResult.byteLength);
-  const combinedData = new Uint8Array(totalLength);
-  let offset = 0;
-  combinedData.set(responseHeader, offset);
-  offset += responseHeader.length;
-  dnsResponses.forEach(dnsResult => {
-    combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], offset);
-    offset += 2;
-    combinedData.set(new Uint8Array(dnsResult), offset);
-    offset += dnsResult.byteLength;
-  });
-  if (webSocket.readyState === WebSocket.OPEN) {
-    webSocket.send(combinedData);
+  const batchSize = 10;
+  for (let i = 0; i < dnsQueryBatches.length; i += batchSize) {
+    const batch = dnsQueryBatches.slice(i, i + batchSize);
+    const dnsResponses = await Promise.all(
+      batch.map(async dnsQuery => {
+        try {
+          const response = await fetch('https://cloudflare-dns.com/dns-query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/dns-message' },
+            body: dnsQuery
+          });
+          return await response.arrayBuffer();
+        } catch (error) {
+          console.error('Fetch error:', error);
+          return null;
+        }
+      })
+    );
+    dnsResponses.forEach(dnsResult => {
+      if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+        const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+        combinedData.set(responseHeader);
+        combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
+        webSocket.send(combinedData);
+      }
+    });
   }
 };
 const getConfig = (userID, host) => `
