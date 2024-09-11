@@ -161,43 +161,33 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const dnsCache: KVNamespace = DNS_CACHE;
-const fetchDnsResponse = async (dnsQuery: ArrayBuffer): Promise<ArrayBuffer | null> => {
-  const cachedResponse = await dnsCache.get(dnsQuery);
-  if (cachedResponse) return cachedResponse.arrayBuffer();
-  try {
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/dns-message' },
-      body: dnsQuery
-    });
-    const result = await response.arrayBuffer();
-    await dnsCache.put(dnsQuery, result, { expirationTtl: 86400 });
-    return result;
-  } catch (error) {
-    return null;
-  }
-};
-const handleUdpRequest = async (webSocket: WebSocket, responseHeader: Uint8Array, rawClientData: ArrayBuffer) => {
-  const dataView = new DataView(rawClientData);
-  const byteLength = rawClientData.byteLength;
-  const dnsQueryBatches: ArrayBuffer[] = [];
-  for (let index = 0; index < byteLength;) {
+const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
+  const dnsQueryBatches = [];
+  for (let index = 0; index < rawClientData.byteLength; ) {
+    const dataView = new DataView(rawClientData.buffer);
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
     dnsQueryBatches.push(dnsQuery);
     index += 2 + udpPacketLength;
   }
-  for (const dnsQuery of dnsQueryBatches) {
-    const dnsResult = await fetchDnsResponse(dnsQuery);
-    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+  const dnsResponses = await Promise.all(
+    dnsQueryBatches.map(dnsQuery =>
+      fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: dnsQuery
+      }).then(response => response.arrayBuffer())
+    )
+  );
+  dnsResponses.forEach(dnsResult => {
+    if (webSocket.readyState === WebSocket.OPEN) {
       const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
-      combinedData.set(responseHeader);
-      combinedData.set(new Uint8Array([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xFF]), responseHeader.length);
+      combinedData.set(responseHeader, 0);
+      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
       combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
       webSocket.send(combinedData);
     }
-  }
+  });
 };
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
