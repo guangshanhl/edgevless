@@ -34,16 +34,17 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   let address = '';
   const processChunk = async (chunk) => {
     if (isDns && udpWrite) return udpWrite(chunk);
-    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk); 
     const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = processSocketHeader(chunk, userID);
     address = addressRemote;
     if (hasError) return;
     const responseHeader = new Uint8Array([vlessVersion[0], 0]);
-    const rawClientData = chunk.slice(rawDataIndex);   
+    const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
-      udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
-    } else {
+      if (isDns) udpWrite = handleUdpRequest(webSocket, responseHeader, rawClientData);
+    }  
+    if (!isUDP) {
       handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
   };
@@ -166,25 +167,33 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     index += 2 + udpPacketLength;
     return dnsQuery;
   });
-  const dnsResponses = await Promise.all(
-    dnsQueryBatches.map(dnsQuery =>
-      fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
-        body: dnsQuery
-      }).then(response => response.arrayBuffer())
-      .catch(() => null)
-    )
-  );
-  dnsResponses.forEach(dnsResult => {
-    if (webSocket.readyState === WebSocket.OPEN) {
-      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
-      combinedData.set(responseHeader, 0);
-      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
-      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
-      webSocket.send(combinedData);
-    }
-  });
+  const batchSize = 10;
+  for (let i = 0; i < dnsQueryBatches.length; i += batchSize) {
+    const batch = dnsQueryBatches.slice(i, i + batchSize);
+    const dnsResponses = await Promise.all(
+      batch.map(async dnsQuery => {
+        try {
+          const response = await fetch('https://cloudflare-dns.com/dns-query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/dns-message' },
+            body: dnsQuery
+          });
+          return await response.arrayBuffer();
+        } catch (error) {
+          console.error('Fetch error:', error);
+          return null;
+        }
+      })
+    );
+    dnsResponses.forEach(dnsResult => {
+      if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+        const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+        combinedData.set(responseHeader);
+        combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
+        webSocket.send(combinedData);
+      }
+    });
+  }
 };
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
