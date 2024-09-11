@@ -162,14 +162,13 @@ const stringify = (arr, offset = 0) => {
     .join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const dnsQueryBatches = [];
-  for (let index = 0; index < rawClientData.byteLength; ) {
-    const dataView = new DataView(rawClientData.buffer);
+  const dataView = new DataView(rawClientData.buffer);
+  const dnsQueryBatches = Array.from({ length: rawClientData.byteLength }, (_, index) => {
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
-    dnsQueryBatches.push(dnsQuery);
     index += 2 + udpPacketLength;
-  }
+    return dnsQuery;
+  });
   const dnsResponses = await Promise.all(
     dnsQueryBatches.map(dnsQuery =>
       fetch('https://cloudflare-dns.com/dns-query', {
@@ -177,6 +176,7 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
         headers: { 'Content-Type': 'application/dns-message' },
         body: dnsQuery
       }).then(response => response.arrayBuffer())
+      .catch(() => null)
     )
   );
   dnsResponses.forEach(dnsResult => {
