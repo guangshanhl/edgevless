@@ -35,13 +35,13 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = decodeSocketHeader(chunk, userID);
     address = addressRemote;
     if (hasError) return;
-    const responseHeader = new Uint8Array([vlessVersion[0], 0]);
+    const xyHeader = new Uint8Array([vlessVersion[0], 0]);
     const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
-      if (isDns) udpWrite = handleUdpRequest(webSocket, responseHeader, rawClientData);
+      if (isDns) udpWrite = handleUdpRequest(webSocket, xyHeader, rawClientData);
     } else {
-      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, xyHeader, proxyIP);
     }
   };
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
@@ -52,15 +52,15 @@ const sendToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, xyHeader, proxyIP) => {
   try {
     const tcpSocket = await connectToWrite(remoteSocket, addressRemote, portRemote);
     await sendToRemote(tcpSocket, rawClientData);
-    await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
+    await forwardToData(tcpSocket, webSocket, xyHeader, async () => {
       const backupSocket = await connectToWrite(remoteSocket, proxyIP || addressRemote, portRemote);
       await sendToRemote(backupSocket, rawClientData);
       backupSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      await forwardToData(backupSocket, webSocket, responseHeader);
+      await forwardToData(backupSocket, webSocket, xyHeader);
     });
   } catch (error) {
     closeWebSocket(webSocket);
@@ -118,10 +118,10 @@ const decodeSocketHeader = (buffer, userID) => {
     isUDP
   };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
+const forwardToData = async (remoteSocket, webSocket, xyHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
-  let binedHeader = responseHeader ? new Uint8Array(responseHeader) : null;
+  let binedHeader = xyHeader ? new Uint8Array(xyHeader) : null;
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
@@ -162,7 +162,7 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
+const handleUdpRequest = async (webSocket, xyHeader, rawClientData) => {
   const dataView = new DataView(rawClientData.buffer);
   const dnsQueryBatches = Array.from({ length: rawClientData.byteLength }, (_, index) => {
     const udpPacketLength = dataView.getUint16(index);
@@ -182,10 +182,10 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   );
   dnsResponses.forEach(dnsResult => {
     if (webSocket.readyState === WebSocket.OPEN) {
-      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
-      combinedData.set(responseHeader, 0);
-      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
-      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
+      const combinedData = new Uint8Array(xyHeader.length + 2 + dnsResult.byteLength);
+      combinedData.set(xyHeader, 0);
+      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], xyHeader.length);
+      combinedData.set(new Uint8Array(dnsResult), xyHeader.length + 2);
       webSocket.send(combinedData);
     }
   });
