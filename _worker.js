@@ -95,11 +95,17 @@ const createSocketStream = (webSocket, earlyHeader) => {
   return reuseStream;
 };
 const processSocketHeader = (buffer, userID) => {
+  if (!(buffer instanceof ArrayBuffer) || typeof userID !== 'string') {
+    return { hasError: true };
+  }
+  if (buffer.byteLength < 24) {
+    return { hasError: true };
+  }
   try {
     const view = new DataView(buffer);
     const version = view.getUint8(0);
     const receivedUserID = stringify(new Uint8Array(buffer.slice(1, 17)));
-    if (receivedUserID !== userID) return { hasError: true };
+    if (receivedUserID !== userID) return { hasError: true, message: 'userID mismatch' };
     const optLength = view.getUint8(17);
     const command = view.getUint8(18 + optLength);
     const isUDP = command === 2;
