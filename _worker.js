@@ -161,8 +161,8 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const dnsCache = new KVNamespace('dns-cache');
-const fetchDnsResponse = async (dnsQuery) => {
+const dnsCache: KVNamespace = DNS_CACHE;
+const fetchDnsResponse = async (dnsQuery: ArrayBuffer): Promise<ArrayBuffer | null> => {
   const cachedResponse = await dnsCache.get(dnsQuery);
   if (cachedResponse) return cachedResponse.arrayBuffer();
   try {
@@ -172,16 +172,16 @@ const fetchDnsResponse = async (dnsQuery) => {
       body: dnsQuery
     });
     const result = await response.arrayBuffer();
-    await dnsCache.put(dnsQuery, result);
+    await dnsCache.put(dnsQuery, result, { expirationTtl: 86400 });
     return result;
   } catch (error) {
     return null;
   }
 };
-const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const dataView = new DataView(rawClientData.buffer);
+const handleUdpRequest = async (webSocket: WebSocket, responseHeader: Uint8Array, rawClientData: ArrayBuffer) => {
+  const dataView = new DataView(rawClientData);
   const byteLength = rawClientData.byteLength;
-  const dnsQueryBatches = [];
+  const dnsQueryBatches: ArrayBuffer[] = [];
   for (let index = 0; index < byteLength;) {
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
@@ -193,8 +193,8 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
       const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
       combinedData.set(responseHeader);
-      combinedData.set(new Uint8Array(2), responseHeader.length);
-      combinedData.set(dnsResult, responseHeader.length + 2);
+      combinedData.set(new Uint8Array([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xFF]), responseHeader.length);
+      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
       webSocket.send(combinedData);
     }
   }
