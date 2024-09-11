@@ -124,9 +124,15 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
-      const combinedData = combinedHeader ? new Uint8Array([...combinedHeader, ...chunk]) : chunk;
-      combinedHeader = null;
-      webSocket.send(combinedData);
+      if (combinedHeader) {
+        const combinedData = new Uint8Array(combinedHeader.length + chunk.length);
+        combinedData.set(combinedHeader);
+        combinedData.set(chunk, combinedHeader.length);
+        webSocket.send(combinedData);
+        combinedHeader = null;
+      } else {
+        webSocket.send(chunk);
+      }
     }
   });
   try {
@@ -156,6 +162,34 @@ const stringify = (arr, offset = 0) => {
     .join('-').toLowerCase();
 };
 const dnsCache = new WeakMap();
+const fetchDnsResponse = async (dnsQuery) => {
+  if (dnsCache.has(dnsQuery)) {
+    return dnsCache.get(dnsQuery);
+  }
+  try {
+    const response = await fetch('https://cloudflare-dns.com/dns-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/dns-message' },
+      body: dnsQuery
+    });
+    const result = await response.arrayBuffer();
+    dnsCache.set(dnsQuery, result);
+    return result;
+  } catch (error) {
+    return null;
+  }
+};
+const processBatch = async (batch, webSocket, responseHeader) => {
+  const dnsResponses = await Promise.all(batch.map(fetchDnsResponse));
+  dnsResponses.forEach(dnsResult => {
+    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+      combinedData.set(responseHeader);
+      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
+      webSocket.send(combinedData);
+    }
+  });
+};
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dataView = new DataView(rawClientData.buffer);
   const dnsQueryBatches = [];
@@ -167,36 +201,9 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     index += 2 + udpPacketLength;
   }
   const batchSize = 10;
-  const processBatch = async (batch) => {
-    const dnsResponses = await Promise.all(
-      batch.map(async dnsQuery => {
-        if (dnsCache.has(dnsQuery)) {
-          return dnsCache.get(dnsQuery);
-        }
-        try {
-          const response = await fetch('https://cloudflare-dns.com/dns-query', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/dns-message' },
-            body: dnsQuery
-          });
-          const result = await response.arrayBuffer();
-          dnsCache.set(dnsQuery, result);
-          return result;
-        } catch (error) {
-          return null;
-        }
-      })
-    );
-    dnsResponses.forEach(dnsResult => {
-      if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
-        const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength).set(responseHeader).set(new Uint8Array(dnsResult), responseHeader.length + 2);
-        webSocket.send(combinedData);
-      }
-    });
-  };
   for (let i = 0; i < dnsQueryBatches.length; i += batchSize) {
     const batch = dnsQueryBatches.slice(i, i + batchSize);
-    await processBatch(batch);
+    await processBatch(batch, webSocket, responseHeader);
   }
 };
 const getConfig = (userID, host) => `
