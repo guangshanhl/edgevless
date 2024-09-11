@@ -95,9 +95,6 @@ const createSocketStream = (webSocket, earlyHeader) => {
   return reuseStream;
 };
 const processSocketHeader = (buffer, userID) => {
-  if (!(buffer instanceof ArrayBuffer) || typeof userID !== 'string') {
-    return { hasError: true };
-  }
   if (buffer.byteLength < 24) {
     return { hasError: true };
   }
