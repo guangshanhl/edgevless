@@ -36,12 +36,12 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     address = addressRemote;
     if (hasError) return;
     const xyHeader = new Uint8Array([vlessVersion[0], 0]);
-    const rawClientData = chunk.slice(rawDataIndex);
+    const clientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
-      if (isDns) udpWrite = handleUdpRequest(webSocket, xyHeader, rawClientData);
+      if (isDns) udpWrite = handleUdpRequest(webSocket, xyHeader, clientData);
     } else {
-      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, xyHeader, proxyIP);
+      handleTcpRequest(remoteSocket, addressRemote, portRemote, clientData, webSocket, xyHeader, proxyIP);
     }
   };
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
@@ -52,13 +52,13 @@ const sendToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, xyHeader, proxyIP) => {
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, xyHeader, proxyIP) => {
   try {
     const tcpSocket = await connectToWrite(remoteSocket, addressRemote, portRemote);
-    await sendToRemote(tcpSocket, rawClientData);
+    await sendToRemote(tcpSocket, clientData);
     await forwardToData(tcpSocket, webSocket, xyHeader, async () => {
       const backupSocket = await connectToWrite(remoteSocket, proxyIP || addressRemote, portRemote);
-      await sendToRemote(backupSocket, rawClientData);
+      await sendToRemote(backupSocket, clientData);
       backupSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(backupSocket, webSocket, xyHeader);
     });
@@ -162,11 +162,11 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const handleUdpRequest = async (webSocket, xyHeader, rawClientData) => {
-  const dataView = new DataView(rawClientData.buffer);
-  const dnsQueryBatches = Array.from({ length: rawClientData.byteLength }, (_, index) => {
+const handleUdpRequest = async (webSocket, xyHeader, clientData) => {
+  const dataView = new DataView(clientData.buffer);
+  const dnsQueryBatches = Array.from({ length: clientData.byteLength }, (_, index) => {
     const udpPacketLength = dataView.getUint16(index);
-    const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
+    const dnsQuery = clientData.slice(index + 2, index + 2 + udpPacketLength);
     index += 2 + udpPacketLength;
     return dnsQuery;
   });
