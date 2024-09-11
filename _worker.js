@@ -161,11 +161,10 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const dnsCache = new WeakMap();
+const dnsCache = new KVNamespace('dns-cache');
 const fetchDnsResponse = async (dnsQuery) => {
-  if (dnsCache.has(dnsQuery)) {
-    return dnsCache.get(dnsQuery);
-  }
+  const cachedResponse = await dnsCache.get(dnsQuery);
+  if (cachedResponse) return cachedResponse.arrayBuffer();
   try {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
@@ -173,37 +172,31 @@ const fetchDnsResponse = async (dnsQuery) => {
       body: dnsQuery
     });
     const result = await response.arrayBuffer();
-    dnsCache.set(dnsQuery, result);
+    await dnsCache.put(dnsQuery, result);
     return result;
   } catch (error) {
     return null;
   }
 };
-const processBatch = async (batch, webSocket, responseHeader) => {
-  const dnsResponses = await Promise.all(batch.map(fetchDnsResponse));
-  dnsResponses.forEach(dnsResult => {
-    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
-      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
-      combinedData.set(responseHeader);
-      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
-      webSocket.send(combinedData);
-    }
-  });
-};
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dataView = new DataView(rawClientData.buffer);
-  const dnsQueryBatches = [];
   const byteLength = rawClientData.byteLength;
+  const dnsQueryBatches = [];
   for (let index = 0; index < byteLength;) {
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
     dnsQueryBatches.push(dnsQuery);
     index += 2 + udpPacketLength;
   }
-  const batchSize = 10;
-  for (let i = 0; i < dnsQueryBatches.length; i += batchSize) {
-    const batch = dnsQueryBatches.slice(i, i + batchSize);
-    await processBatch(batch, webSocket, responseHeader);
+  for (const dnsQuery of dnsQueryBatches) {
+    const dnsResult = await fetchDnsResponse(dnsQuery);
+    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+      combinedData.set(responseHeader);
+      combinedData.set(new Uint8Array(2), responseHeader.length);
+      combinedData.set(dnsResult, responseHeader.length + 2);
+      webSocket.send(combinedData);
+    }
   }
 };
 const getConfig = (userID, host) => `
