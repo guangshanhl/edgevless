@@ -1,4 +1,4 @@
-import { connect, WebSocketPair } from 'cloudflare:sockets';
+import { connect } from 'cloudflare:sockets';
 export default {
   async fetch(request, env) {
     try {
