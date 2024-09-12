@@ -20,14 +20,13 @@ const handleHttpRequest = (request, userID) => {
       headers: { "Content-Type": "text/html;charset=utf-8" }
     });
   }  
-  if (path === "/${userID}") {
-    return new Response(`<html><body><pre>${getConfig(userID, host)}</pre></body></html>`, {
-      headers: { "Content-Type": "text/html;charset=utf-8" }
+  if (path === `/${userID}`) {
+    return new Response(getConfig(userID, host), {
+      headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
   return new Response("Not found", { status: 404 });
 };
-
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
