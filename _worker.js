@@ -78,15 +78,12 @@ const createSocketStream = (webSocket, earlyHeader) => {
   return new ReadableStream({
     start(controller) {
       if (earlyData) controller.enqueue(earlyData);
-      addWebSocketListeners(webSocket, controller);
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('close', () => controller.close());
+      webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel: () => closeWebSocket(webSocket)
   });
-};
-const addWebSocketListeners = (webSocket, controller) => {
-  webSocket.addEventListener('message', event => controller.enqueue(event.data));
-  webSocket.addEventListener('close', () => controller.close());
-  webSocket.addEventListener('error', err => controller.error(err));
 };
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
@@ -153,8 +150,8 @@ const base64ToBuffer = (base64Str) => {
 const closeWebSocket = (webSocket) => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
-const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
+  const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
   const segments = [4, 2, 2, 2, 6];
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
