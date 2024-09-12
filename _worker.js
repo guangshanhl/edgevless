@@ -47,17 +47,23 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
-const writeToRemote = async (socket, chunk) => {
-  const writer = socket.writable.getWriter();
+const writeToRemote = async (webSocket, chunk) => {
+  const writer = webSocket.writable.getWriter();
   await writer.write(chunk);
   writer.releaseLock();
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote);
+    const connectAndWrite = async (address) => {
+      if (!remoteSocket.value || remoteSocket.value.closed) {
+        remoteSocket.value = await connect({ hostname: address, port: portRemote });
+      }
+      return remoteSocket.value;
+    };
+    const tcpSocket = await connectAndWrite(addressRemote);
     await writeToRemote(tcpSocket, rawClientData);
     await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote);
+      const fallbackSocket = await connectAndWrite(proxyIP || addressRemote);
       await writeToRemote(fallbackSocket, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, responseHeader);
@@ -65,12 +71,6 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   } catch (error) {
     closeWebSocket(webSocket);
   }
-};
-const connectAndWrite = async (remoteSocket, address, port) => {
-  if (!remoteSocket.value || remoteSocket.value.closed) {
-    remoteSocket.value = await connect({ hostname: address, port });
-  }
-  return remoteSocket.value;
 };
 const createSocketStream = (webSocket, earlyHeader) => {
   const { earlyData, error } = base64ToBuffer(earlyHeader);
