@@ -15,17 +15,25 @@ export default {
 const handleHttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
   const host = request.headers.get("Host");
-  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
-  if (path === `/${userID}`) {
-    return new Response(getConfig(userID, host), {
-      headers: { "Content-Type": "text/plain;charset=utf-8" }
+  if (path === "/") {
+    return new Response(`<html><body><h1>Welcome to our service</h1><p>Your request was processed.</p></body></html>`, {
+      headers: { "Content-Type": "text/html;charset=utf-8" }
+    });
+  }  
+  if (path === "/status") {
+    return new Response(`<html><body><pre>${getConfig(userID, host)}</pre></body></html>`, {
+      headers: { "Content-Type": "text/html;charset=utf-8" }
     });
   }
   return new Response("Not found", { status: 404 });
 };
+
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
+  const headers = new Headers(request.headers);
+  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36');
+  headers.set('Referer', 'https://bing.com');
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';  
@@ -169,7 +177,10 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     dnsQueryBatches.map(dnsQuery =>
       fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
+        headers: { 
+          'Content-Type': 'application/dns-message',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36' // 模拟浏览器头
+        },
         body: dnsQuery
       }).then(response => response.arrayBuffer())
       .catch(() => null)
