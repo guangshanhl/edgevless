@@ -178,20 +178,17 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
       .catch(() => null)
     )
   );
-  return (chunk) => {
-    if (dnsResponses.every(response => response === null)) {
+  dnsResponses.forEach(response => {
+    if (response) {
+      const combinedLength = responseHeader.byteLength + response.byteLength;
+      const combinedData = new Uint8Array(combinedLength);
+      combinedData.set(responseHeader, 0);
+      combinedData.set(new Uint8Array(response), responseHeader.byteLength);
+      webSocket.send(combinedData);
+    } else {
       closeWebSocket(webSocket);
-      return;
     }
-    dnsResponses.forEach((response, idx) => {
-      if (response) {
-        const combinedData = new Uint8Array(responseHeader.length + response.byteLength);
-        combinedData.set(responseHeader);
-        combinedData.set(new Uint8Array(response), responseHeader.length);
-        webSocket.send(combinedData);
-      }
-    });
-  };
+  });
 };
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
