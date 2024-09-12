@@ -72,15 +72,11 @@ const connectAndWrite = async (remoteSocket, address, port) => {
   }
   return remoteSocket.value;
 };
-let reuseStream = null;
+let reuseStream;
 const createSocketStream = (webSocket, earlyHeader) => {
-  if (reuseStream) {
-    reuseStream.cancel();
-    reuseStream = null;
-  }
+  if (reuseStream) { reuseStream.cancel(); reuseStream = null; }
   const { earlyData, error } = base64ToBuffer(earlyHeader);
   if (error) return new ReadableStream().cancel();
-
   reuseStream = new ReadableStream({
     start(controller) {
       if (earlyData) controller.enqueue(earlyData);
@@ -106,17 +102,13 @@ const processSocketHeader = (buffer, userID) => {
   const portRemote = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
-  const addressLength = addressType === 2
-    ? view.getUint8(addressIndex + 1)
-    : (addressType === 1 ? 4 : 16);
+  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : (addressType === 1 ? 4 : 16);
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
   const addressValue = addressType === 1
     ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
     : (addressType === 2
       ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-      : Array.from(new Uint8Array(buffer, addressValueIndex, 16))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join(':'));
+      : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':'));
   return {
     hasError: false,
     addressRemote: addressValue,
@@ -129,14 +121,16 @@ const processSocketHeader = (buffer, userID) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
+  let combinedHeader = responseHeader ? new Uint8Array(responseHeader) : null;
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
-      if (responseHeader) {
-        const combinedData = new Uint8Array(responseHeader.length + chunk.length);
-        combinedData.set(responseHeader);
-        combinedData.set(chunk, responseHeader.length);
+      if (combinedHeader) {
+        const combinedData = new Uint8Array(combinedHeader.length + chunk.length);
+        combinedData.set(combinedHeader);
+        combinedData.set(chunk, combinedHeader.length);
         webSocket.send(combinedData);
+        combinedHeader = null;
       } else {
         webSocket.send(chunk);
       }
@@ -162,7 +156,7 @@ const base64ToBuffer = (base64Str) => {
 const closeWebSocket = (webSocket) => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
-const byteToHex = new Array(256).fill(null).map((_, i) => i.toString(16).padStart(2, '0'));
+const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
