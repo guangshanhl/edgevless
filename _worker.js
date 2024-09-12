@@ -4,23 +4,24 @@ export default {
     try {
       const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
       const proxyIP = env.PROXYIP ?? '';
-      return request.headers.get('Upgrade') === 'websocket' ? handleWsRequest(request, userID, proxyIP) : handleHttpRequest(request, userID);
+      return request.headers.get('Upgrade') === 'websocket'
+        ? handlewsRequest(request, userID, proxyIP)
+        : handlehttpRequest(request, userID);
     } catch (err) {
       return new Response(err.toString());
     }
   }
 };
-const handleHttpRequest = (request, userID) => {
-  const { pathname } = new URL(request.url);
-  const host = request.headers.get('Host'); 
-  switch (pathname) {
-    case '/':
-      return new Response(JSON.stringify(request.cf, null, 4));
-    case `/${userID}`:
-      return new Response(getConfig(userID, host), { headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
-    default:
-      return new Response('Not found', { status: 404 });
+const handlehttpRequest = (request, userID) => {
+  const path = new URL(request.url).pathname;
+  const host = request.headers.get("Host");
+  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
+  if (path === `/${userID}`) {
+    return new Response(getConfig(userID, host), {
+      headers: { "Content-Type": "text/plain;charset=utf-8" }
+    });
   }
+  return new Response("Not found", { status: 404 });
 };
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
@@ -94,23 +95,21 @@ const addWebSocketListeners = (webSocket, controller) => {
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   const version = new Uint8Array(buffer.slice(0, 1));
-  const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
-  if (receivedID !== userID) return { hasError: true };
+  const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
+  if (!userIDMatch) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUDP = command === 2;
   const portRemote = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
-  const addressLength = addressType === 2 
-    ? view.getUint8(addressIndex + 1) 
-    : (addressType === 1 ? 4 : 16);
+  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : addressType === 1 ? 4 : 16;
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
   const addressValue = addressType === 1
     ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-    : (addressType === 2
-      ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-      : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':'));
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
     hasError: false,
     addressRemote: addressValue,
@@ -145,14 +144,11 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   }
   if (retry && !hasData) retry();
 };
-const base64ToBuffer = (base64Str) => {
+const base64ToBuffer = base64Str => {
   try {
     const formattedStr = base64Str.replace(/[-_]/g, m => (m === '-' ? '+' : '/'));
     const binaryStr = atob(formattedStr);
-    const buffer = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      buffer[i] = binaryStr.charCodeAt(i);
-    }
+    const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
     return { earlyData: buffer.buffer, error: null };
   } catch (error) {
     return { earlyData: null, error };
