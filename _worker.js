@@ -198,9 +198,10 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
       return null;
     }
   };
-  const dnsResponses = await Promise.all(dnsQueryBatches.map(fetchDnsQuery));
-  dnsResponses.forEach(dnsResult => {
-    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+  const dnsResponses = await Promise.allSettled(dnsQueryBatches.map(fetchDnsQuery));
+  dnsResponses.forEach(result => {
+    if (result.status === 'fulfilled' && result.value && webSocket.readyState === WebSocket.OPEN) {
+      const dnsResult = result.value;
       const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
       combinedData.set(responseHeader, 0);
       combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
