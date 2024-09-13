@@ -1,6 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-import { randomUUID } from 'crypto';
-
 const getRandomUserAgent = () => {
   const userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
@@ -51,7 +49,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   headers.delete('X-Forwarded-For');
   headers.delete('Via');
   headers.set('Referer', 'https://www.baidu.com');
-
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
 
@@ -224,5 +221,5 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   });
 };
 const getConfig = (userID, host) => `
-vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D${randomUUID()}#${host}
+vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
