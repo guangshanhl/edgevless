@@ -1,13 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-function getRandomUserAgent() {
-  const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
-  ];
-  return userAgents[Math.floor(Math.random() * userAgents.length)];
-}
 export default {
   async fetch(request, env) {
     try {
@@ -41,7 +32,7 @@ const handleWsRequest = async (request, userID, proxyIP, dnsCache) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const headers = new Headers(request.headers);
-  headers.set('User-Agent', getRandomUserAgent());
+  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36');
   headers.delete('X-Forwarded-For');
   headers.delete('Via');
   headers.set('Referer', 'https://www.baidu.com');
