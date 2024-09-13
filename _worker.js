@@ -2,8 +2,8 @@ import { connect } from 'cloudflare:sockets';
 export default {
   async fetch(request, env) {
     try {
-      const userID = env?.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-      const proxyIP = env?.PROXYIP || '';
+      const userID = (env && env.UUID) ? env.UUID : 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+      const proxyIP = (env && env.PROXYIP) ? env.PROXYIP : '';
       return request.headers.get('Upgrade') === 'websocket'
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
@@ -39,9 +39,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
       isDns = portRemote === 53;
-      if (isDns) udpWrite = handleUdpRequest(webSocket, responseHeader, rawClientData, dnsCache);
+      if (isDns) udpWrite = handleUdpRequest(webSocket, responseHeader, rawClientData);
     } else {
-      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP, dnsCache);
+      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
   };
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
@@ -74,17 +74,15 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 };
 const createSocketStream = (webSocket, earlyHeader) => {
   const { earlyData, error } = base64ToBuffer(earlyHeader);
-  if (error) return controller.error(error);
   return new ReadableStream({
     start(controller) {
+	  if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
-    close() {
-      closeWebSocket(webSocket);
-    }
+    cancel: () => closeWebSocket(webSocket)
   });
 };
 const processSocketHeader = (buffer, userID) => {
@@ -117,16 +115,16 @@ const processSocketHeader = (buffer, userID) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);  
   let hasData = false;
-  let comHeader = responseHeader || new Uint8Array();  
+  let combinedHeader = responseHeader ? new Uint8Array(responseHeader) : null;  
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
-      if (comHeader.length > 0) {
-        const comData = new Uint8Array(comHeader.length + chunk.length);
-        comData.set(comHeader);
-        comData.set(chunk, comHeader.length);
-        comHeader = new Uint8Array();
-        webSocket.send(comData);
+      if (combinedHeader) {
+        const combinedData = new Uint8Array(combinedHeader.length + chunk.length);
+        combinedData.set(combinedHeader);
+        combinedData.set(chunk, combinedHeader.length);
+        webSocket.send(combinedData);
+        combinedHeader = null;
       } else {
         webSocket.send(chunk);
       }
@@ -136,7 +134,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
     await remoteSocket.readable.pipeTo(writable);
   } catch (error) {
     closeWebSocket(webSocket);
-  }  
+  }
   if (retry && !hasData) retry();
 };
 const base64ToBuffer = (base64Str) => {
@@ -159,9 +157,9 @@ const stringify = (arr, offset = 0) => {
     .join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const dnsQueryBatches = [];
   const dataView = new DataView(rawClientData.buffer);
-  for (let index = 0; index < rawClientData.byteLength; ) {
+  const dnsQueryBatches = [];
+  for (let index = 0; index < rawClientData.byteLength;) {
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
     dnsQueryBatches.push(dnsQuery);
@@ -177,13 +175,15 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
       .catch(() => null)
     )
   );
-  dnsResponses.forEach(dnsResult => {
-    if (webSocket.readyState === WebSocket.OPEN) {
-      const comData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
-      comData.set(responseHeader, 0);
-      comData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
-      comData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
-      webSocket.send(comData);
+  dnsResponses.forEach(response => {
+    if (response) {
+      const combinedLength = responseHeader.byteLength + response.byteLength;
+      const combinedData = new Uint8Array(combinedLength);
+      combinedData.set(responseHeader, 0);
+      combinedData.set(new Uint8Array(response), responseHeader.byteLength);
+      webSocket.send(combinedData);
+    } else {
+      closeWebSocket(webSocket);
     }
   });
 };
