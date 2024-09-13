@@ -5,7 +5,7 @@ export default {
       const userID = env?.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
       const proxyIP = env?.PROXYIP || '';
       return request.headers.get('Upgrade') === 'websocket'
-        ? handleWsRequest(request, userID, proxyIP, dnsCache)
+        ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
       return new Response(err.toString());
@@ -23,7 +23,7 @@ const handleHttpRequest = (request, userID) => {
   }
   return new Response("Not found", { status: 404 });
 };
-const handleWsRequest = async (request, userID, proxyIP, dnsCache) => {
+const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
@@ -52,7 +52,7 @@ const writeToRemote = async (webSocket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP, dnsCache) => {
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
     const connectAndWrite = async (address) => {
       if (!remoteSocket.value || remoteSocket.value.closed) {
