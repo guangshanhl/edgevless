@@ -48,7 +48,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   
   const headers = new Headers(request.headers);
   headers.set('User-Agent', getRandomUserAgent());
-  headers.set('Referer', 'https://bing.com');
+  headers.delete('X-Forwarded-For');
+  headers.delete('Via');
+  headers.set('Referer', 'https://www.baidu.com');
 
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
