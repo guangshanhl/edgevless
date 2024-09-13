@@ -74,9 +74,9 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 };
 const createSocketStream = (webSocket, earlyHeader) => {
   const { earlyData, error } = base64ToBuffer(earlyHeader);
+  if (error) return controller.error(error);
   return new ReadableStream({
     start(controller) {
-      if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
@@ -117,16 +117,16 @@ const processSocketHeader = (buffer, userID) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);  
   let hasData = false;
-  let combinedHeader = responseHeader || new Uint8Array();  
+  let comHeader = responseHeader || new Uint8Array();  
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
-      if (combinedHeader.length > 0) {
-        const combinedData = new Uint8Array(combinedHeader.length + chunk.length);
-        combinedData.set(combinedHeader);
-        combinedData.set(chunk, combinedHeader.length);
-        combinedHeader = new Uint8Array();
-        webSocket.send(combinedData);
+      if (comHeader.length > 0) {
+        const comData = new Uint8Array(comHeader.length + chunk.length);
+        comData.set(comHeader);
+        comData.set(chunk, comHeader.length);
+        comHeader = new Uint8Array();
+        webSocket.send(comData);
       } else {
         webSocket.send(chunk);
       }
@@ -179,11 +179,11 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   );
   dnsResponses.forEach(dnsResult => {
     if (webSocket.readyState === WebSocket.OPEN) {
-      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
-      combinedData.set(responseHeader, 0);
-      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
-      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
-      webSocket.send(combinedData);
+      const comData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+      comData.set(responseHeader, 0);
+      comData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
+      comData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
+      webSocket.send(comData);
     }
   });
 };
