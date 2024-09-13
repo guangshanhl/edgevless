@@ -168,37 +168,34 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-const handleUdpRequest = async (webSocket, responseHeader, rawClientData, dnsCache) => {
-  const dataView = new DataView(rawClientData.buffer);
+const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dnsQueryBatches = [];
-  for (let index = 0; index < rawClientData.byteLength;) {
+  const dataView = new DataView(rawClientData.buffer);
+  for (let index = 0; index < rawClientData.byteLength; ) {
     const udpPacketLength = dataView.getUint16(index);
-    const dnsQuery = rawClientData.slice(index + 2, index + udpPacketLength);
-    index += udpPacketLength;
-    const domain = extractDomain(dnsQuery);
-    if (!dnsCache.has(domain)) {
-      dnsCache.set(domain, fetchDns(domain));
+    const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
+    dnsQueryBatches.push(dnsQuery);
+    index += 2 + udpPacketLength;
+  }
+  const dnsResponses = await Promise.all(
+    dnsQueryBatches.map(dnsQuery =>
+      fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: dnsQuery
+      }).then(response => response.arrayBuffer())
+      .catch(() => null)
+    )
+  );
+  dnsResponses.forEach(dnsResult => {
+    if (webSocket.readyState === WebSocket.OPEN) {
+      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+      combinedData.set(responseHeader, 0);
+      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
+      combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
+      webSocket.send(combinedData);
     }
-    dnsQueryBatches.push(dnsCache.get(domain));
-  }
-  const dnsResponses = await Promise.all(dnsQueryBatches);
-  const responsePackets = dnsResponses.flat();
-  const responseBuffer = new Uint8Array(responsePackets.reduce((acc, response) => acc + response.byteLength, 0));
-  let offset = 0;
-  for (const response of responsePackets) {
-    responseBuffer.set(new Uint8Array(response), offset);
-    offset += response.byteLength;
-  }
-  webSocket.send(responseBuffer);
-};
-const extractDomain = (dnsQuery) => {
-  const nameLength = dnsQuery[0];
-  return new TextDecoder().decode(dnsQuery.slice(1, 1 + nameLength));
-};
-const fetchDns = async (domain) => {
-  const response = await fetch(`https://dns.google/resolve?name=${domain}`);
-  const data = await response.arrayBuffer();
-  return data;
+  });
 };
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
