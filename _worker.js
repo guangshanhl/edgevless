@@ -127,16 +127,16 @@ const processSocketHeader = (buffer, userID) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);  
   let hasData = false;
-  let combinedHeader = responseHeader ? new Uint8Array(responseHeader) : null;  
+  let combinedHeader = responseHeader || new Uint8Array();  
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
-      if (combinedHeader) {
+      if (combinedHeader.length > 0) {
         const combinedData = new Uint8Array(combinedHeader.length + chunk.length);
         combinedData.set(combinedHeader);
         combinedData.set(chunk, combinedHeader.length);
+        combinedHeader = new Uint8Array();
         webSocket.send(combinedData);
-        combinedHeader = null;
       } else {
         webSocket.send(chunk);
       }
@@ -146,7 +146,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
     await remoteSocket.readable.pipeTo(writable);
   } catch (error) {
     closeWebSocket(webSocket);
-  }
+  }  
   if (retry && !hasData) retry();
 };
 const base64ToBuffer = (base64Str) => {
