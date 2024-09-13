@@ -1,4 +1,16 @@
 import { connect } from 'cloudflare:sockets';
+import { randomUUID } from 'crypto';
+
+const getRandomUserAgent = () => {
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/91.0.864.67 Safari/537.36'
+  ];
+  return userAgents[Math.floor(Math.random() * userAgents.length)];
+};
+
 export default {
   async fetch(request, env) {
     try {
@@ -12,14 +24,16 @@ export default {
     }
   }
 };
+
 const handleHttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
   const host = request.headers.get("Host");
   if (path === "/") {
-    return new Response(`<html><body><h1>Welcome to our service</h1><p>Your request was processed.</p></body></html>`, {
-      headers: { "Content-Type": "text/html;charset=utf-8" }
-    });
-  }  
+    return new Response(`
+      <html><body><h1>Welcome to our service</h1><p>Your request was processed.</p></body></html>`, 
+      { headers: { "Content-Type": "text/html;charset=utf-8" }}
+    );
+  }
   if (path === `/${userID}`) {
     return new Response(getConfig(userID, host), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
@@ -27,23 +41,32 @@ const handleHttpRequest = (request, userID) => {
   }
   return new Response("Not found", { status: 404 });
 };
+
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
+  
   const headers = new Headers(request.headers);
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36');
+  headers.set('User-Agent', getRandomUserAgent());
   headers.set('Referer', 'https://bing.com');
+
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
-  let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';  
+
+  let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';
+
   const processChunk = async (chunk) => {
     if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);    
+
     const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = processSocketHeader(chunk, userID);
     address = addressRemote;
-    if (hasError) return;   
+
+    if (hasError) return;
+
     const responseHeader = new Uint8Array([vlessVersion[0], 0]);
     const rawClientData = chunk.slice(rawDataIndex);
+
     if (isUDP) {
       isDns = portRemote === 53;
       if (isDns) udpWrite = handleUdpRequest(webSocket, responseHeader, rawClientData);
@@ -51,6 +74,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
   };
+
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
@@ -178,7 +202,7 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/dns-message',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36' // 模拟浏览器头
+          'User-Agent': getRandomUserAgent(),
         },
         body: dnsQuery
       }).then(response => response.arrayBuffer())
@@ -198,5 +222,5 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   });
 };
 const getConfig = (userID, host) => `
-vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
+vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D${randomUUID()}#${host}
 `;
