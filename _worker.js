@@ -27,10 +27,6 @@ const handleHttpRequest = (request, userID) => {
 const handleWsRequest = async (request, userID, proxyIP, dnsCache) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
-  const headers = new Headers(request.headers);
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36');
-  headers.set('Referer', 'https://www.163.com');
-  headers.set('Origin', 'https://www.163.com');
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';  
