@@ -24,13 +24,16 @@ const handlehttpRequest = (request, userID) => {
   }
   return new Response("Not found", { status: 404 });
 };
+const staticHeaders = new Headers({
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+  'Referer': 'https://www.163.com',
+  'Origin': 'https://www.163.com'
+});
 const handleWsRequest = async (request, userID, proxyIP, dnsCache) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const headers = new Headers(request.headers);
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36');
-  headers.set('Referer', 'https://www.163.com');
-  headers.set('Origin', 'https://www.163.com');
+  headers.append(...staticHeaders);
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';  
@@ -166,7 +169,7 @@ const stringify = (arr, offset = 0) => {
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dnsQueryBatches = [];
   const dataView = new DataView(rawClientData.buffer);
-  for (let index = 0; index < rawClientData.byteLength; ) {
+  for (let index = 0; index < rawClientData.byteLength;) {
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
     dnsQueryBatches.push(dnsQuery);
@@ -183,10 +186,13 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     )
   );
   dnsResponses.forEach(dnsResult => {
-    if (webSocket.readyState === WebSocket.OPEN) {
-      const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
+    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+      const resultLength = dnsResult.byteLength;
+      const totalLength = responseHeader.length + 2 + resultLength;
+      const combinedData = new Uint8Array(totalLength);
+      combinedData[responseHeader.length] = resultLength >> 8;
+      combinedData[responseHeader.length + 1] = resultLength & 0xff;
       combinedData.set(responseHeader, 0);
-      combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
       combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
       webSocket.send(combinedData);
     }
