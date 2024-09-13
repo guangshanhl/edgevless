@@ -13,7 +13,7 @@ export default {
     }
   }
 };
-const handlehttpRequest = (request, userID) => {
+const handleHttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
   const host = request.headers.get("Host");
   if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
@@ -54,7 +54,6 @@ const handleWsRequest = async (request, userID, proxyIP, dnsCache) => {
 };
 const writeToRemote = async (webSocket, chunk) => {
   const writer = webSocket.writable.getWriter();
-  await writer.ready;
   await writer.write(chunk);
   writer.releaseLock();
 };
@@ -121,31 +120,28 @@ const processSocketHeader = (buffer, userID) => {
   };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
+  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);  
   let hasData = false;
-  let combinedHeader = responseHeader || new Uint8Array();
+  let combinedHeader = responseHeader || new Uint8Array();  
   const writable = new WritableStream({
     write: async (chunk) => {
       hasData = true;
-      const writer = webSocket.writable.getWriter();
-      await writer.ready;
       if (combinedHeader.length > 0) {
         const combinedData = new Uint8Array(combinedHeader.length + chunk.length);
         combinedData.set(combinedHeader);
         combinedData.set(chunk, combinedHeader.length);
         combinedHeader = new Uint8Array();
-        await writer.write(combinedData);
+        webSocket.send(combinedData);
       } else {
-        await writer.write(chunk);
+        webSocket.send(chunk);
       }
-      writer.releaseLock();
     }
-  });
+  });  
   try {
     await remoteSocket.readable.pipeTo(writable);
   } catch (error) {
     closeWebSocket(webSocket);
-  }
+  }  
   if (retry && !hasData) retry();
 };
 const base64ToBuffer = (base64Str) => {
