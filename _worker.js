@@ -4,7 +4,6 @@ export default {
     try {
       const userID = env?.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
       const proxyIP = env?.PROXYIP || '';
-      const dnsCache = new Map();
       return request.headers.get('Upgrade') === 'websocket'
         ? handleWsRequest(request, userID, proxyIP, dnsCache)
         : handleHttpRequest(request, userID);
