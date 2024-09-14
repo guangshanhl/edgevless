@@ -73,14 +73,17 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   }
 };
 const createSocketStream = (webSocket, earlyHeader) => {
+  const handleEvent = (controller, type, handler) => {
+    webSocket.addEventListener(type, handler);
+  };
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => controller.enqueue(event.data));
-      webSocket.addEventListener('close', () => controller.close());
-      webSocket.addEventListener('error', err => controller.error(err));
+      handleEvent(controller, 'message', event => controller.enqueue(event.data));
+      handleEvent(controller, 'close', () => controller.close());
+      handleEvent(controller, 'error', err => controller.error(err));
     },
     cancel: () => closeWebSocket(webSocket)
   });
