@@ -2,8 +2,8 @@ import { connect } from 'cloudflare:sockets';
 export default {
   async fetch(request, env) {
     try {
-      const userID = (env && env.UUID) ? env.UUID : 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-      const proxyIP = (env && env.PROXYIP) ? env.PROXYIP : '';
+      const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+      const proxyIP = env.PROXYIP || '';
       return request.headers.get('Upgrade') === 'websocket'
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
@@ -73,9 +73,9 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   }
 };
 const createSocketStream = (webSocket, earlyHeader) => {
-  const { earlyData, error } = base64ToBuffer(earlyHeader);
   return new ReadableStream({
     start(controller) {
+      const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
@@ -161,27 +161,24 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   let index = 0;
   while (index < rawClientData.byteLength) {
     const udpPacketLength = dataView.getUint16(index);
-    const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
+    const dnsQuery = rawClientData.subarray(index + 2, index + 2 + udpPacketLength);
     dnsQueryBatches.push(dnsQuery);
     index += 2 + udpPacketLength;
   }
-  const dnsResponses = await Promise.all(
-    dnsQueryBatches.map(dnsQuery =>
-      fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
-        body: dnsQuery
-      }).then(response => response.arrayBuffer())
-      .catch(() => null)
-    )
-  );
+  const fetchDnsQuery = (dnsQuery) =>
+    fetch('https://cloudflare-dns.com/dns-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/dns-message' },
+      body: dnsQuery
+    }).then(response => response.arrayBuffer())
+      .catch(() => null);
+  const dnsResponses = await Promise.all(dnsQueryBatches.map(fetchDnsQuery));
   const responseHeaderLength = responseHeader.byteLength;
   dnsResponses.forEach(response => {
     if (response) {
-      const combinedLength = responseHeaderLength + response.byteLength;
-      const combinedData = new Uint8Array(combinedLength);
-      combinedData.set(responseHeader, 0);
-      combinedData.set(new Uint8Array(response), responseHeaderLength);
+      const combinedData = new Uint8Array(responseHeaderLength + response.byteLength);
+      combinedData.set(responseHeader);
+      combinedData.set(new Uint8Array(response), responseHeaderLength);      
       webSocket.send(combinedData);
     } else {
       closeWebSocket(webSocket);
