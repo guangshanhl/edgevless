@@ -14,9 +14,10 @@ export default {
 };
 const handlehttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
+  const host = request.headers.get("Host");
   if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
   if (path === `/${userID}`) {
-    return new Response(getConfig(userID, request.headers.get("Host")), {
+    return new Response(getConfig(userID, host), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
