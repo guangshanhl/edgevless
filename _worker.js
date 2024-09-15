@@ -31,7 +31,7 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
-    if (remoteSocket.value) return await createWriterSession(remoteSocket.value, chunk);
+    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
     if (hasError) return;
     const responseHeader = new Uint8Array([Version[0], 0]);
@@ -46,48 +46,31 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
-const createWriterSession = (socket) => {
-  const writer = socket.writable.getWriter();  
-  return {
-    write: async (chunk) => {
-      try {
-        await writer.write(chunk);
-      } catch (err) {
-        throw err;
-      }
-    },
-    close: () => writer.releaseLock()
-  };
+const writeToRemote = async (socket, chunk) => {
+  const writer = socket.writable.getWriter();
+  await writer.write(chunk);
+  writer.releaseLock();
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  let writerSession;
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    writerSession = createWriterSession(tcpSocket);
     await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
       const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-      const fallbackWriterSession = createWriterSession(fallbackSocket);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, responseHeader);
-      fallbackWriterSession.close();
     });
-  } catch (err) {
+  } catch {
     closeWebSocket(webSocket);
-  } finally {
-    if (writerSession) writerSession.close();
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (remoteSocket.value && !remoteSocket.value.closed) {
-    const writerSession = createWriterSession(remoteSocket.value);
-    await writerSession.write(rawClientData);
-    return remoteSocket.value;
+    await writeToRemote(remoteSocket.value, rawClientData);   
   } else {
     remoteSocket.value = await connect({ hostname: address, port });
-    const writerSession = createWriterSession(remoteSocket.value);
-    await writerSession.write(rawClientData);
-    return remoteSocket.value;
+    await writeToRemote(remoteSocket.value, rawClientData);
   }
+  return remoteSocket.value;
 };
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
