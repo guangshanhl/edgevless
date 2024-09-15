@@ -78,11 +78,22 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => controller.enqueue(event.data));
-      webSocket.addEventListener('close', () => controller.close());
-      webSocket.addEventListener('error', err => controller.error(err));
+      const onMessage = event => controller.enqueue(event.data);
+      const onClose = () => controller.close();
+      const onError = err => controller.error(err);
+      webSocket.addEventListener('message', onMessage);
+      webSocket.addEventListener('close', onClose);
+      webSocket.addEventListener('error', onError);
+      this.cleanup = () => {
+        webSocket.removeEventListener('message', onMessage);
+        webSocket.removeEventListener('close', onClose);
+        webSocket.removeEventListener('error', onError);
+      };
     },
-    cancel: () => closeWebSocket(webSocket)
+    cancel() {
+      if (this.cleanup) this.cleanup();
+      closeWebSocket(webSocket);
+    }
   });
 };
 const processWebSocketHeader = (buffer, userID) => {
