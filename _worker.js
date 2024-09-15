@@ -1,37 +1,44 @@
 import { connect } from 'cloudflare:sockets';
+const userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+const proxyIP = '';
 export default {
   async fetch(request, env) {
     try {
-      const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-      const proxyIP = env.PROXYIP ?? '';
+      const { UUID = userID, PROXYIP = proxyIP } = env;
       return request.headers.get('Upgrade') === 'websocket'
-        ? handlewsRequest(request, userID, proxyIP)
-        : handlehttpRequest(request, userID);
+        ? handleWebSocketRequest(request, UUID, PROXYIP)
+        : handleHttpRequest(request, UUID);
     } catch (err) {
-      return new Response(err.toString());
+      return new Response(err.toString(), { status: 500 });
     }
   }
 };
-const handlehttpRequest = (request, userID) => {
-  const path = new URL(request.url).pathname;
-  const host = request.headers.get("Host");
-  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
-  if (path === `/${userID}`) {
+const handleHttpRequest = (request, userID) => {
+  const { pathname } = new URL(request.url);
+  const host = request.headers.get("Host"); 
+  if (pathname === "/") return new Response(JSON.stringify(request.cf, null, 4));
+  if (pathname === `/${userID}`) {
     return new Response(getConfig(userID, host), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
   return new Response("Not found", { status: 404 });
 };
-const handlewsRequest = async (request, userID, proxyIP) => {
+const handleWebSocketRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
-  let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
+  let remoteSocket = { value: null };
+  let udpStreamWrite = null;
+  let isDns = false;
   const processChunk = async (chunk) => {
-    if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
-    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+    if (isDns && udpStreamWrite) {
+      return udpStreamWrite(chunk);
+    }
+    if (remoteSocket.value) {
+      return writeToRemote(remoteSocket.value, chunk);
+    }
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
     if (hasError) return;
     const responseHeader = new Uint8Array([Version[0], 0]);
@@ -59,7 +66,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, responseHeader);
     });
-  } catch {
+  } catch (err) {
     closeWebSocket(webSocket);
   }
 };
@@ -78,9 +85,9 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      const onMessage = event => controller.enqueue(event.data);
+      const onMessage = (event) => controller.enqueue(event.data);
       const onClose = () => controller.close();
-      const onError = err => controller.error(err);
+      const onError = (err) => controller.error(err);
       webSocket.addEventListener('message', onMessage);
       webSocket.addEventListener('close', onClose);
       webSocket.addEventListener('error', onError);
@@ -123,7 +130,7 @@ const processWebSocketHeader = (buffer, userID) => {
   };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
+  if (!isWebSocketOpen(webSocket)) return closeWebSocket(webSocket);
   let hasData = false;
   try {
     const writable = new WritableStream({
@@ -140,17 +147,16 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   }
   if (retry && !hasData) retry();
 };
-const base64ToBuffer = base64Str => {
+const base64ToBuffer = (base64Str) => {
   try {
     const formattedStr = base64Str.replace(/[-_]/g, m => (m === '-' ? '+' : '/'));
     const binaryStr = atob(formattedStr);
-    const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
-    return { earlyData: buffer.buffer, error: null };
+    return { earlyData: Uint8Array.from(binaryStr, char => char.charCodeAt(0)).buffer, error: null };
   } catch (error) {
     return { earlyData: null, error };
   }
 };
-const closeWebSocket = webSocket => {
+const closeWebSocket = (webSocket) => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
@@ -173,17 +179,14 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
       body: packet.data
     }).then(response => response.arrayBuffer())
   ));
-  if (webSocket.readyState !== WebSocket.OPEN) return;
+  if (!isWebSocketOpen(webSocket)) return;
   dnsResults.forEach((dnsResult, i) => {
-    const packet = udpPackets[i];
-    const combinedLength = responseHeader.length + 2 + dnsResult.byteLength;
-    const combinedData = new Uint8Array(combinedLength);  
-    combinedData.set(responseHeader, 0);
-    combinedData.set([packet.length >> 8, packet.length & 0xff], responseHeader.length);
-    combinedData.set(new Uint8Array(dnsResult), responseHeader.length + 2);
-    webSocket.send(combinedData);
+    const response = new Uint8Array(dnsResult);
+    const packetLength = response.byteLength;
+    webSocket.send(new Uint8Array([...responseHeader, packetLength, ...response]));
   });
 };
+const isWebSocketOpen = (webSocket) => webSocket.readyState === WebSocket.OPEN;
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
