@@ -32,7 +32,8 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   const processChunk = async (chunk) => {
     if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
+    const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = processWebSocketHeader(chunk, userID);
+    address = addressRemote;
     if (hasError) return;
     const responseHeader = new Uint8Array([Version[0], 0]);
     const rawClientData = chunk.slice(rawDataIndex);
@@ -87,6 +88,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
+  const version = new Uint8Array(buffer.slice(0, 1));
   const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
   if (!userIDMatch) return { hasError: true };
   const optLength = view.getUint8(17);
@@ -107,7 +109,7 @@ const processWebSocketHeader = (buffer, userID) => {
     addressRemote: addressValue,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    Version: [0],
+    vlessVersion: version,
     isUDP
   };
 };
