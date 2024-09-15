@@ -28,12 +28,11 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   webSocket.accept();
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
-  let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';
+  let remoteSocket = { value: null }, udpWrite = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-    const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = processWebSocketHeader(chunk, userID);
-    address = addressRemote;
+    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
     if (hasError) return;
     const responseHeader = new Uint8Array([Version[0], 0]);
     const rawClientData = chunk.slice(rawDataIndex);
@@ -76,9 +75,11 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) return controller.error(error);
-      if (earlyData) controller.enqueue(earlyData);
+      if (earlyDataHeader && typeof earlyDataHeader === 'string' && /^[A-Za-z0-9+/=]+$/.test(earlyDataHeader)) {
+        const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+        if (error) return controller.error(error);
+        if (earlyData) controller.enqueue(earlyData);
+      }
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
@@ -86,9 +87,9 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
     cancel: () => closeWebSocket(webSocket)
   });
 };
+
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  const version = new Uint8Array(buffer.slice(0, 1));
   const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
   if (!userIDMatch) return { hasError: true };
   const optLength = view.getUint8(17);
@@ -109,7 +110,7 @@ const processWebSocketHeader = (buffer, userID) => {
     addressRemote: addressValue,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    vlessVersion: version,
+    Version: [0],
     isUDP
   };
 };
