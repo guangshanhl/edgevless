@@ -28,9 +28,9 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   webSocket.accept();
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
-  let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
+  let remoteSocket = { value: null }, udpWrite = null, isDns = false, address = '';
   const processChunk = async (chunk) => {
-    if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
+    if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
     const { hasError, addressRemote = '', portRemote = 443, rawDataIndex, vlessVersion = new Uint8Array([0, 0]), isUDP } = processWebSocketHeader(chunk, userID);
     address = addressRemote;
