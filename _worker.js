@@ -23,7 +23,10 @@ const handleHttp = (request, uuid) => {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
-  return new Response("Not found", { status: 404 });
+  const url = new URL(request.url);
+  url.hostname = 'bing.com';
+  url.protocol = 'https:';
+  return await fetch(newRequest);
 };
 const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
