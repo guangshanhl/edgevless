@@ -76,11 +76,14 @@ const createSocketStream = (webSocket, earlyHeader) => {
   const { earlyData, error } = base64ToBuffer(earlyHeader);
   return new ReadableStream({
     start(controller) {
-      if (error) return controller.error(error);
-      if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => controller.enqueue(event.data));
-      webSocket.addEventListener('close', () => controller.close());
-      webSocket.addEventListener('error', err => controller.error(err));
+      if (error) {
+        controller.error(error);
+      } else {
+        if (earlyData) controller.enqueue(earlyData);
+        webSocket.addEventListener('message', event => controller.enqueue(event.data));
+        webSocket.addEventListener('close', () => controller.close());
+        webSocket.addEventListener('error', err => controller.error(err));
+      }
     },
     cancel: () => closeWebSocket(webSocket)
   });
@@ -94,13 +97,17 @@ const processWebSocketHeader = (buffer, userID) => {
   const portRemote = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
-  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : addressType === 1 ? 4 : 16;
+  const addressLength = addressType === 2 
+    ? view.getUint8(addressIndex + 1) 
+    : addressType === 1 
+    ? 4 
+    : 16;
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
   const addressValue = addressType === 1
     ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
     : addressType === 2
     ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');  
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
     hasError: false,
     addressRemote: addressValue,
