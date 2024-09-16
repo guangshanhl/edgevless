@@ -28,8 +28,8 @@ const handleHttp = (request, uuid) => {
 const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
-  const protocolHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createSocketStream(server, protocolHeader);
+  const swpHeader = request.headers.get('sec-websocket-protocol') || '';
+  const readableStream = createSocketStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) {
@@ -76,10 +76,10 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
-const createSocketStream = (webSocket, protocolHeader) => {
+const createSocketStream = (webSocket, swpHeader) => {
   return new ReadableStream({
     start(controller) {
-      const { earlyData, error } = base64ToBuffer(protocolHeader);
+      const { earlyData, error } = base64ToBuffer(swpHeader);
       if (error) {
         controller.error(error);
       } else {
