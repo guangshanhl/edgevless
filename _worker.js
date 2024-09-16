@@ -30,9 +30,9 @@ const handleWebSocket = async (request, uuid, proxy) => {
   server.accept();
   const protocolHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(server, protocolHeader); 
-  let remoteSocket = { socket: null }, udpWriter = null, isDnsRequest = false;
+  let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
-    if (isDnsRequest && udpWriter) {
+    if (isDns && udpWriter) {
       return udpWriter(chunk);
     }
     if (remoteSocket.socket) {
@@ -43,8 +43,8 @@ const handleWebSocket = async (request, uuid, proxy) => {
     const responseHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);
     if (isUdp) {
-      isDnsRequest = port === 53;
-      udpWriter = isDnsRequest ? await handleUdp(server, responseHeader, clientData) : null;
+      isDns = port === 53;
+      udpWriter = isDns ? await handleUdp(server, responseHeader, clientData) : null;
     } else {
       handleTcp(remoteSocket, address, port, clientData, server, responseHeader, proxy);
     }
