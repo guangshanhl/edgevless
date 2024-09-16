@@ -29,16 +29,12 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const swpHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createWsStream(server, swpHeader);
+  const readableStream = createSocketStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
-    if (isDns && udpWriter) {
-      return udpWriter(chunk);
-    }
-    if (remoteSocket.socket) {
-      return await writeToSocket(remoteSocket.socket, chunk);
-    }
-    const { error, address, port, dataOffset, version, isUdp } = parseWsHeader(chunk, uuid);
+    if (isDns && udpWriter) return udpWriter(chunk);
+    if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);
+    const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;
     const resHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);
@@ -76,23 +72,21 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
-const createWsStream = (webSocket, swpHeader) => {
-  return new ReadableStream({
-    start(controller) {
-      const { earlyData, error } = base64ToBuffer(swpHeader);
-      if (error) {
-        controller.error(error);
-      } else {
-        if (earlyData) controller.enqueue(earlyData);
-        webSocket.addEventListener('message', event => controller.enqueue(event.data));
-        webSocket.addEventListener('close', () => controller.close());
-        webSocket.addEventListener('error', err => controller.error(err));
-      }
-    },
-    cancel: () => closeWebSocket(webSocket)
-  });
-};
-const parseWsHeader = (buffer, uuid) => {
+const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
+  start(controller) {
+    const { earlyData, error } = base64ToBuffer(swpHeader);
+    if (error) {
+      controller.error(error);
+      return;
+    }
+    if (earlyData) controller.enqueue(earlyData);
+    webSocket.addEventListener('message', event => controller.enqueue(event.data));
+    webSocket.addEventListener('close', () => controller.close());
+    webSocket.addEventListener('error', err => controller.error(err));
+  },
+  cancel: () => closeWebSocket(webSocket)
+});
+const parseWebSocketHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
   if (byteToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
     return { error: true };
@@ -127,15 +121,13 @@ const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
   let hasData = false;
   try {
-    const writable = new WritableStream({
+    await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        const data = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
-        server.send(data);
+        server.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
         resHeader = null;
       }
-    });
-    await remoteSocket.readable.pipeTo(writable);
+    }));
   } catch {
     closeWebSocket(server);
   }
@@ -144,8 +136,7 @@ const forwardData = async (remoteSocket, server, resHeader, retry) => {
 const base64ToBuffer = base64Str => {
   try {
     const formattedStr = base64Str.replace(/[-_]/g, m => (m === '-' ? '+' : '/'));
-    const binaryStr = atob(formattedStr);
-    const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
+    const buffer = Uint8Array.from(atob(formattedStr), char => char.charCodeAt(0));
     return { earlyData: buffer.buffer, error: null };
   } catch (error) {
     return { earlyData: null, error };
@@ -175,10 +166,9 @@ const handleUdp = async (server, resHeader, clientData) => {
     }).then(response => response.arrayBuffer())
   ));
   if (server.readyState !== WebSocket.OPEN) return;
-  dnsResults.forEach((result, i) => {
+  dnsResults.forEach(result => {
     const response = new Uint8Array(result);
-    const packetLength = response.byteLength;
-    server.send(new Uint8Array([...resHeader, packetLength, ...response]));
+    server.send(new Uint8Array([...resHeader, response.byteLength, ...response]));
   });
 };
 const getConfig = (uuid, host) => `
