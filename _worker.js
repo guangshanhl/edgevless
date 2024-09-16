@@ -29,7 +29,7 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const protocolHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createSocketStream(server, protocolHeader); 
+  const readableStream = socketStream(server, protocolHeader); 
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) {
@@ -38,7 +38,7 @@ const handleWebSocket = async (request, uuid, proxy) => {
     if (remoteSocket.socket) {
       return await writeToSocket(remoteSocket.socket, chunk);
     }
-    const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
+    const { error, address, port, dataOffset, version, isUdp } = parseHeader(chunk, uuid);
     if (error) return;
     const responseHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);
@@ -76,7 +76,7 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
-const createSocketStream = (webSocket, protocolHeader) => {
+const socketStream = (webSocket, protocolHeader) => {
   const { earlyData, error } = base64ToBuffer(protocolHeader);  
   return new ReadableStream({
     start(controller) {
@@ -92,9 +92,9 @@ const createSocketStream = (webSocket, protocolHeader) => {
     cancel: () => closeWebSocket(webSocket)
   });
 };
-const parseWebSocketHeader = (buffer, uuid) => {
+const parseHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
-  if (byteArrayToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
+  if (byteToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
     return { error: true };
   }
   const optLength = view.getUint8(17);
@@ -155,7 +155,7 @@ const closeWebSocket = webSocket => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
-const byteArrayToString = (arr, offset = 0) => {
+const byteToString = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
