@@ -13,10 +13,12 @@ export default {
   }
 };
 const handlehttpRequest = (request, userID) => {
-  const path = new URL(request.url).pathname;
+  const { pathname } = new URL(request.url);
   const host = request.headers.get("Host");
-  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
-  if (path === `/${userID}`) {
+  if (pathname === "/") {
+    return new Response(JSON.stringify(request.cf, null, 4));
+  }
+  if (pathname === `/${userID}`) {
     return new Response(getConfig(userID, host), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
@@ -64,18 +66,16 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);   
-  } else {
+  if (!remoteSocket.value || remoteSocket.value.closed) {
     remoteSocket.value = await connect({ hostname: address, port });
-    await writeToRemote(remoteSocket.value, rawClientData);
   }
+  await writeToRemote(remoteSocket.value, rawClientData);
   return remoteSocket.value;
 };
-const createSocketStream = (webSocket, earlyHeader) => { 
+const createSocketStream = (webSocket, earlyHeader) => {
+  const { earlyData, error } = base64ToBuffer(earlyHeader);
   return new ReadableStream({
     start(controller) {
-	  const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
@@ -87,8 +87,7 @@ const createSocketStream = (webSocket, earlyHeader) => {
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  const userIDMatch = stringify(new Uint8Array(buffer.slice(1, 17))) === userID;
-  if (!userIDMatch) return { hasError: true };
+  if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUDP = command === 2;
@@ -101,7 +100,7 @@ const processWebSocketHeader = (buffer, userID) => {
     ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
     : addressType === 2
     ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');  
   return {
     hasError: false,
     addressRemote: addressValue,
