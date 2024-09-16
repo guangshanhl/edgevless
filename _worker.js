@@ -6,17 +6,17 @@ export default {
       const proxy = env.PROXYIP ?? '';
       return request.headers.get('Upgrade') === 'websocket'
         ? handleWebSocket(request, uuid, proxy)
-        : handleHttp(request, uuid, headers);
+        : handleHttp(request, uuid);
     } catch (err) {
       return new Response(err.toString());
     }
   }
 };
-const handleHttp = (request, uuid, headers) => {
+const handleHttp = (request, uuid) => {
   const { pathname } = new URL(request.url);
   const host = request.headers.get("Host");
   if (pathname === "/") {
-    return new Response(JSON.stringify(request.cf, null, 4), { headers });
+    return new Response(JSON.stringify(request.cf, null, 4));
   }
   if (pathname === `/${uuid}`) {
     return new Response(getConfig(uuid, host), {
@@ -30,9 +30,9 @@ const handleWebSocket = async (request, uuid, proxy) => {
   server.accept();
   const protocolHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(server, protocolHeader);
-  let remoteSocket = { socket: null }, udpWriter = null, isDnsRequest = false;
+  let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
-    if (isDnsRequest && udpWriter) {
+    if (isDns && udpWriter) {
       return udpWriter(chunk);
     }
     if (remoteSocket.socket) {
@@ -43,8 +43,8 @@ const handleWebSocket = async (request, uuid, proxy) => {
     const responseHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);
     if (isUdp) {
-      isDnsRequest = port === 53;
-      udpWriter = isDnsRequest ? await handleUdp(server, responseHeader, clientData) : null;
+      isDns = port === 53;
+      udpWriter = isDns ? await handleUdp(server, responseHeader, clientData) : null;
     } else {
       handleTcp(remoteSocket, address, port, clientData, server, responseHeader, proxy);
     }
@@ -61,9 +61,9 @@ const handleTcp = async (remoteSocket, address, port, clientData, server, respon
   try {
     const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
     await forwardData(tcpSocket, server, responseHeader, async () => {
-      const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
-      await forwardData(fallbackSocket, server, responseHeader);
+      const fallSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
+      fallSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
+      await forwardData(fallSocket, server, responseHeader);
     });
   } catch {
     closeWebSocket(server);
@@ -94,7 +94,7 @@ const createSocketStream = (webSocket, protocolHeader) => {
 };
 const parseWebSocketHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
-  if (byteArrayToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
+  if (byteToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
     return { error: true };
   }
   const optLength = view.getUint8(17);
@@ -155,7 +155,7 @@ const closeWebSocket = webSocket => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
-const byteArrayToString = (arr, offset = 0) => {
+const byteToString = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
