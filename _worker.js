@@ -26,8 +26,8 @@ const handlehttpRequest = (request, userID) => {
 const handlewsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
-  const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
+  const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+  const readableStream = createSocketStream(webSocket, earlyHeader);
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
@@ -72,10 +72,10 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
   return remoteSocket.value;
 };
-const createSocketStream = (webSocket, earlyHeader) => {
-  const { earlyData, error } = base64ToBuffer(earlyHeader);
+const createSocketStream = (webSocket, earlyHeader) => { 
   return new ReadableStream({
     start(controller) {
+	  const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
@@ -112,7 +112,7 @@ const processWebSocketHeader = (buffer, userID) => {
   };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (!isWebSocketOpen(webSocket)) return closeWebSocket(webSocket);
+  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
   try {
     const writable = new WritableStream({
@@ -162,14 +162,13 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
       body: packet.data
     }).then(response => response.arrayBuffer())
   ));
-  if (!isWebSocketOpen(webSocket)) return;
+  if (webSocket.readyState !== WebSocket.OPEN) return;
   dnsResults.forEach((dnsResult, i) => {
     const response = new Uint8Array(dnsResult);
     const packetLength = response.byteLength;
     webSocket.send(new Uint8Array([...responseHeader, packetLength, ...response]));
   });
 };
-const isWebSocketOpen = (webSocket) => webSocket.readyState === WebSocket.OPEN;
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
