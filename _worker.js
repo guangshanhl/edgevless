@@ -29,7 +29,7 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const swpHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createSocketStream(server, swpHeader);
+  const readableStream = createWsStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) {
@@ -38,7 +38,7 @@ const handleWebSocket = async (request, uuid, proxy) => {
     if (remoteSocket.socket) {
       return await writeToSocket(remoteSocket.socket, chunk);
     }
-    const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
+    const { error, address, port, dataOffset, version, isUdp } = parseWsHeader(chunk, uuid);
     if (error) return;
     const resHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);
@@ -76,7 +76,7 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
-const createSocketStream = (webSocket, swpHeader) => {
+const createWsStream = (webSocket, swpHeader) => {
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(swpHeader);
@@ -92,7 +92,7 @@ const createSocketStream = (webSocket, swpHeader) => {
     cancel: () => closeWebSocket(webSocket)
   });
 };
-const parseWebSocketHeader = (buffer, uuid) => {
+const parseWsHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
   if (byteToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
     return { error: true };
