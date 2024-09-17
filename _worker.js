@@ -75,10 +75,7 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
     const { earlyData, error } = base64ToBuffer(swpHeader);
-    if (error) {
-      controller.error(error);
-      return;
-    }
+    if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
     webSocket.addEventListener('message', event => controller.enqueue(event.data));
     webSocket.addEventListener('close', () => controller.close());
@@ -148,29 +145,24 @@ const byteToString = (arr, offset = 0) => {
 };
 const handleUdp = async (server, resHeader, clientData) => {
   const udpPackets = [];
-  let index = 0;
-  while (index < clientData.byteLength) {
+  for (let index = 0; index < clientData.byteLength;) {
     const udpPacketLength = new DataView(clientData.buffer, index, 2).getUint16(0);
     udpPackets.push({ length: udpPacketLength, data: clientData.slice(index + 2, index + 2 + udpPacketLength) });
     index += 2 + udpPacketLength;
   }
-  try {
-    const dnsResults = await Promise.all(udpPackets.map(packet =>
-      fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
-        body: packet.data
-      }).then(response => response.arrayBuffer())
-    ));
-    if (server.readyState !== WebSocket.OPEN) return;
-    dnsResults.forEach(result => {
-      const response = new Uint8Array(result);
-      const dataToSend = new Uint8Array([...resHeader, ...new Uint8Array([response.byteLength]), ...response]);
-      server.send(dataToSend);
-    });
-  } catch (error) {
-    console.error('Error handling UDP packets:', error);
-  }
+  const dnsResults = await Promise.all(udpPackets.map(packet =>
+    fetch('https://cloudflare-dns.com/dns-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/dns-message' },
+      body: packet.data
+    }).then(response => response.arrayBuffer())
+  ));
+  if (server.readyState !== WebSocket.OPEN) return;
+  dnsResults.forEach(result => {
+    const response = new Uint8Array(result);
+    const dataToSend = new Uint8Array([...resHeader, response.byteLength, ...response]);
+    server.send(dataToSend);
+  });
 };
 const getConfig = (uuid, host) => `
 vless://${uuid}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
