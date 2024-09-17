@@ -38,13 +38,13 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) return udpWriter(chunk);
     if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);
-
+    
     const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;
 
     const resHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);
-
+    
     if (isUdp) {
       isDns = port === 53;
       udpWriter = isDns ? await handleUdp(server, resHeader, clientData) : null;
@@ -65,46 +65,41 @@ const writeToSocket = async (socket, chunk) => {
 
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
-    // 先尝试连接主服务器
-    const mainServerSocket = await connect({ hostname: address, port });
-    await writeToSocket(mainServerSocket, clientData);
+    // 连接到主服务器
+    const mainSocket = await connect({ hostname: address, port });
+    await writeToSocket(mainSocket, clientData);
 
-    // 从主服务器连接备用服务器
-    const backupSocket = await connect({ hostname: proxy || address, port });
-    await forwardData(mainServerSocket, backupSocket, server, resHeader);
+    // 通过主服务器连接备用服务器
+    const fallbackSocket = await connect({ hostname: proxy || address, port });
+    await forwardData(mainSocket, fallbackSocket, server, resHeader);
 
-    // 连接备用服务器
-    await forwardData(backupSocket, server, resHeader);
   } catch (error) {
-    try {
-      // 主服务器失败，直接连接备用服务器
-      const backupSocket = await connect({ hostname: proxy || address, port });
-      await writeToSocket(backupSocket, clientData);
-      await forwardData(backupSocket, server, resHeader);
-    } catch (error) {
-      // 备用服务器也失败，关闭 WebSocket 连接
-      closeWebSocket(server);
-    }
+    console.error('Failed to handle TCP:', error);
+    closeWebSocket(server);
   }
 };
 
 const forwardData = async (sourceSocket, destinationSocket, server, resHeader) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
 
-  let hasData = false;
   try {
+    let hasData = false;
     await sourceSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        destinationSocket.writable.getWriter().write(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
+        const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
+        destinationSocket.writable.getWriter().write(dataToSend);
         resHeader = null;
       }
     }));
-  } catch {
+
+    if (!hasData) {
+      closeWebSocket(server);
+    }
+  } catch (error) {
+    console.error('Error in forwarding data:', error);
     closeWebSocket(server);
   }
-
-  if (!hasData) closeWebSocket(server);
 };
 
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
