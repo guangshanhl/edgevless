@@ -75,7 +75,10 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
     const { earlyData, error } = base64ToBuffer(swpHeader);
-    if (error) return controller.error(error);
+    if (error) {
+      controller.error(error);
+      return;
+    }
     if (earlyData) controller.enqueue(earlyData);
     webSocket.addEventListener('message', event => controller.enqueue(event.data));
     webSocket.addEventListener('close', () => controller.close());
@@ -85,24 +88,21 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
 });
 const parseWebSocketHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
-  if (stringify(new Uint8Array(buffer.slice(1, 17))) !== uuid) return { Error: true }; 
+  const headerUuid = byteToString(new Uint8Array(buffer.slice(1, 17)));
+  if (headerUuid !== uuid) return { error: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
-  const isUDP = command === 2;
-  const portRemote = view.getUint16(18 + optLength + 1);
+  const isUdp = command === 2;
+  const port = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
-  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : addressType === 1 ? 4 : 16;
+  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : (addressType === 1 ? 4 : 16);
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
-  let addressValue;
-  switch (addressType) {
-    case 1: addressValue = Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.');
-      break;
-    case 2: addressValue = new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength));
-      break;
-    case 3: addressValue = Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
-      break;
-  }
+  const address = addressType === 1
+    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
     error: false,
     address,
@@ -154,19 +154,23 @@ const handleUdp = async (server, resHeader, clientData) => {
     udpPackets.push({ length: udpPacketLength, data: clientData.slice(index + 2, index + 2 + udpPacketLength) });
     index += 2 + udpPacketLength;
   }
-  const dnsResults = await Promise.all(udpPackets.map(packet =>
-    fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/dns-message' },
-      body: packet.data
-    }).then(response => response.arrayBuffer())
-  ));
-  if (server.readyState !== WebSocket.OPEN) return;
-  dnsResults.forEach(result => {
-    const response = new Uint8Array(result);
-    const dataToSend = new Uint8Array([...resHeader, ...new Uint8Array([response.byteLength]), ...response]);
-    server.send(dataToSend);
-  });
+  try {
+    const dnsResults = await Promise.all(udpPackets.map(packet =>
+      fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: packet.data
+      }).then(response => response.arrayBuffer())
+    ));
+    if (server.readyState !== WebSocket.OPEN) return;
+    dnsResults.forEach(result => {
+      const response = new Uint8Array(result);
+      const dataToSend = new Uint8Array([...resHeader, ...new Uint8Array([response.byteLength]), ...response]);
+      server.send(dataToSend);
+    });
+  } catch (error) {
+    console.error('Error handling UDP packets:', error);
+  }
 };
 const getConfig = (uuid, host) => `
 vless://${uuid}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
