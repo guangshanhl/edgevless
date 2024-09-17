@@ -86,15 +86,9 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   },
   cancel: () => closeWebSocket(webSocket)
 });
-const ADDRESS_LENGTHS = {
-  1: 4,
-  2: null,
-  3: 16
-};
 const parseWebSocketHeader = (buffer, uuid) => {
-  const view = new DataView(buffer.buffer);
-  const uuidArray = new Uint8Array(buffer.slice(1, 17));
-  if (byteToString(uuidArray) !== uuid) {
+  const view = new DataView(buffer);
+  if (byteToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
     return { error: true };
   }
   const optLength = view.getUint8(17);
@@ -103,15 +97,17 @@ const parseWebSocketHeader = (buffer, uuid) => {
   const port = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
-  const addressLength = ADDRESS_LENGTHS[addressType] !== null 
-    ? ADDRESS_LENGTHS[addressType] 
-    : view.getUint8(addressIndex + 1);
+  const addressLength = addressType === 2 
+    ? view.getUint8(addressIndex + 1) 
+    : addressType === 1 
+    ? 4 
+    : 16;
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
   const address = addressType === 1
-    ? Array.from(new Uint8Array(buffer.buffer, addressValueIndex, 4)).join('.')
+    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
     : addressType === 2
-    ? new TextDecoder().decode(new Uint8Array(buffer.buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer.buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
     error: false,
     address,
@@ -122,38 +118,62 @@ const parseWebSocketHeader = (buffer, uuid) => {
   };
 };
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
-  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
-  let hasData = false;
+  if (server.readyState !== WebSocket.OPEN) {
+    closeWebSocket(server);
+    return;
+  }
+  
   const buffer = [];
-  const bufferSize = 1024;
+  const bufferSize = 1024; // Example buffer size
+
+  // Function to flush the buffer
   const flushBuffer = () => {
     if (buffer.length > 0) {
-      const dataToSend = new Uint8Array(buffer.reduce((acc, val) => acc.concat(Array.from(val)), []));
+      // Calculate total buffer length
+      const totalLength = buffer.reduce((acc, val) => acc + val.byteLength, 0);
+      const dataToSend = new Uint8Array(totalLength);
+      
+      // Copy data from buffer to the new Uint8Array
+      let offset = 0;
+      for (const chunk of buffer) {
+        dataToSend.set(new Uint8Array(chunk), offset);
+        offset += chunk.byteLength;
+      }
+      
+      // Send the data and clear the buffer
       server.send(dataToSend);
       buffer.length = 0;
     }
   };
+
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
-      write: async (chunk) => {
-        hasData = true;
+      write: (chunk) => {
+        // Add resHeader if present
         if (resHeader) {
           buffer.push(new Uint8Array([...resHeader, ...chunk]));
           resHeader = null;
         } else {
           buffer.push(chunk);
         }
-        if (buffer.reduce((acc, val) => acc + val.length, 0) >= bufferSize) {
+        
+        // Flush buffer if it reaches or exceeds the bufferSize
+        const currentSize = buffer.reduce((acc, val) => acc + val.byteLength, 0);
+        if (currentSize >= bufferSize) {
           flushBuffer();
         }
       },
-      close: () => flushBuffer(),
-      abort: () => flushBuffer()
+      close: flushBuffer,
+      abort: flushBuffer
     }));
   } catch (error) {
+    // Handle errors by closing the WebSocket
     closeWebSocket(server);
+  }  
+  // Retry if no data was received
+  if (retry && buffer.length === 0) {
+    retry();
   }
-  if (retry && !hasData) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
