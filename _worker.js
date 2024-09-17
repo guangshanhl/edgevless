@@ -5,7 +5,7 @@ export default {
   async fetch(request, env) {
     try {
       uuid = env.UUID || uuid;
-			proxy = env.PROXYIP || proxy;
+      proxy = env.PROXYIP || proxy;
       return request.headers.get('Upgrade') === 'websocket'
         ? handleSocket(request)
         : handleHttp(request);
@@ -31,7 +31,7 @@ const handleSocket = async (request) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const swpHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createSocketStream(server, swpHeader);
+  const readableStream = createSocketStream(server, swpHeader); 
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) return udpWriter(chunk);
@@ -100,7 +100,7 @@ const parseWebSocketHeader = (buffer) => {
     ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
     : addressType === 2
     ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':'); 
   return {
     error: false,
     address,
