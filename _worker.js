@@ -121,43 +121,31 @@ const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) {
     closeWebSocket(server);
     return;
-  }
-  
+  }  
   const buffer = [];
-  const bufferSize = 1024; // Example buffer size
-
-  // Function to flush the buffer
+  const bufferSize = 2048;
   const flushBuffer = () => {
     if (buffer.length > 0) {
-      // Calculate total buffer length
       const totalLength = buffer.reduce((acc, val) => acc + val.byteLength, 0);
       const dataToSend = new Uint8Array(totalLength);
-      
-      // Copy data from buffer to the new Uint8Array
       let offset = 0;
       for (const chunk of buffer) {
         dataToSend.set(new Uint8Array(chunk), offset);
         offset += chunk.byteLength;
       }
-      
-      // Send the data and clear the buffer
       server.send(dataToSend);
       buffer.length = 0;
     }
   };
-
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: (chunk) => {
-        // Add resHeader if present
         if (resHeader) {
           buffer.push(new Uint8Array([...resHeader, ...chunk]));
           resHeader = null;
         } else {
           buffer.push(chunk);
         }
-        
-        // Flush buffer if it reaches or exceeds the bufferSize
         const currentSize = buffer.reduce((acc, val) => acc + val.byteLength, 0);
         if (currentSize >= bufferSize) {
           flushBuffer();
@@ -167,10 +155,8 @@ const forwardData = async (remoteSocket, server, resHeader, retry) => {
       abort: flushBuffer
     }));
   } catch (error) {
-    // Handle errors by closing the WebSocket
     closeWebSocket(server);
   }  
-  // Retry if no data was received
   if (retry && buffer.length === 0) {
     retry();
   }
