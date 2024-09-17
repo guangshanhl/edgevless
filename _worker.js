@@ -118,48 +118,20 @@ const parseWebSocketHeader = (buffer, uuid) => {
   };
 };
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
-  if (server.readyState !== WebSocket.OPEN) {
-    closeWebSocket(server);
-    return;
-  }  
-  const buffer = [];
-  const bufferSize = 2048;
-  const flushBuffer = () => {
-    if (buffer.length > 0) {
-      const totalLength = buffer.reduce((acc, val) => acc + val.byteLength, 0);
-      const dataToSend = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of buffer) {
-        dataToSend.set(new Uint8Array(chunk), offset);
-        offset += chunk.byteLength;
-      }
-      server.send(dataToSend);
-      buffer.length = 0;
-    }
-  };
+  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
+  let hasData = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
-      write: (chunk) => {
-        if (resHeader) {
-          buffer.push(new Uint8Array([...resHeader, ...chunk]));
-          resHeader = null;
-        } else {
-          buffer.push(chunk);
-        }
-        const currentSize = buffer.reduce((acc, val) => acc + val.byteLength, 0);
-        if (currentSize >= bufferSize) {
-          flushBuffer();
-        }
-      },
-      close: flushBuffer,
-      abort: flushBuffer
+      write: async (chunk) => {
+        hasData = true;
+        server.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
+        resHeader = null;
+      }
     }));
-  } catch (error) {
+  } catch {
     closeWebSocket(server);
-  }  
-  if (retry && buffer.length === 0) {
-    retry();
   }
+  if (retry && !hasData) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
