@@ -1,18 +1,20 @@
 import { connect } from 'cloudflare:sockets';
+let uuid = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+let proxy = '';
 export default {
   async fetch(request, env) {
     try {
-      const uuid = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-      const proxy = env.PROXYIP ?? '';
+      uuid = env.UUID || uuid;
+			proxy = env.PROXYIP || proxy;
       return request.headers.get('Upgrade') === 'websocket'
-        ? handleWebSocket(request, uuid, proxy)
-        : handleHttp(request, uuid);
+        ? handleSocket(request)
+        : handleHttp(request);
     } catch (err) {
       return new Response(err.toString());
     }
   }
 };
-const handleHttp = (request, uuid) => {
+const handleHttp = (request) => {
   const { pathname } = new URL(request.url);
   const host = request.headers.get("Host");
   if (pathname === "/") {
@@ -25,7 +27,7 @@ const handleHttp = (request, uuid) => {
   }
   return new Response("Not found", { status: 404 });
 };
-const handleWebSocket = async (request, uuid, proxy) => {
+const handleSocket = async (request) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const swpHeader = request.headers.get('sec-websocket-protocol') || '';
@@ -42,7 +44,7 @@ const handleWebSocket = async (request, uuid, proxy) => {
       isDns = port === 53;
       udpWriter = isDns ? await handleUdp(server, resHeader, clientData) : null;
     } else {
-      handleTcp(remoteSocket, address, port, clientData, server, resHeader, proxy);
+      handleTcp(remoteSocket, address, port, clientData, server, resHeader);
     }
   };
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
@@ -53,7 +55,7 @@ const writeToSocket = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
+const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader) => {
   try {
     const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
     await forwardData(tcpSocket, server, resHeader, async () => {
@@ -83,10 +85,9 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   },
   cancel: () => closeWebSocket(webSocket)
 });
-const parseWebSocketHeader = (buffer, uuid) => {
+const parseWebSocketHeader = (buffer) => {
   const view = new DataView(buffer);
-  const headerUuid = byteToString(new Uint8Array(buffer.slice(1, 17)));
-  if (headerUuid !== uuid) return { error: true };
+  const isUuid = byteToString(new Uint8Array(buffer.slice(1, 17))); return isUuid !== uuid ? { error: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUdp = command === 2;
