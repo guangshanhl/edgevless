@@ -55,23 +55,16 @@ const writeToSocket = async (socket, chunk) => {
 };
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
-    // 尝试建立与主要 TCP 服务器的连接
     const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
-    
-    // 将数据从主要 TCP 服务器转发到备用 TCP 服务器
-    await forwardData(tcpSocket, async (chunk) => {
-      // 备用 TCP 服务器地址
-      const fallSocket = await connectAndSend(remoteSocket, proxy || address, port, chunk);
-      
-      // 发送数据到备用 TCP 服务器
+    await forwardData(tcpSocket, server, resHeader, async () => {
+      const fallSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
+      fallSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
       await forwardData(fallSocket, server, resHeader);
     });
   } catch {
-    // 处理连接错误，并关闭 WebSocket
     closeWebSocket(server);
   }
 };
-
 const connectAndSend = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.socket || remoteSocket.socket.closed) {
     remoteSocket.socket = await connect({ hostname: address, port });
@@ -93,9 +86,15 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   },
   cancel: () => closeWebSocket(webSocket)
 });
+const ADDRESS_LENGTHS = {
+  1: 4,
+  2: null,
+  3: 16
+};
 const parseWebSocketHeader = (buffer, uuid) => {
-  const view = new DataView(buffer);
-  if (byteToString(new Uint8Array(buffer.slice(1, 17))) !== uuid) {
+  const view = new DataView(buffer.buffer);
+  const uuidArray = new Uint8Array(buffer.slice(1, 17));
+  if (byteToString(uuidArray) !== uuid) {
     return { error: true };
   }
   const optLength = view.getUint8(17);
@@ -104,17 +103,15 @@ const parseWebSocketHeader = (buffer, uuid) => {
   const port = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
-  const addressLength = addressType === 2 
-    ? view.getUint8(addressIndex + 1) 
-    : addressType === 1 
-    ? 4 
-    : 16;
+  const addressLength = ADDRESS_LENGTHS[addressType] !== null 
+    ? ADDRESS_LENGTHS[addressType] 
+    : view.getUint8(addressIndex + 1);
   const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
   const address = addressType === 1
-    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
+    ? Array.from(new Uint8Array(buffer.buffer, addressValueIndex, 4)).join('.')
     : addressType === 2
-    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    ? new TextDecoder().decode(new Uint8Array(buffer.buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer.buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
     error: false,
     address,
@@ -124,18 +121,39 @@ const parseWebSocketHeader = (buffer, uuid) => {
     isUdp
   };
 };
-const forwardData = async (remoteSocket, server, resHeader) => {
+const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
+  let hasData = false;
+  const buffer = [];
+  const bufferSize = 1024;
+  const flushBuffer = () => {
+    if (buffer.length > 0) {
+      const dataToSend = new Uint8Array(buffer.reduce((acc, val) => acc.concat(Array.from(val)), []));
+      server.send(dataToSend);
+      buffer.length = 0;
+    }
+  };
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
-          server.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
-        resHeader = null;
-      }
+        hasData = true;
+        if (resHeader) {
+          buffer.push(new Uint8Array([...resHeader, ...chunk]));
+          resHeader = null;
+        } else {
+          buffer.push(chunk);
+        }
+        if (buffer.reduce((acc, val) => acc + val.length, 0) >= bufferSize) {
+          flushBuffer();
+        }
+      },
+      close: () => flushBuffer(),
+      abort: () => flushBuffer()
     }));
-  } catch {
+  } catch (error) {
     closeWebSocket(server);
   }
+  if (retry && !hasData) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
@@ -157,23 +175,29 @@ const byteToString = (arr, offset = 0) => {
 };
 const handleUdp = async (server, resHeader, clientData) => {
   const udpPackets = [];
-  for (let index = 0; index < clientData.byteLength; ) {
+  let index = 0;
+  while (index < clientData.byteLength) {
     const udpPacketLength = new DataView(clientData.buffer, index, 2).getUint16(0);
     udpPackets.push({ length: udpPacketLength, data: clientData.slice(index + 2, index + 2 + udpPacketLength) });
     index += 2 + udpPacketLength;
   }
-  const dnsResults = await Promise.all(udpPackets.map(packet =>
-    fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/dns-message' },
-      body: packet.data
-    }).then(response => response.arrayBuffer())
-  ));
-  if (server.readyState !== WebSocket.OPEN) return;
-  dnsResults.forEach(result => {
-    const response = new Uint8Array(result);
-    server.send(new Uint8Array([...resHeader, response.byteLength, ...response]));
-  });
+  try {
+    const dnsResults = await Promise.all(udpPackets.map(packet =>
+      fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: packet.data
+      }).then(response => response.arrayBuffer())
+    ));
+    if (server.readyState !== WebSocket.OPEN) return;
+    dnsResults.forEach(result => {
+      const response = new Uint8Array(result);
+      const dataToSend = new Uint8Array([...resHeader, ...new Uint8Array([response.byteLength]), ...response]);
+      server.send(dataToSend);
+    });
+  } catch (error) {
+    console.error('Error handling UDP packets:', error);
+  }
 };
 const getConfig = (uuid, host) => `
 vless://${uuid}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
