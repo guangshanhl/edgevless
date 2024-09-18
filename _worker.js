@@ -117,14 +117,16 @@ const forwardData = async (remoteSocket, server, resHeader, retry) => {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        hasDataBuffer.set(chunk, 0);
-        server.send(resHeader ? new Uint8Array([...resHeader, ...hasDataBuffer.slice(0, chunk.byteLength)]) : chunk);
+        const combinedData = hasDataBuffer.subarray(0, resHeader.length + chunk.length);
+        combinedData.set(resHeader, 0);
+        combinedData.set(chunk, resHeader.length);        
+        server.send(combinedData);
         resHeader = null;
       }
     }));
   } catch {
     closeWebSocket(server);
-  }
+  }  
   if (retry && !hasData) retry();
 };
 const base64ToBuffer = base64Str => {
