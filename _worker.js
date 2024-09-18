@@ -145,6 +145,8 @@ const byteToString = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
+let dnsCache = new Map();
+const dnsTTL = 7200000;
 const handleUdp = async (server, resHeader, clientData) => {
   const udpPackets = [];
   for (let index = 0; index < clientData.byteLength;) {
@@ -152,13 +154,19 @@ const handleUdp = async (server, resHeader, clientData) => {
     udpPackets.push({ length: udpPacketLength, data: clientData.slice(index + 2, index + 2 + udpPacketLength) });
     index += 2 + udpPacketLength;
   }
-  const dnsResults = await Promise.all(udpPackets.map(packet =>
-    fetch('https://cloudflare-dns.com/dns-query', {
+  const dnsResults = await Promise.all(udpPackets.map(async (packet) => {
+    const cacheKey = getCacheKey(packet.data);
+    if (dnsCache.has(cacheKey) && Date.now() - dnsCache.get(cacheKey).timestamp < dnsTTL) {
+      return dnsCache.get(cacheKey).response;
+    }
+    const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/dns-message' },
       body: packet.data
-    }).then(response => response.arrayBuffer())
-  ));
+    }).then(response => response.arrayBuffer());
+    dnsCache.set(cacheKey, { response, timestamp: Date.now() });
+    return response;
+  }));
   if (server.readyState !== WebSocket.OPEN) return;
   dnsResults.forEach(result => {
     const response = new Uint8Array(result);
