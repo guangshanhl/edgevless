@@ -25,30 +25,15 @@ const handleHttp = (request, uuid) => {
   }
   return new Response("Not found", { status: 404 });
 };
-const mergeChunks = (queue) => {
-  const totalLength = queue.reduce((acc, chunk) => acc + chunk.byteLength, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
-  queue.forEach(chunk => {
-    combined.set(new Uint8Array(chunk), offset);
-    offset += chunk.byteLength;
-  });
-  return combined.buffer;
-};
 const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const swpHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
-  const bufferQueue = [];
   const processChunk = async (chunk) => {
-    bufferQueue.push(chunk);
-    if (bufferQueue.length >= MAX_CHUNK_SIZE) {
-    const combinedChunk = mergeChunks(bufferQueue);
-    bufferQueue.length = 0;
-    if (isDns && udpWriter) return udpWriter(combinedChunk);
-    if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, combinedChunk);
+    if (isDns && udpWriter) return udpWriter(chunk);
+    if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);
     const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;
     const resHeader = new Uint8Array([version[0], 0]);
@@ -127,13 +112,13 @@ const parseWebSocketHeader = (buffer, uuid) => {
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
   let hasData = false;
-  let preAllocatedBuffer = new Uint8Array(65535);
+  let hasDataBuffer = new Uint8Array(65535);
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        preAllocatedBuffer.set(chunk, 0);
-        server.send(resHeader ? new Uint8Array([...resHeader, ...preAllocatedBuffer.slice(0, chunk.byteLength)]) : chunk);
+        hasDataBuffer.set(chunk, 0);
+        server.send(resHeader ? new Uint8Array([...resHeader, ...hasDataBuffer.slice(0, chunk.byteLength)]) : chunk);
         resHeader = null;
       }
     }));
@@ -160,9 +145,9 @@ const byteToString = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
     .join('-').toLowerCase();
 };
-let dnsCache = new Map();
-const dnsTTL = 7200000;
 const handleUdp = async (server, resHeader, clientData) => {
+  const dnsCache = new Map();
+  const dnsTTL = 7200000;
   const udpPackets = [];
   for (let index = 0; index < clientData.byteLength;) {
     const udpPacketLength = new DataView(clientData.buffer, index, 2).getUint16(0);
