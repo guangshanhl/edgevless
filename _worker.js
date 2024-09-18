@@ -55,13 +55,17 @@ const writeToSocket = async (socket, chunk) => {
 };
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
-    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
+    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);    
     await forwardData(tcpSocket, server, resHeader, async () => {
-      const fallSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
-      fallSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
-      await forwardData(fallSocket, server, resHeader);
+      try {
+        const fallSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
+        fallSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
+        await forwardData(fallSocket, server, resHeader);
+      } catch (fallbackError) {
+        closeWebSocket(server);
+      }
     });
-  } catch {
+  } catch (connectionError) {
     closeWebSocket(server);
   }
 };
