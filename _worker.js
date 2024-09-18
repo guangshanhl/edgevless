@@ -1,5 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-const preAllocatedBuffer = new Uint8Array(65535);
 export default {
   async fetch(request, env) {
     try {
@@ -112,21 +111,20 @@ const parseWebSocketHeader = (buffer, uuid) => {
 };
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
-  let hasData = false;  
+  let hasData = false;
+  let preAllocatedBuffer = new Uint8Array(65535);
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        const combinedData = preAllocatedBuffer.subarray(0, resHeader.length + chunk.length);
-        combinedData.set(resHeader, 0);
-        combinedData.set(chunk, resHeader.length);   
-        server.send(combinedData);
+        preAllocatedBuffer.set(chunk, 0);
+        server.send(resHeader ? new Uint8Array([...resHeader, ...preAllocatedBuffer.slice(0, chunk.byteLength)]) : chunk);
         resHeader = null;
       }
     }));
   } catch {
     closeWebSocket(server);
-  }  
+  }
   if (retry && !hasData) retry();
 };
 const base64ToBuffer = base64Str => {
