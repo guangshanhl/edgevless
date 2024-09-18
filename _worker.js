@@ -112,7 +112,32 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   },
   cancel: () => closeWebSocket(webSocket)
 });
-
+const parseWebSocketHeader = (buffer, uuid) => {
+  const view = new DataView(buffer);
+  const headerUuid = byteToString(new Uint8Array(buffer.slice(1, 17)));
+  if (headerUuid !== uuid) return { error: true };
+  const optLength = view.getUint8(17);
+  const command = view.getUint8(18 + optLength);
+  const isUdp = command === 2;
+  const port = view.getUint16(18 + optLength + 1);
+  const addressIndex = 18 + optLength + 3;
+  const addressType = view.getUint8(addressIndex);
+  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : (addressType === 1 ? 4 : 16);
+  const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
+  const address = addressType === 1
+    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+  return {
+    error: false,
+    address,
+    port,
+    dataOffset: addressValueIndex + addressLength,
+    version: [0],
+    isUdp
+  };
+};
 // 转发数据并使用预分配缓冲区
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
