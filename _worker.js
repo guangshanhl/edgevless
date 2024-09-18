@@ -1,4 +1,9 @@
 import { connect } from 'cloudflare:sockets';
+
+// 模块级预先分配的缓冲区
+const preAllocatedBuffer = new Uint8Array(65535);
+const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
+
 export default {
   async fetch(request, env) {
     try {
@@ -12,6 +17,7 @@ export default {
     }
   }
 };
+
 const handleHttp = (request, uuid) => {
   const { pathname } = new URL(request.url);
   const host = request.headers.get("Host");
@@ -25,18 +31,26 @@ const handleHttp = (request, uuid) => {
   }
   return new Response("Not found", { status: 404 });
 };
+
 const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
   const swpHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
+  
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) return udpWriter(chunk);
     if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);
+    
     const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;
-    const resHeader = new Uint8Array([version[0], 0]);
+    
+    // 复用缓冲区
+    const resHeader = preAllocatedBuffer.subarray(0, 2); // 预先分配的缓冲区中使用部分
+    resHeader.set(version, 0);
+    resHeader[1] = 0;
+
     const clientData = chunk.slice(dataOffset);
     if (isUdp) {
       isDns = port === 53;
@@ -45,14 +59,17 @@ const handleWebSocket = async (request, uuid, proxy) => {
       handleTcp(remoteSocket, address, port, clientData, server, resHeader, proxy);
     }
   };
+
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
+
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
   writer.releaseLock();
 };
+
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
     const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
@@ -65,6 +82,7 @@ const handleTcp = async (remoteSocket, address, port, clientData, server, resHea
     closeWebSocket(server);
   }
 };
+
 const connectAndSend = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.socket || remoteSocket.socket.closed) {
     remoteSocket.socket = await connect({ hostname: address, port });
@@ -72,6 +90,7 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
+
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
     const { earlyData, error } = base64ToBuffer(swpHeader);
@@ -83,44 +102,19 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   },
   cancel: () => closeWebSocket(webSocket)
 });
-const parseWebSocketHeader = (buffer, uuid) => {
-  const view = new DataView(buffer);
-  const headerUuid = byteToString(new Uint8Array(buffer.slice(1, 17)));
-  if (headerUuid !== uuid) return { error: true };
-  const optLength = view.getUint8(17);
-  const command = view.getUint8(18 + optLength);
-  const isUdp = command === 2;
-  const port = view.getUint16(18 + optLength + 1);
-  const addressIndex = 18 + optLength + 3;
-  const addressType = view.getUint8(addressIndex);
-  const addressLength = addressType === 2 ? view.getUint8(addressIndex + 1) : (addressType === 1 ? 4 : 16);
-  const addressValueIndex = addressIndex + (addressType === 2 ? 2 : 1);
-  const address = addressType === 1
-    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-    : addressType === 2
-    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
-  return {
-    error: false,
-    address,
-    port,
-    dataOffset: addressValueIndex + addressLength,
-    version: [0],
-    isUdp
-  };
-};
+
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
   let hasData = false;
-  let preAllocatedBuffer = new Uint8Array(65535); // 预先分配大缓冲区
-
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        preAllocatedBuffer.set(chunk, 0); // 将数据写入预分配的缓冲区
-        server.send(resHeader ? new Uint8Array([...resHeader, ...preAllocatedBuffer.slice(0, chunk.byteLength)]) : chunk);
-        resHeader = null;
+        const combinedData = preAllocatedBuffer.subarray(0, resHeader.length + chunk.length); // 复用缓冲区
+        combinedData.set(resHeader, 0);
+        combinedData.set(chunk, resHeader.length);
+        server.send(combinedData);
+        resHeader = null; // 重置头部
       }
     }));
   } catch {
@@ -138,15 +132,11 @@ const base64ToBuffer = base64Str => {
     return { earlyData: null, error };
   }
 };
+
 const closeWebSocket = webSocket => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
-const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
-const byteToString = (arr, offset = 0) => {
-  const segments = [4, 2, 2, 2, 6];
-  return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
-    .join('-').toLowerCase();
-};
+
 const handleUdp = async (server, resHeader, clientData) => {
   const udpPackets = [];
   for (let index = 0; index < clientData.byteLength;) {
@@ -154,6 +144,7 @@ const handleUdp = async (server, resHeader, clientData) => {
     udpPackets.push({ length: udpPacketLength, data: clientData.slice(index + 2, index + 2 + udpPacketLength) });
     index += 2 + udpPacketLength;
   }
+
   const dnsResults = await Promise.all(udpPackets.map(packet =>
     fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
@@ -161,14 +152,17 @@ const handleUdp = async (server, resHeader, clientData) => {
       body: packet.data
     }).then(response => response.arrayBuffer())
   ));
+
   if (server.readyState !== WebSocket.OPEN) return;
   dnsResults.forEach(result => {
     const response = new Uint8Array(result);
-    const dataToSend = new Uint8Array([...resHeader, response.byteLength, ...response]);
+    const dataToSend = preAllocatedBuffer.subarray(0, resHeader.length + response.byteLength); // 复用缓冲区
+    dataToSend.set(resHeader, 0);
+    dataToSend.set(response, resHeader.length);
     server.send(dataToSend);
   });
 };
+
 const getConfig = (uuid, host) => `
 vless://${uuid}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
-
