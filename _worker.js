@@ -1,7 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 
 // 模块级预先分配的缓冲区
-const preAllocatedBuffer = new Uint8Array(65535);
+const preAllocatedBuffer = new Uint8Array(65535); // 64KB 缓冲区
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 
 export default {
@@ -18,6 +18,7 @@ export default {
   }
 };
 
+// 处理普通 HTTP 请求
 const handleHttp = (request, uuid) => {
   const { pathname } = new URL(request.url);
   const host = request.headers.get("Host");
@@ -32,22 +33,26 @@ const handleHttp = (request, uuid) => {
   return new Response("Not found", { status: 404 });
 };
 
+// 处理 WebSocket 请求
 const handleWebSocket = async (request, uuid, proxy) => {
   const [client, server] = new WebSocketPair();
   server.accept();
-  const swpHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createSocketStream(server, swpHeader);
+  
+  // 创建可读流处理 WebSocket 数据
+  const readableStream = createSocketStream(server, request.headers.get('sec-websocket-protocol') || '');
+  
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;
   
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) return udpWriter(chunk);
     if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);
     
+    // 解析 WebSocket 头部
     const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;
     
-    // 复用缓冲区
-    const resHeader = preAllocatedBuffer.subarray(0, 2); // 预先分配的缓冲区中使用部分
+    // 使用预分配的缓冲区
+    const resHeader = preAllocatedBuffer.subarray(0, 2); // 使用 2 字节的缓冲区
     resHeader.set(version, 0);
     resHeader[1] = 0;
 
@@ -64,12 +69,14 @@ const handleWebSocket = async (request, uuid, proxy) => {
   return new Response(null, { status: 101, webSocket: client });
 };
 
+// 写入数据到 Socket
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
   writer.releaseLock();
 };
 
+// 处理 TCP 连接和数据转发
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
     const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
@@ -83,6 +90,7 @@ const handleTcp = async (remoteSocket, address, port, clientData, server, resHea
   }
 };
 
+// 建立连接并发送数据
 const connectAndSend = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.socket || remoteSocket.socket.closed) {
     remoteSocket.socket = await connect({ hostname: address, port });
@@ -91,11 +99,13 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   return remoteSocket.socket;
 };
 
+// 创建 WebSocket 可读流
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
     const { earlyData, error } = base64ToBuffer(swpHeader);
     if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
+    
     webSocket.addEventListener('message', event => controller.enqueue(event.data));
     webSocket.addEventListener('close', () => controller.close());
     webSocket.addEventListener('error', err => controller.error(err));
@@ -103,26 +113,33 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   cancel: () => closeWebSocket(webSocket)
 });
 
+// 转发数据并使用预分配缓冲区
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
   if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
   let hasData = false;
+  
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        const combinedData = preAllocatedBuffer.subarray(0, resHeader.length + chunk.length); // 复用缓冲区
+        
+        // 复用缓冲区，合并响应头和数据
+        const combinedData = preAllocatedBuffer.subarray(0, resHeader.length + chunk.length);
         combinedData.set(resHeader, 0);
         combinedData.set(chunk, resHeader.length);
+        
         server.send(combinedData);
-        resHeader = null; // 重置头部
+        resHeader = null; // 清空头部
       }
     }));
   } catch {
     closeWebSocket(server);
   }
+  
   if (retry && !hasData) retry();
 };
 
+// 将 base64 转换为缓冲区
 const base64ToBuffer = base64Str => {
   try {
     const formattedStr = base64Str.replace(/[-_]/g, m => (m === '-' ? '+' : '/'));
@@ -133,10 +150,12 @@ const base64ToBuffer = base64Str => {
   }
 };
 
+// 关闭 WebSocket
 const closeWebSocket = webSocket => {
   if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
 
+// 处理 UDP 请求
 const handleUdp = async (server, resHeader, clientData) => {
   const udpPackets = [];
   for (let index = 0; index < clientData.byteLength;) {
@@ -156,13 +175,17 @@ const handleUdp = async (server, resHeader, clientData) => {
   if (server.readyState !== WebSocket.OPEN) return;
   dnsResults.forEach(result => {
     const response = new Uint8Array(result);
-    const dataToSend = preAllocatedBuffer.subarray(0, resHeader.length + response.byteLength); // 复用缓冲区
+    
+    // 使用预分配缓冲区
+    const dataToSend = preAllocatedBuffer.subarray(0, resHeader.length + response.byteLength);
     dataToSend.set(resHeader, 0);
     dataToSend.set(response, resHeader.length);
+    
     server.send(dataToSend);
   });
 };
 
+// 生成配置信息
 const getConfig = (uuid, host) => `
 vless://${uuid}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
