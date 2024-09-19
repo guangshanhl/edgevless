@@ -53,30 +53,28 @@ const writeToSocket = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-
+const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
+  try {
+    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
+    await forwardData(tcpSocket, server, resHeader, async () => {
+      try {
+        const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
+        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
+        await forwardData(fallbackSocket, server, resHeader);
+      } catch (err) {
+        closeWebSocket(server);
+      }
+    });
+  } catch (err) {
+    closeWebSocket(server);
+  }
+};
 const connectAndSend = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.socket || remoteSocket.socket.closed) {
     remoteSocket.socket = await connect({ hostname: address, port });
   }
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
-};
-const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
-  const handleFallback = async () => {
-    try {
-      const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
-      await forwardData(fallbackSocket, server, resHeader);
-    } catch (err) {
-      closeWebSocket(server);
-    }
-  };
-  try {
-    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
-    await forwardData(tcpSocket, server, resHeader, handleFallback);
-  } catch (err) {
-    await handleFallback();
-  }
 };
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
