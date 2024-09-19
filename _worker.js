@@ -34,7 +34,7 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const processChunk = async (chunk) => {
     if (isDns && udpWriter) return udpWriter(chunk);
     if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);   
-    const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
+    const { error, address, port, dataOffset, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;   
     const resHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);   
@@ -110,7 +110,6 @@ const parseWebSocketHeader = (buffer, uuid) => {
     address,
     port,
     dataOffset: addressValueIndex + addressLength,
-    version: [0],
     isUdp
   };
 };
