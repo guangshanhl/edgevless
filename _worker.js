@@ -74,27 +74,20 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(remoteSocket.value, rawClientData);
   return remoteSocket.value;
 };
-let reusableStream;
-const createWebSocketStream = (webSocket, earlyHeader) => {
-  if (reusableStream) {
-    reusableStream.cancel();
-    reusableStream = null;
-  }
-  reusableStream = new ReadableStream({
+const createSocketStream = (webSocket, earlyHeader) => {
+  let reuseStream;  
+  reuseStream = new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyHeader);
-      if (error) {
-        controller.error(error);
-        return;
-      }
+      if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
-    },  
+    },
     cancel: () => closeWebSocket(webSocket)
   });
-  return reusableStream;
+  return reuseStream;
 };
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
@@ -162,27 +155,24 @@ const stringify = (arr, offset = 0) => {
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const dataView = new DataView(rawClientData.buffer);
-  const dnsQueryBatches = [];
-  let index = 0;
-  while (index < rawClientData.byteLength) {
+  const dnsQueryBatches = Array.from({ length: rawClientData.byteLength }, (_, index) => {
     const udpPacketLength = dataView.getUint16(index);
     const dnsQuery = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
-    dnsQueryBatches.push(dnsQuery);
     index += 2 + udpPacketLength;
-  }
+    return dnsQuery;
+  });
   const dnsResponses = await Promise.all(
     dnsQueryBatches.map(dnsQuery =>
       fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/dns-message' },
         body: dnsQuery
-      })
-      .then(response => response.arrayBuffer())
+      }).then(response => response.arrayBuffer())
       .catch(() => null)
     )
   );
   dnsResponses.forEach(dnsResult => {
-    if (dnsResult && webSocket.readyState === WebSocket.OPEN) {
+    if (webSocket.readyState === WebSocket.OPEN) {
       const combinedData = new Uint8Array(responseHeader.length + 2 + dnsResult.byteLength);
       combinedData.set(responseHeader, 0);
       combinedData.set([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff], responseHeader.length);
@@ -194,4 +184,3 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
 const getConfig = (userID, host) => `
 vless://${userID}\u0040${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}
 `;
-
