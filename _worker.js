@@ -50,11 +50,8 @@ const handleWebSocket = async (request, uuid, proxy) => {
 };
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  try {
-    await writer.write(chunk);
-  } finally {
-    writer.releaseLock();
-  }
+  await writer.write(chunk);
+  writer.releaseLock();
 };
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
