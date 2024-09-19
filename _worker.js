@@ -74,22 +74,28 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(remoteSocket.value, rawClientData);
   return remoteSocket.value;
 };
-let reuseStream;
-const createSocketStream = (webSocket, responseHeader) => new ReadableStream({
-  start(controller) {
-	if (reuseStream) {
-    reuseStream.cancel();
-    reuseStream = null;
-	}  
-    const { earlyData, error } = base64ToBuffer(responseHeader);
-    if (error) return controller.error(error);
-    if (earlyData) controller.enqueue(earlyData);    
-    webSocket.addEventListener('message', event => controller.enqueue(event.data));
-    webSocket.addEventListener('close', () => controller.close());
-    webSocket.addEventListener('error', err => controller.error(err));
-  },
-  cancel: () => closeWebSocket(webSocket)
-});
+let reusableStream;
+const createWebSocketStream = (webSocket, earlyDataHeader) => {
+  if (reusableStream) {
+    reusableStream.cancel();
+    reusableStream = null;
+  }
+  reusableStream = new ReadableStream({
+    start(controller) {
+      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+      if (error) {
+        controller.error(error);
+        return;
+      }
+      if (earlyData) controller.enqueue(earlyData);
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('close', () => controller.close());
+      webSocket.addEventListener('error', err => controller.error(err));
+    },  
+    cancel: () => closeWebSocket(webSocket)
+  });
+  return reusableStream;
+};
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
