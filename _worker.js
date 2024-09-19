@@ -32,16 +32,9 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const readableStream = createSocketStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;   
   const processChunk = async (chunk) => {
-    if (isDns) {
-      if (udpWriter) {
-        return udpWriter(chunk);
-      }
-      return;
-    }
-    if (remoteSocket.socket) {
-      return await writeToSocket(remoteSocket.socket, chunk);
-    }   
-    const { error, address = '', port = 443, dataOffset, vlessVersion = new Uint8Array([0, 0]), isUdp } = parseWebSocketHeader(chunk, uuid);
+    if (isDns && udpWriter) return udpWriter(chunk);
+    if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);   
+    const { error, address, port, dataOffset, version, isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;   
     const resHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);   
@@ -57,8 +50,27 @@ const handleWebSocket = async (request, uuid, proxy) => {
 };
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  try {
+    await writer.write(chunk);
+  } finally {
+    writer.releaseLock();
+  }
+};
+const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
+  try {
+    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
+    await forwardData(tcpSocket, server, resHeader, async () => {
+      try {
+        const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
+        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
+        await forwardData(fallbackSocket, server, resHeader);
+      } catch (err) {
+        closeWebSocket(server);
+      }
+    });
+  } catch (err) {
+    closeWebSocket(server);
+  }
 };
 const connectAndSend = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.socket || remoteSocket.socket.closed) {
@@ -66,23 +78,6 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   }
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
-};
-const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
-  const handleFallback = async () => {
-    try {
-      const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
-      await forwardData(fallbackSocket, server, resHeader);
-    } catch (err) {
-      closeWebSocket(server);
-    }
-  };
-  try {
-    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
-    await forwardData(tcpSocket, server, resHeader, handleFallback);
-  } catch (err) {
-    await handleFallback();
-  }
 };
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
@@ -97,7 +92,6 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
 });
 const parseWebSocketHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
-  const version = new Uint8Array(buffer.slice(0, 1));
   const headerUuid = byteToString(new Uint8Array(buffer.slice(1, 17))); 
   if (headerUuid !== uuid) return { error: true }; 
   const optLength = view.getUint8(17);
@@ -115,44 +109,35 @@ const parseWebSocketHeader = (buffer, uuid) => {
     : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':'); 
   return {
     error: false,
-    address: addressValue,
+    address,
     port,
     dataOffset: addressValueIndex + addressLength,
-    vlessVersion: version,
+    version: [0],
     isUdp
   };
 };
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
-  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
-  let resHeaderLength = resHeader ? resHeader.length : 0;
-  let currentBufferSize = 0;
+  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);  
   let hasData = false;
   let hasDataBuffer = null;
+  let resHeaderLength = resHeader ? resHeader.length : 0;
+  let currentBufferSize = 0;  
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
-      async write(chunk) {
+      write: async (chunk) => {
         hasData = true;
-        const totalLength = resHeaderLength + chunk.byteLength;
+        const totalLength = resHeaderLength + chunk.byteLength;       
         if (!hasDataBuffer || totalLength > currentBufferSize) {
           currentBufferSize = Math.max(totalLength, currentBufferSize * 2 || chunk.byteLength);
           hasDataBuffer = new Uint8Array(currentBufferSize);
-        }
+        }       
         if (resHeader) {
           hasDataBuffer.set(resHeader, 0);
           hasDataBuffer.set(chunk, resHeaderLength);
-          try {
-            await server.send(hasDataBuffer.subarray(0, totalLength));
-          } catch (error) {
-            closeWebSocket(server);
-            return;
-          }
+          server.send(hasDataBuffer.subarray(0, totalLength));
           resHeader = null;
         } else {
-          try {
-            await server.send(chunk);
-          } catch (error) {
-            closeWebSocket(server);
-          }
+          server.send(chunk);
         }
       }
     }));
