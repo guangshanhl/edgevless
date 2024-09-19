@@ -32,9 +32,16 @@ const handleWebSocket = async (request, uuid, proxy) => {
   const readableStream = createSocketStream(server, swpHeader);
   let remoteSocket = { socket: null }, udpWriter = null, isDns = false;   
   const processChunk = async (chunk) => {
-    if (isDns && udpWriter) return udpWriter(chunk);
-    if (remoteSocket.socket) return await writeToSocket(remoteSocket.socket, chunk);   
-    const { error, address, port, dataOffset, isUdp } = parseWebSocketHeader(chunk, uuid);
+    if (isDns) {
+      if (udpWriter) {
+        return udpWriter(chunk);
+      }
+      return;
+    }
+    if (remoteSocket.socket) {
+      return await writeToSocket(remoteSocket.socket, chunk);
+    }   
+    const { error, address = '', port = 443, dataOffset, vlessVersion = new Uint8Array([0, 0]), isUdp } = parseWebSocketHeader(chunk, uuid);
     if (error) return;   
     const resHeader = new Uint8Array([version[0], 0]);
     const clientData = chunk.slice(dataOffset);   
@@ -90,6 +97,7 @@ const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
 });
 const parseWebSocketHeader = (buffer, uuid) => {
   const view = new DataView(buffer);
+  const version = new Uint8Array(buffer.slice(0, 1));
   const headerUuid = byteToString(new Uint8Array(buffer.slice(1, 17))); 
   if (headerUuid !== uuid) return { error: true }; 
   const optLength = view.getUint8(17);
@@ -107,9 +115,10 @@ const parseWebSocketHeader = (buffer, uuid) => {
     : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':'); 
   return {
     error: false,
-    address,
+    address: addressValue,
     port,
     dataOffset: addressValueIndex + addressLength,
+    vlessVersion: version,
     isUdp
   };
 };
