@@ -50,8 +50,11 @@ const handleWebSocket = async (request, uuid, proxy) => {
 };
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  try {
+    await writer.write(chunk);
+  } finally {
+    writer.releaseLock();
+  }
 };
 const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
   try {
@@ -113,22 +116,21 @@ const parseWebSocketHeader = (buffer, uuid) => {
     isUdp
   };
 };
-let resHeaderLength = 0;
-let currentBufferSize = 0;
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
-  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
+  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);  
   let hasData = false;
   let hasDataBuffer = null;
-  resHeaderLength = resHeader ? resHeader.length : 0;
+  let resHeaderLength = resHeader ? resHeader.length : 0;
+  let currentBufferSize = 0;  
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        const totalLength = resHeaderLength + chunk.byteLength;
+        const totalLength = resHeaderLength + chunk.byteLength;       
         if (!hasDataBuffer || totalLength > currentBufferSize) {
           currentBufferSize = Math.max(totalLength, currentBufferSize * 2 || chunk.byteLength);
           hasDataBuffer = new Uint8Array(currentBufferSize);
-        }
+        }       
         if (resHeader) {
           hasDataBuffer.set(resHeader, 0);
           hasDataBuffer.set(chunk, resHeaderLength);
@@ -191,7 +193,6 @@ const handleUdp = async (server, resHeader, clientData) => {
       dnsCache.set(cacheKey, { result, timestamp: Date.now() });
       return result;
     } catch (error) {
-      console.error('DNS query failed:', error);
       return null;
     }
   };
