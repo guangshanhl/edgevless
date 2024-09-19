@@ -115,27 +115,36 @@ const parseWebSocketHeader = (buffer, uuid) => {
   };
 };
 const forwardData = async (remoteSocket, server, resHeader, retry) => {
-  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);  
+  if (server.readyState !== WebSocket.OPEN) return closeWebSocket(server);
+  let resHeaderLength = resHeader ? resHeader.length : 0;
+  let currentBufferSize = 0;
   let hasData = false;
   let hasDataBuffer = null;
-  let resHeaderLength = resHeader ? resHeader.length : 0;
-  let currentBufferSize = 0;  
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
-      write: async (chunk) => {
+      async write(chunk) {
         hasData = true;
-        const totalLength = resHeaderLength + chunk.byteLength;       
+        const totalLength = resHeaderLength + chunk.byteLength;
         if (!hasDataBuffer || totalLength > currentBufferSize) {
           currentBufferSize = Math.max(totalLength, currentBufferSize * 2 || chunk.byteLength);
           hasDataBuffer = new Uint8Array(currentBufferSize);
-        }       
+        }
         if (resHeader) {
           hasDataBuffer.set(resHeader, 0);
           hasDataBuffer.set(chunk, resHeaderLength);
-          server.send(hasDataBuffer.subarray(0, totalLength));
+          try {
+            await server.send(hasDataBuffer.subarray(0, totalLength));
+          } catch (error) {
+            closeWebSocket(server);
+            return;
+          }
           resHeader = null;
         } else {
-          server.send(chunk);
+          try {
+            await server.send(chunk);
+          } catch (error) {
+            closeWebSocket(server);
+          }
         }
       }
     }));
