@@ -50,43 +50,22 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
-const createPersistentWriter = (socket) => {
-  let writer = null;
-  return {
-    async write(chunk) {
-      if (!writer) {
-        writer = socket.writable.getWriter();
-      }
-      await writer.write(chunk);
-    },
-    release() {
-      if (writer) {
-        writer.releaseLock();
-        writer = null;
-      }
-    }
-  };
-};
-const writeToRemote = async (persistentWriter, chunk) => {
+const writeToRemote = async (socket, chunk) => {
+  const writer = socket.writable.getWriter();
   try {
-    await persistentWriter.write(chunk);
-  } catch (error) {
-    persistentWriter.release();
-    throw error;
+    await writer.write(chunk);
+  } finally {
+    writer.releaseLock();
   }
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const persistentWriter = createPersistentWriter(tcpSocket);   
     await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
       const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));    
-      const fallbackWriter = createPersistentWriter(fallbackSocket);
+      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, responseHeader);
-      fallbackWriter.release();
-    });
-    persistentWriter.release();
+    });   
   } catch (error) {
     closeWebSocket(webSocket);
   }
