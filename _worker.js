@@ -50,27 +50,8 @@ const handleWebSocket = async (request, uuid, proxy) => {
 };
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  try {
-    await writer.write(chunk);
-  } finally {
-    writer.releaseLock();
-  }
-};
-const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
-  try {
-    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
-    await forwardData(tcpSocket, server, resHeader, async () => {
-      try {
-        const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
-        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
-        await forwardData(fallbackSocket, server, resHeader);
-      } catch (err) {
-        closeWebSocket(server);
-      }
-    });
-  } catch (err) {
-    closeWebSocket(server);
-  }
+  await writer.write(chunk);
+  writer.releaseLock();
 };
 const connectAndSend = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.socket || remoteSocket.socket.closed) {
@@ -78,6 +59,23 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   }
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
+};
+const handleTcp = async (remoteSocket, address, port, clientData, server, resHeader, proxy) => {
+  const handleFallback = async () => {
+    try {
+      const fallbackSocket = await connectAndSend(remoteSocket, proxy || address, port, clientData);
+      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(server));
+      await forwardData(fallbackSocket, server, resHeader);
+    } catch (err) {
+      closeWebSocket(server);
+    }
+  };
+  try {
+    const tcpSocket = await connectAndSend(remoteSocket, address, port, clientData);
+    await forwardData(tcpSocket, server, resHeader, handleFallback);
+  } catch (err) {
+    await handleFallback();
+  }
 };
 const createSocketStream = (webSocket, swpHeader) => new ReadableStream({
   start(controller) {
