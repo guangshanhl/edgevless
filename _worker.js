@@ -4,21 +4,25 @@ export default {
     try {
       const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
       const proxyIP = env.PROXYIP ?? '';
+      const headers = new Headers(request.headers);
+      headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3');
+      headers.set('Accept', '*/*');
+      headers.set('Referer', 'https://bing.com');
       return request.headers.get('Upgrade') === 'websocket'
         ? handleWsRequest(request, userID, proxyIP)
-        : handleHttpRequest(request, userID);
+        : handleHttpRequest(request, userID, headers);
     } catch (err) {
       return new Response(err.toString());
     }
   }
 };
-const handleHttpRequest = (request, userID) => {
+const handleHttpRequest = (request, userID, headers) => {
   const path = new URL(request.url).pathname;
-  const host = request.headers.get('Host');
-  if (path === '/') return new Response(JSON.stringify(request.cf, null, 4));
+  const host = headers.get('Host');
+  if (path === '/') return new Response(JSON.stringify({ status: "ok" }, null, 4), { headers });
   if (path === `/${userID}`) {
     return new Response(getConfig(userID, host), {
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      headers: { 'Content-Type': 'application/json;charset=utf-8' }
     });
   }
   return new Response('Not found', { status: 404 });
@@ -33,13 +37,14 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   let isDns = false;
   const responseHeader = new Uint8Array(2);
   const processChunk = async (chunk) => {
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
     if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
     if (hasError) return;
     responseHeader[0] = Version[0];
     responseHeader[1] = 0;
-    const rawClientData = chunk.slice(rawDataIndex);
+    const rawClientData = chunk.slice(rawDataIndex);   
     if (isUDP) {
       isDns = portRemote === 53;
       udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
@@ -78,53 +83,20 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const createSocketStream = (webSocket, earlyHeader) => {
-  let buffer = [];
-  let bufferSize = 0;  // 当前缓存的总字节数
-  const mergeThreshold = 1024;  // 合并数据块的阈值
-  
-  return new ReadableStream({
+  let reuseStream;
+  reuseStream = new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-
-      webSocket.addEventListener('message', event => {
-        const chunk = new Uint8Array(event.data);
-        buffer.push(chunk);
-        bufferSize += chunk.length;
-
-        if (bufferSize >= mergeThreshold) {
-          controller.enqueue(mergeData(buffer, bufferSize));
-          buffer = [];
-          bufferSize = 0;
-        }
-      });
-
-      webSocket.addEventListener('close', () => {
-        if (bufferSize > 0) {
-          controller.enqueue(mergeData(buffer, bufferSize));
-        }
-        controller.close();
-      });
-
+      webSocket.addEventListener('message', event => controller.enqueue(event.data));
+      webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel: () => closeWebSocket(webSocket)
   });
+  return reuseStream;
 };
-
-const mergeData = (buffer, totalSize) => {
-  const mergedBuffer = new Uint8Array(totalSize);
-  let offset = 0;
-  
-  for (const chunk of buffer) {
-    mergedBuffer.set(chunk, offset);
-    offset += chunk.length;
-  }
-  
-  return mergedBuffer;
-};
-
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
@@ -204,7 +176,10 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
     dnsQueryBatches.map(dnsQuery =>
       fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
+        headers: {
+          'Content-Type': 'application/dns-message',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+        },
         body: dnsQuery
       }).then(response => response.arrayBuffer())
       .catch(() => null)
@@ -216,6 +191,7 @@ const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
       const lengthBuffer = new Uint8Array([dnsResult.byteLength >> 8, dnsResult.byteLength & 0xff]);
       webSocket.send(lengthBuffer);
       webSocket.send(dnsResult);
+      webSocket.send(new Uint8Array([0, 1, 2, 3, 4]));
     }
   });
 };
