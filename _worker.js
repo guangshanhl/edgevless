@@ -78,20 +78,53 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const createSocketStream = (webSocket, earlyHeader) => {
-  let reuseStream;
-  reuseStream = new ReadableStream({
+  let buffer = [];
+  let bufferSize = 0;  // 当前缓存的总字节数
+  const mergeThreshold = 1024;  // 合并数据块的阈值
+  
+  return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => controller.enqueue(event.data));
-      webSocket.addEventListener('close', () => controller.close());
+
+      webSocket.addEventListener('message', event => {
+        const chunk = new Uint8Array(event.data);
+        buffer.push(chunk);
+        bufferSize += chunk.length;
+
+        if (bufferSize >= mergeThreshold) {
+          controller.enqueue(mergeData(buffer, bufferSize));
+          buffer = [];
+          bufferSize = 0;
+        }
+      });
+
+      webSocket.addEventListener('close', () => {
+        if (bufferSize > 0) {
+          controller.enqueue(mergeData(buffer, bufferSize));
+        }
+        controller.close();
+      });
+
       webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel: () => closeWebSocket(webSocket)
   });
-  return reuseStream;
 };
+
+const mergeData = (buffer, totalSize) => {
+  const mergedBuffer = new Uint8Array(totalSize);
+  let offset = 0;
+  
+  for (const chunk of buffer) {
+    mergedBuffer.set(chunk, offset);
+    offset += chunk.length;
+  }
+  
+  return mergedBuffer;
+};
+
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true };
