@@ -87,7 +87,6 @@ const createSocketStream = (webSocket, earlyHeader) => {
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
