@@ -31,14 +31,13 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null };
   let udpWrite = null;
   let isDns = false;
-  const responseHeader = new Uint8Array(2);
+  const responseHeader = new Uint8Array([0, 0]);
   const processChunk = async (chunk) => {
     if (isDns && udpWrite) return udpWrite(chunk);
     if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
     if (hasError) return;
     responseHeader[0] = Version[0];
-    responseHeader[1] = 0;
     const rawClientData = chunk.slice(rawDataIndex);   
     if (isUDP) {
       isDns = portRemote === 53;
