@@ -63,22 +63,11 @@ const writeToRemote = async (socket, chunk) => {
   }
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  let retries = 0;
-  const maxRetries = 3;
-  while (retries < maxRetries) {
-    try {
-      const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-      await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
-        retries++;
-        const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
-        fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-        await forwardToData(fallbackSocket, webSocket, responseHeader);
-      });
-      break;
-    } catch (error) {
-      retries++;
-      closeWebSocket(webSocket);
-    }
+  try {
+    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    await forwardData(tcpSocket, webSocket, responseHeader, remoteSocket, proxyIP, portRemote, rawClientData);
+  } catch (error) {
+    closeWebSocket(webSocket);
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
@@ -130,7 +119,7 @@ const processSocketHeader = (buffer, userID) => {
     isUDP
   };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
+const forwardData = async (tcpSocket, webSocket, responseHeader, remoteSocket, proxyIP, portRemote, rawClientData) => {
   if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
   let hasData = false;
   let headerSent = false;
@@ -144,13 +133,16 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
       }
       webSocket.send(chunk);
     }
-  });  
+  });
   try {
-    await remoteSocket.readable.pipeTo(writable);
+    await tcpSocket.readable.pipeTo(writable);
+    if (!hasData) {
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+      await forwardData(fallbackSocket, webSocket, responseHeader, remoteSocket, proxyIP, portRemote, rawClientData);
+    }
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  if (retry && !hasData) retry();
 };
 const base64ToBuffer = (base64Str) => {
   try {
