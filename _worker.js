@@ -31,6 +31,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null };
   const responseHeader = new Uint8Array([0, 0]);  
   const processChunk = async (chunk) => {
+  try {
     if (remoteSocket.isDns) {
       return remoteSocket.udpWrite(chunk);
     }
@@ -47,7 +48,10 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     } else {
       handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
-  }; 
+  } catch (error) {
+    closeWebSocket(webSocket);
+  }
+};
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
