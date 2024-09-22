@@ -28,25 +28,30 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   webSocket.accept();
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
-  let remoteSocket = { value: null };
-  let udpWrite = null;
-  let isDns = false;
-  const responseHeader = new Uint8Array(2);
+  const remoteSocket = { value: null, isDns: false, udpWrite: null };
+  const responseHeader = new Uint8Array([1]);  
   const processChunk = async (chunk) => {
-    if (isDns && udpWrite) return udpWrite(chunk);
-    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+  try {
+    if (remoteSocket.isDns) {
+      return remoteSocket.udpWrite(chunk);
+    }
+    if (remoteSocket.value) {
+      return await writeToRemote(remoteSocket.value, chunk);
+    }  
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
-    if (hasError) return;
+    if (hasError) return;   
     responseHeader[0] = Version[0];
-    responseHeader[1] = 0;
-    const rawClientData = chunk.slice(rawDataIndex);
+    const rawClientData = chunk.slice(rawDataIndex);   
     if (isUDP) {
-      isDns = portRemote === 53;
-      udpWrite = isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
+      remoteSocket.isDns = (portRemote === 53);
+      remoteSocket.udpWrite = remoteSocket.isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
     } else {
       handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
-  };
+  } catch (error) {
+    closeWebSocket(webSocket);
+  }
+};
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
@@ -78,27 +83,19 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const createSocketStream = (webSocket, earlyHeader) => {
-  const { earlyData, error } = base64ToBuffer(earlyHeader);
-  if (error) {
-    throw error;
-  }
   return new ReadableStream({
     start(controller) {
+      const { earlyData, error } = base64ToBuffer(earlyHeader);
+      if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       const onMessage = event => controller.enqueue(event.data);
       const onClose = () => {
         controller.close();
-        cleanup();
-      };
-      const onError = err => {
-        cleanup();
-        controller.error(err);
-      };
-      const cleanup = () => {
         webSocket.removeEventListener('message', onMessage);
         webSocket.removeEventListener('close', onClose);
         webSocket.removeEventListener('error', onError);
       };
+      const onError = err => controller.error(err);
       webSocket.addEventListener('message', onMessage);
       webSocket.addEventListener('close', onClose);
       webSocket.addEventListener('error', onError);
