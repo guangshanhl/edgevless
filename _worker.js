@@ -83,19 +83,27 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const createSocketStream = (webSocket, earlyHeader) => {
+  const { earlyData, error } = base64ToBuffer(earlyHeader);
+  if (error) {
+    throw error;
+  }
   return new ReadableStream({
     start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyHeader);
-      if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       const onMessage = event => controller.enqueue(event.data);
       const onClose = () => {
         controller.close();
+        cleanup();
+      };
+      const onError = err => {
+        cleanup();
+        controller.error(err);
+      };
+      const cleanup = () => {
         webSocket.removeEventListener('message', onMessage);
         webSocket.removeEventListener('close', onClose);
         webSocket.removeEventListener('error', onError);
       };
-      const onError = err => controller.error(err);
       webSocket.addEventListener('message', onMessage);
       webSocket.addEventListener('close', onClose);
       webSocket.addEventListener('error', onError);
