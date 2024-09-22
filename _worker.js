@@ -28,30 +28,30 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   webSocket.accept();
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
-  let remoteSocket = { value: null };
-  const responseHeader = new Uint8Array([0, 0]);  
+  let remoteSocket = { value: null, isDns: false, udpWrite: null };
+  const responseHeader = new Uint8Array([0, 0]);
   const processChunk = async (chunk) => {
-  try {
-    if (remoteSocket.isDns) {
-      return remoteSocket.udpWrite(chunk);
+    try {
+      if (remoteSocket.isDns) {
+        return remoteSocket.udpWrite(chunk);
+      }
+      if (remoteSocket.value) {
+        return await writeToRemote(remoteSocket.value, chunk);
+      }
+      const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
+      if (hasError) return;
+      responseHeader[0] = Version[0];
+      const rawClientData = chunk.slice(rawDataIndex);
+      if (isUDP) {
+        remoteSocket.isDns = (portRemote === 53);
+        remoteSocket.udpWrite = remoteSocket.isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
+      } else {
+        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+      }
+    } catch (error) {
+      closeWebSocket(webSocket);
     }
-    if (remoteSocket.value) {
-      return await writeToRemote(remoteSocket.value, chunk);
-    }  
-    const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processSocketHeader(chunk, userID);
-    if (hasError) return;   
-    responseHeader[0] = Version[0];
-    const rawClientData = chunk.slice(rawDataIndex);   
-    if (isUDP) {
-      remoteSocket.isDns = (portRemote === 53);
-      remoteSocket.udpWrite = remoteSocket.isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
-    } else {
-      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
-    }
-  } catch (error) {
-    closeWebSocket(webSocket);
-  }
-};
+  };
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
