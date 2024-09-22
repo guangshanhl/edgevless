@@ -28,8 +28,8 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   webSocket.accept();
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createSocketStream(webSocket, earlyHeader);
-  const remoteSocket = { value: null, isDns: false, udpWrite: null };
-  const responseHeader = new Uint8Array([1]);  
+  let remoteSocket = { value: null };
+  const responseHeader = new Uint8Array([0, 0]);  
   const processChunk = async (chunk) => {
   try {
     if (remoteSocket.isDns) {
