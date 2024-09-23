@@ -1,18 +1,20 @@
 import { connect } from 'cloudflare:sockets';
+let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+let proxyIP = '';
 export default {
   async fetch(request, env) {
     try {
-      const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-      const proxyIP = env.PROXYIP ?? '';
+      userID = env.UUID || userID;
+			proxyIP = env.PROXYIP || proxyIP;
       return request.headers.get('Upgrade') === 'websocket'
-        ? handleWsRequest(request, userID, proxyIP)
-        : handleHttpRequest(request, userID);
+        ? handleWsRequest(request)
+        : handleHttpRequest(request);
     } catch (err) {
       return new Response(err.toString());
     }
   }
 };
-const handleHttpRequest = (request, userID) => {
+const handleHttpRequest = (request) => {
   const path = new URL(request.url).pathname;
   const host = request.headers.get('Host');
   if (path === '/') return new Response(JSON.stringify(request.cf, null, 4));
@@ -23,7 +25,7 @@ const handleHttpRequest = (request, userID) => {
   }
   return new Response('Not found', { status: 404 });
 };
-const handleWsRequest = async (request, userID, proxyIP) => {
+const handleWsRequest = async (request) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
@@ -46,7 +48,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
         remoteSocket.isDns = (portRemote === 53);
         remoteSocket.udpWrite = remoteSocket.isDns ? await handleUdpRequest(webSocket, responseHeader, rawClientData) : null;
       } else {
-        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+        handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
       }
     } catch (error) {
       closeWebSocket(webSocket);
@@ -63,7 +65,7 @@ const writeToRemote = async (socket, chunk) => {
     writer.releaseLock();
   }
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
