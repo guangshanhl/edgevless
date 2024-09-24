@@ -76,10 +76,10 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
-const createSocketStream = (webSocket, protocolHeader) => {
-  const { earlyData, error } = base64ToBuffer(protocolHeader); 
+const createSocketStream = (webSocket, protocolHeader) => {   
   return new ReadableStream({
     start(controller) {
+      const { earlyData, error } = base64ToBuffer(protocolHeader);
       if (error) {
         controller.error(error);
       } else {
