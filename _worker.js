@@ -76,18 +76,22 @@ const connectAndSend = async (remoteSocket, address, port, clientData) => {
   await writeToSocket(remoteSocket.socket, clientData);
   return remoteSocket.socket;
 };
-const createSocketStream = (webSocket, protocolHeader) => {   
+const createSocketStream = (webSocket, protocolHeader) => {
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(protocolHeader);
-      if (error) {
-        controller.error(error);
-      } else {
-        if (earlyData) controller.enqueue(earlyData);
-        webSocket.addEventListener('message', event => controller.enqueue(event.data));
-        webSocket.addEventListener('close', () => controller.close());
-        webSocket.addEventListener('error', err => controller.error(err));
-      }
+      if (error) return controller.error(error);
+      if (earlyData) controller.enqueue(earlyData);
+      const onMessage = event => controller.enqueue(event.data);
+      const onClose = () => {
+        controller.close();
+        webSocket.removeEventListener('message', onMessage);
+        webSocket.removeEventListener('error', onError);
+      };
+      const onError = err => controller.error(err);
+      webSocket.addEventListener('message', onMessage);
+      webSocket.addEventListener('close', onClose);
+      webSocket.addEventListener('error', onError);
     },
     cancel: () => closeWebSocket(webSocket)
   });
