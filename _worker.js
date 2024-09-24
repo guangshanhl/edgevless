@@ -177,6 +177,9 @@ const handleUdp = async (server, responseHeader, clientData) => {
       headers: { 'Content-Type': 'application/dns-message' },
       body: packet.data
     }).then(response => response.arrayBuffer())
+    .catch(error => {
+       return new ArrayBuffer(0);
+    })
   ));
   if (server.readyState !== WebSocket.OPEN) return;
   dnsResults.forEach((result, i) => {
