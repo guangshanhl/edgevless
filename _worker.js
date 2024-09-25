@@ -135,11 +135,11 @@ async function vlessOverWSHandler(request) {
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader) {
   async function connectAndWrite(address, port) {
     /** @type {import("@cloudflare/workers-types").Socket} */
-	const tcpSocket = connect({
-		hostname: address,
-		port: port,
-	});
-	remoteSocket.value = tcpSocket;
+    const tcpSocket = connect({
+      hostname: address,
+      port: port
+    });
+    remoteSocket.value = tcpSocket;
     const writer = tcpSocket.writable.getWriter();
     await writer.write(rawClientData);
     writer.releaseLock();
