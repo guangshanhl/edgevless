@@ -135,14 +135,11 @@ async function vlessOverWSHandler(request) {
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader) {
   async function connectAndWrite(address, port) {
     /** @type {import("@cloudflare/workers-types").Socket} */
-    let tcpSocket = remoteSocket.value;
-    if (!tcpSocket || tcpSocket.closed) {
-      tcpSocket = connect({
-        hostname: address,
-        port: port
-      });
-      remoteSocket.value = tcpSocket;
-    }
+	const tcpSocket = connect({
+		hostname: address,
+		port: port,
+	});
+	remoteSocket.value = tcpSocket;
     const writer = tcpSocket.writable.getWriter();
     await writer.write(rawClientData);
     writer.releaseLock();
@@ -151,7 +148,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
   async function retry() {
     const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote);
     tcpSocket.closed.catch(error => {}).finally(() => {
-      safeCloseWebSocket(webSocket);
+      closeWebSocket(webSocket);
     });
     remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null);
   }
@@ -175,7 +172,7 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
         controller.enqueue(message);
       });
       webSocketServer.addEventListener('close', () => {
-        safeCloseWebSocket(webSocketServer);
+        closeWebSocket(webSocketServer);
         if (readableStreamCancel) {
           return;
         }
@@ -200,7 +197,7 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
         return;
       }
       readableStreamCancel = true;
-      safeCloseWebSocket(webSocketServer);
+      closeWebSocket(webSocketServer);
     }
   });
   return stream;
@@ -323,7 +320,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
     }
   })).catch(error => {
     console.error(`remoteSocketToWS has exception `, error.stack || error);
-    safeCloseWebSocket(webSocket);
+    closeWebSocket(webSocket);
   });
   if (hasIncomingData === false && retry) {
     retry();
@@ -367,13 +364,13 @@ const WS_READY_STATE_CLOSING = 2;
  * Normally, WebSocket will not has exceptions when close.
  * @param {import("@cloudflare/workers-types").WebSocket} socket
  */
-function safeCloseWebSocket(socket) {
+function closeWebSocket(socket) {
   try {
     if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
       socket.close();
     }
   } catch (error) {
-    console.error('safeCloseWebSocket error', error);
+    console.error('closeWebSocket error', error);
   }
 }
 const byteToHex = [];
