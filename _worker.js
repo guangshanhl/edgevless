@@ -134,7 +134,7 @@ const forwardData = async (remoteSocket, server, responseHeader, retry) => {
     const writable = new WritableStream({
       write: async (chunk) => {
         hasData = true;
-        server.send(responseHeader?.concat(chunk) ?? chunk);
+        server.send(responseHeader ? [...responseHeader, ...chunk] : chunk);
         responseHeader = null;
       }
     });
