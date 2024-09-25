@@ -162,42 +162,58 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
  */
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
 	let readableStreamCancel = false;
+	let backpressureQueue = [];
+	function handleCancel() {
+		if (readableStreamCancel) return true;
+		readableStreamCancel = true;
+		safeCloseWebSocket(webSocketServer);
+		return false;
+	}
 	const stream = new ReadableStream({
 		start(controller) {
-			webSocketServer.addEventListener('message', (event) => {
-				if (readableStreamCancel) {
-					return;
+			const messageHandler = (event) => {
+				if (readableStreamCancel) return;
+				if (controller.desiredSize <= 0) {
+					backpressureQueue.push(event.data);
+				} else {
+					controller.enqueue(event.data);
 				}
-				const message = event.data;
-				controller.enqueue(message);
-			});
-			webSocketServer.addEventListener('close', () => {
-				safeCloseWebSocket(webSocketServer);
-				if (readableStreamCancel) {
-					return;
-				}
+			};
+
+			const closeHandler = () => {
+				if (handleCancel()) return;
 				controller.close();
-			}
-			);
-			webSocketServer.addEventListener('error', (err) => {
+			};
+
+			const errorHandler = (err) => {
 				controller.error(err);
-			}
-			);
+			};
+
+			webSocketServer.addEventListener('message', messageHandler);
+			webSocketServer.addEventListener('close', closeHandler);
+			webSocketServer.addEventListener('error', errorHandler);
+
 			const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
 			if (error) {
 				controller.error(error);
 			} else if (earlyData) {
 				controller.enqueue(earlyData);
 			}
+
+			this._cleanup = () => {
+				webSocketServer.removeEventListener('message', messageHandler);
+				webSocketServer.removeEventListener('close', closeHandler);
+				webSocketServer.removeEventListener('error', errorHandler);
+			};
 		},
 		pull(controller) {
+			if (backpressureQueue.length > 0) {
+				controller.enqueue(backpressureQueue.shift());
+			}
 		},
 		cancel(reason) {
-			if (readableStreamCancel) {
-				return;
-			}
-			readableStreamCancel = true;
-			safeCloseWebSocket(webSocketServer);
+			if (handleCancel()) return;
+			this._cleanup();
 		}
 	});
 	return stream;
