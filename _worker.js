@@ -231,60 +231,39 @@ function processVlessHeader(vlessBuffer, userID) {
   };
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
-  const bufferSize = 4096; // 定义每次发送的缓冲区大小
-  const chunks = [];
-  let totalLength = 0;
-
+  let remoteChunkCount = 0;
+  let chunks = [];
+  let vlessHeader = vlessResponseHeader;
+  let hasIncoming = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
-      async write(chunk) {
+      start() {},
+      async write(chunk, controller) {
+        hasIncoming = true;
         if (webSocket.readyState !== WS_READY_STATE_OPEN) {
           return;
         }
-
-        chunks.push(chunk);
-        totalLength += chunk.byteLength;
-
-        // 当缓存达到一定大小时发送
-        if (totalLength >= bufferSize) {
-          const combinedBuffer = new Uint8Array(totalLength);
-          let offset = 0;
-          for (const chunk of chunks) {
-            combinedBuffer.set(new Uint8Array(chunk), offset);
-            offset += chunk.byteLength;
-          }
+        if (vlessHeader) {
+          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+          combinedBuffer.set(new Uint8Array(vlessHeader), 0);
+          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
           webSocket.send(combinedBuffer);
-          // 重置缓存
-          chunks.length = 0;
-          totalLength = 0;
+          vlessHeader = null;
+        } else {
+          webSocket.send(chunk);
         }
       },
-      async close() {
-        // 关闭时发送剩余数据
-        if (totalLength > 0) {
-          const combinedBuffer = new Uint8Array(totalLength);
-          let offset = 0;
-          for (const chunk of chunks) {
-            combinedBuffer.set(new Uint8Array(chunk), offset);
-            offset += chunk.byteLength;
-          }
-          webSocket.send(combinedBuffer);
-        }
-      },
+      close() {},
       abort(reason) {
-        console.error('Stream aborted:', reason);
       }
     }));
   } catch (error) {
     closeWebSocket(webSocket);
   }
-
-  // 如果没有收到数据并且有重试逻辑，则调用重试
-  if (chunks.length === 0 && retry) {
+  if (!hasIncoming && retry) {
     retry();
   }
 }
-
 function base64ToArrayBuffer(base64Str) {
   if (!base64Str) {
     return { earlyData: null, error: null };
