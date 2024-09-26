@@ -47,7 +47,7 @@ async function vlessOverWSHandler(request) {
   let address = '';
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader);
-  let remoteSocketWapper = {
+  let remoteSocket = {
     value: null
   };
   let udpStreamWrite = null;
@@ -57,8 +57,8 @@ async function vlessOverWSHandler(request) {
       if (isDns && udpStreamWrite) {
         return udpStreamWrite(chunk);
       }
-      if (remoteSocketWapper.value) {
-        const writer = remoteSocketWapper.value.writable.getWriter();
+      if (remoteSocket.value) {
+        const writer = remoteSocket.value.writable.getWriter();
         await writer.write(chunk);
         writer.releaseLock();
         return;
@@ -95,7 +95,7 @@ async function vlessOverWSHandler(request) {
         udpStreamWrite(rawClientData);
         return;
       }
-      handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
+      handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
     },
     close() {},
     abort(reason) {}
@@ -258,7 +258,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
           return;
         }
         if (vlessHeader) {
-          //webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
           const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
           combinedBuffer.set(new Uint8Array(vlessHeader), 0);
           combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
