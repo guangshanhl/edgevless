@@ -36,8 +36,7 @@ export default {
         return await vlessOverWSHandler(request);
       }
     } catch (err) {
-      let e = err;
-      return new Response(e.toString());
+      return new Response(err.toString());
     }
   }
 };
