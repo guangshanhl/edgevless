@@ -168,22 +168,11 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
   return stream;
 }
 function processVlessHeader(vlessBuffer, userID) {
-  if (vlessBuffer.byteLength < 24) {
-    return {
-      hasError: true
-    };
+  if (vlessBuffer.byteLength < 24 || stringify(new Uint8Array(vlessBuffer.slice(1, 17))) !== userID) {
+    return { hasError: true };
   }
   const version = new Uint8Array(vlessBuffer.slice(0, 1));
-  let isValidUser = false;
   let isUDP = false;
-  if (stringify(new Uint8Array(vlessBuffer.slice(1, 17))) === userID) {
-    isValidUser = true;
-  }
-  if (!isValidUser) {
-    return {
-      hasError: true
-    };
-  }
   const optLength = new Uint8Array(vlessBuffer.slice(17, 18))[0];
   const command = new Uint8Array(vlessBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
   if (command === 1) {} else if (command === 2) {
