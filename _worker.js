@@ -308,8 +308,6 @@ function stringify(arr, offset = 0) {
   }
   return uuid;
 }
-const BUFFER_SIZE = 4096;
-let reusableBuffer = new Uint8Array(BUFFER_SIZE);
 async function handleUDPOutBound(webSocket, vlessResponseHeader) {
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
@@ -317,14 +315,13 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
       while (index < chunk.byteLength) {
         const lengthBuffer = chunk.slice(index, index + 2);
         const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
-        reusableBuffer.set(new Uint8Array(chunk.slice(index + 2, index + 2 + udpPacketLength)), 0);
+        const udpData = new Uint8Array(chunk.slice(index + 2, index + 2 + udpPacketLength));
         index += 2 + udpPacketLength;
-        await handleDNSQuery(reusableBuffer.subarray(0, udpPacketLength), webSocket, vlessResponseHeader, controller);
+        await handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller);
       }
     }
   });
   chunkStream.readable.pipeTo(transformStream.writable).catch(error => {
-    console.error('Pipe error:', error);
   });
 }
 async function handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller) {
@@ -333,7 +330,6 @@ async function handleDNSQuery(udpData, webSocket, vlessResponseHeader, controlle
     const udpSizeBuffer = createUDPSizeBuffer(dnsQueryResult.byteLength);
     await sendWebSocketMessage(webSocket, vlessResponseHeader, udpSizeBuffer, dnsQueryResult);
   } catch (error) {
-    console.error('DNS query error:', error);
   }
 }
 async function fetchDNSQuery(chunk) {
