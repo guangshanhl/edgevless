@@ -59,7 +59,7 @@ async function vlessOverWSHandler(request) {
       }
       if (remoteSocket.value) {
         const writer = remoteSocket.value.writable.getWriter();
-        writer.write(chunk);
+        await writer.write(chunk);
         writer.releaseLock();
         return;
       }
@@ -244,80 +244,80 @@ function processVlessHeader(vlessBuffer, userID) {
   };
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
-    let remoteChunkCount = 0;
-    let chunks = [];
-    let vlessHeader = vlessResponseHeader;
-    let hasIncomingData = false;
-    const batchSize = 1024; // 设置批量大小
-    const flushInterval = 50; // 设置刷新间隔（毫秒）
-    let buffer = [];
-    let currentSize = 0;
+  let remoteChunkCount = 0;
+  let chunks = [];
+  let vlessHeader = vlessResponseHeader;
+  let hasIncomingData = false;
+  const MAX_BATCH_SIZE = 65536; // Example max size for the batch in bytes
+  const BATCH_TIMEOUT = 60; // Example timeout in milliseconds
+  let batchTimeout = null;
 
-    // 定时器，用于定期刷新缓冲区
-    const flushBuffer = () => {
-        if (buffer.length === 0) return;
+  const sendBatchedData = () => {
+    if (chunks.length === 0) return; // No data to send
+    const combinedBuffer = concatenateChunks(chunks);
+    webSocket.send(combinedBuffer);
+    chunks = []; // Reset the chunks after sending
+  };
 
-        const combinedData = new Uint8Array(currentSize);
-        let offset = 0;
+  const concatenateChunks = (chunks) => {
+    const totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0);
+    const combinedBuffer = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combinedBuffer.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+    return combinedBuffer;
+  };
 
-        for (const chunk of buffer) {
-            combinedData.set(chunk, offset);
-            offset += chunk.byteLength;
+  try {
+    await remoteSocket.readable.pipeTo(new WritableStream({
+      async write(chunk, controller) {
+        hasIncomingData = true;
+
+        if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+          controller.error('WebSocket connection is not open');
+          return;
         }
 
-        webSocket.send(combinedData);
-        buffer = []; // 清空缓冲区
-        currentSize = 0; // 重置当前大小
-    };
+        if (vlessHeader) {
+          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+          combinedBuffer.set(new Uint8Array(vlessHeader), 0);
+          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
+          chunks.push(combinedBuffer);
+          vlessHeader = null;
+        } else {
+          chunks.push(chunk);
+        }
 
-    // 定时器每隔一段时间刷新一次缓冲区
-    const intervalId = setInterval(flushBuffer, flushInterval);
+        // Check the total size of chunks and send if it exceeds the maximum size
+        const totalSize = chunks.reduce((acc, c) => acc + c.byteLength, 0);
+        if (totalSize >= MAX_BATCH_SIZE) {
+          sendBatchedData();
+        }
 
-    try {
-        await remoteSocket.readable.pipeTo(new WritableStream({
-            start() {},
-            async write(chunk, controller) {
-                hasIncomingData = true;
-                if (webSocket.readyState !== WebSocket.OPEN) {
-                    controller.error('WebSocket connection is not open');
-                    return;
-                }
+        // Reset the timeout if already set
+        if (batchTimeout) {
+          clearTimeout(batchTimeout);
+        }
+        // Set a timeout to send the remaining data if it hasn't been sent yet
+        batchTimeout = setTimeout(sendBatchedData, BATCH_TIMEOUT);
+      },
+      close() {
+        sendBatchedData(); // Send any remaining chunks on close
+      },
+      abort(reason) {
+        console.error(`remoteConnection!.readable abort`, reason);
+      }
+    }));
+  } catch (error) {
+    console.error(`remoteSocketToWS has exception `, error.stack || error);
+    closeWebSocket(webSocket);
+  }
 
-                if (vlessHeader) {
-                    const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
-                    combinedBuffer.set(new Uint8Array(vlessHeader), 0);
-                    combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
-                    buffer.push(combinedBuffer); // 将组合的缓冲区添加到缓冲区
-                    currentSize += combinedBuffer.byteLength; // 更新当前大小
-                    vlessHeader = null;
-                } else {
-                    buffer.push(chunk); // 将数据块添加到缓冲区
-                    currentSize += chunk.byteLength; // 更新当前大小
-                }
-
-                // 检查当前缓冲区大小是否超过批量大小
-                if (currentSize >= batchSize) {
-                    flushBuffer(); // 立即发送
-                }
-            },
-            close() {
-                clearInterval(intervalId); // 清除定时器
-                flushBuffer(); // 确保发送剩余数据
-            },
-            abort(reason) {
-                console.error(`remoteConnection!.readable abort`, reason);
-                clearInterval(intervalId); // 清除定时器
-                flushBuffer(); // 确保发送剩余数据
-            }
-        }));
-    } catch (error) {
-        console.error(`remoteSocketToWS has exception `, error.stack || error);
-        closeWebSocket(webSocket);
-    }
-    
-    if (!hasIncomingData && retry) {
-        retry();
-    }
+  if (!hasIncomingData && retry) {
+    retry();
+  }
 }
 
 function base64ToArrayBuffer(base64Str) {
