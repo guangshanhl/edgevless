@@ -59,7 +59,7 @@ async function vlessOverWSHandler(request) {
       }
       if (remoteSocket.value) {
         const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(chunk);
+        writer.write(chunk);
         writer.releaseLock();
         return;
       }
@@ -81,7 +81,6 @@ async function vlessOverWSHandler(request) {
         if (portRemote === 53) {
           isDns = true;
         } else {
-          throw new Error('UDP proxy only enable for DNS which is port 53');
           return;
         }
       }
@@ -113,7 +112,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
     });
     remoteSocket.value = tcpSocket;
     const writer = tcpSocket.writable.getWriter();
-    await writer.write(rawClientData);
+    writer.write(rawClientData);
     writer.releaseLock();
     return tcpSocket;
   }
@@ -269,11 +268,9 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
       },
       close() {},
       abort(reason) {
-        console.error(`remoteConnection!.readable abort`, reason);
       }
     }));
   } catch (error) {
-    console.error(`remoteSocketToWS has exception `, error.stack || error);
     closeWebSocket(webSocket);
   }
   if (!hasIncomingData && retry) {
@@ -312,7 +309,6 @@ function closeWebSocket(socket) {
       socket.close();
     }
   } catch (error) {
-    console.error('closeWebSocket error', error);
   }
 }
 const byteToHex = [];
@@ -352,12 +348,10 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
         const udpSizeBuffer = createUDPSizeBuffer(dnsQueryResult.byteLength);
         await sendWebSocketMessage(webSocket, vlessResponseHeader, udpSizeBuffer, dnsQueryResult);
       } catch (error) {
-        console.error('Error processing chunk:', error);
       }
     }
   });
   transformStream.readable.pipeTo(writableStream).catch(error => {
-    console.error('Error piping stream:', error);
   });
   const writer = transformStream.writable.getWriter();
   return {
