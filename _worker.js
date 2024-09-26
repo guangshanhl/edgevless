@@ -50,12 +50,12 @@ async function vlessOverWSHandler(request) {
   let remoteSocket = {
     value: null
   };
-  let udpStreamWrite = null;
+  let udpWrite = null;
   let isDns = false;
   readableWebSocketStream.pipeTo(new WritableStream({
     async write(chunk, controller) {
-      if (isDns && udpStreamWrite) {
-        return udpStreamWrite(chunk);
+      if (isDns && udpWrite) {
+        return udpWrite(chunk);
       }
       if (remoteSocket.value) {
         const writer = remoteSocket.value.writable.getWriter();
@@ -74,7 +74,6 @@ async function vlessOverWSHandler(request) {
       } = processVlessHeader(chunk, userID);
       address = addressRemote;
       if (hasError) {
-        throw new Error(message);
         return;
       }
       if (isUDP) {
@@ -90,8 +89,8 @@ async function vlessOverWSHandler(request) {
         const {
           write
         } = await handleUDPOutBound(webSocket, vlessResponseHeader);
-        udpStreamWrite = write;
-        udpStreamWrite(rawClientData);
+        udpWrite = write;
+        udpWrite(rawClientData);
         return;
       }
       handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
@@ -127,11 +126,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
   remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry);
 }
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
-  let readableStreamCancel = false;
+  let readableCancel = false;
   const stream = new ReadableStream({
     start(controller) {
       webSocketServer.addEventListener('message', event => {
-        if (readableStreamCancel) {
+        if (readableCancel) {
           return;
         }
         const message = event.data;
@@ -139,7 +138,7 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
       });
       webSocketServer.addEventListener('close', () => {
         closeWebSocket(webSocketServer);
-        if (readableStreamCancel) {
+        if (readableCancel) {
           return;
         }
         controller.close();
@@ -159,10 +158,10 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
     },
     pull(controller) {},
     cancel(reason) {
-      if (readableStreamCancel) {
+      if (readableCancel) {
         return;
       }
-      readableStreamCancel = true;
+      readableCancel = true;
       closeWebSocket(webSocketServer);
     }
   });
@@ -246,14 +245,13 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
   let remoteChunkCount = 0;
   let chunks = [];
   let vlessHeader = vlessResponseHeader;
-  let hasIncomingData = false;
+  let hasIncoming = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       start() {},
       async write(chunk, controller) {
-        hasIncomingData = true;
+        hasIncoming = true;
         if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-          controller.error('WebSocket connection is not open');
           return;
         }
         if (vlessHeader) {
@@ -273,7 +271,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  if (!hasIncomingData && retry) {
+  if (!hasIncoming && retry) {
     retry();
   }
 }
@@ -373,7 +371,7 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
     return new Uint8Array([size >> 8 & 0xff, size & 0xff]);
   }
   async function sendWebSocketMessage(webSocket, header, sizeBuffer, data) {
-    if (webSocket.readyState === WebSocket.OPEN) {
+    if (webSocket.readyState === WS_READY_STATE_OPEN) {
       const combinedBuffer = new Uint8Array(header.byteLength + sizeBuffer.byteLength + data.byteLength);
       combinedBuffer.set(new Uint8Array(header), 0);
       combinedBuffer.set(sizeBuffer, header.byteLength);
