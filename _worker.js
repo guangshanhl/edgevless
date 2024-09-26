@@ -248,64 +248,26 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
   let chunks = [];
   let vlessHeader = vlessResponseHeader;
   let hasIncomingData = false;
-  const MAX_BATCH_SIZE = 65536; // Example max size for the batch in bytes
-  const BATCH_TIMEOUT = 60; // Example timeout in milliseconds
-  let batchTimeout = null;
-
-  const sendBatchedData = () => {
-    if (chunks.length === 0) return; // No data to send
-    const combinedBuffer = concatenateChunks(chunks);
-    webSocket.send(combinedBuffer);
-    chunks = []; // Reset the chunks after sending
-  };
-
-  const concatenateChunks = (chunks) => {
-    const totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0);
-    const combinedBuffer = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      combinedBuffer.set(new Uint8Array(chunk), offset);
-      offset += chunk.byteLength;
-    }
-    return combinedBuffer;
-  };
-
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
+      start() {},
       async write(chunk, controller) {
         hasIncomingData = true;
-
         if (webSocket.readyState !== WS_READY_STATE_OPEN) {
           controller.error('WebSocket connection is not open');
           return;
         }
-
         if (vlessHeader) {
           const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
           combinedBuffer.set(new Uint8Array(vlessHeader), 0);
           combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
-          chunks.push(combinedBuffer);
+          webSocket.send(combinedBuffer);
           vlessHeader = null;
         } else {
-          chunks.push(chunk);
+          webSocket.send(chunk);
         }
-
-        // Check the total size of chunks and send if it exceeds the maximum size
-        const totalSize = chunks.reduce((acc, c) => acc + c.byteLength, 0);
-        if (totalSize >= MAX_BATCH_SIZE) {
-          sendBatchedData();
-        }
-
-        // Reset the timeout if already set
-        if (batchTimeout) {
-          clearTimeout(batchTimeout);
-        }
-        // Set a timeout to send the remaining data if it hasn't been sent yet
-        batchTimeout = setTimeout(sendBatchedData, BATCH_TIMEOUT);
       },
-      close() {
-        sendBatchedData(); // Send any remaining chunks on close
-      },
+      close() {},
       abort(reason) {
         console.error(`remoteConnection!.readable abort`, reason);
       }
@@ -314,12 +276,10 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
     console.error(`remoteSocketToWS has exception `, error.stack || error);
     closeWebSocket(webSocket);
   }
-
   if (!hasIncomingData && retry) {
     retry();
   }
 }
-
 function base64ToArrayBuffer(base64Str) {
   if (!base64Str) {
     return {
