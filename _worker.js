@@ -249,29 +249,32 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
   let chunks = [];
   let vlessHeader = vlessResponseHeader;
   let hasIncomingData = false;
-  await remoteSocket.readable.pipeTo(new WritableStream({
-    start() {},
-    async write(chunk, controller) {
-      hasIncomingData = true;
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-        controller.error('webSocket.readyState is not open, maybe close');
+  try {
+    await remoteSocket.readable.pipeTo(new WritableStream({
+      start() {},
+      async write(chunk, controller) {
+        hasIncomingData = true;
+        if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+          controller.error('WebSocket connection is not open');
+          return;
+        }
+        if (vlessHeader) {
+          webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+          vlessHeader = null;
+        } else {
+          webSocket.send(chunk);
+        }
+      },
+      close() {},
+      abort(reason) {
+        console.error(`remoteConnection!.readable abort`, reason);
       }
-      if (vlessHeader) {
-        webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
-        vlessHeader = null;
-      } else {
-        webSocket.send(chunk);
-      }
-    },
-    close() {},
-    abort(reason) {
-      console.error(`remoteConnection!.readable abort`, reason);
-    }
-  })).catch(error => {
+    }));
+  } catch (error) {
     console.error(`remoteSocketToWS has exception `, error.stack || error);
     closeWebSocket(webSocket);
-  });
-  if (hasIncomingData === false && retry) {
+  }
+  if (!hasIncomingData && retry) {
     retry();
   }
 }
