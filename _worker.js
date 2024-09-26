@@ -259,7 +259,11 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
           return;
         }
         if (vlessHeader) {
-          webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+          //webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+          combinedBuffer.set(new Uint8Array(vlessHeader), 0);
+          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
+          webSocket.send(combinedBuffer);
           vlessHeader = null;
         } else {
           webSocket.send(chunk);
