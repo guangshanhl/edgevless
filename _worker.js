@@ -231,57 +231,74 @@ function processVlessHeader(vlessBuffer, userID) {
   };
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
-  let remoteChunkCount = 0;
-  let chunks = [];
-  let vlessHeader = vlessResponseHeader;
-  let hasIncoming = false;
+  const bufferSize = 4096; // 定义每次发送的缓冲区大小
+  const chunks = [];
+  let totalLength = 0;
+
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
-      start() {},
-      async write(chunk, controller) {
-        hasIncoming = true;
+      async write(chunk) {
         if (webSocket.readyState !== WS_READY_STATE_OPEN) {
           return;
         }
-        if (vlessHeader) {
-          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
-          combinedBuffer.set(new Uint8Array(vlessHeader), 0);
-          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
+
+        chunks.push(chunk);
+        totalLength += chunk.byteLength;
+
+        // 当缓存达到一定大小时发送
+        if (totalLength >= bufferSize) {
+          const combinedBuffer = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const chunk of chunks) {
+            combinedBuffer.set(new Uint8Array(chunk), offset);
+            offset += chunk.byteLength;
+          }
           webSocket.send(combinedBuffer);
-          vlessHeader = null;
-        } else {
-          webSocket.send(chunk);
+          // 重置缓存
+          chunks.length = 0;
+          totalLength = 0;
         }
       },
-      close() {},
+      async close() {
+        // 关闭时发送剩余数据
+        if (totalLength > 0) {
+          const combinedBuffer = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const chunk of chunks) {
+            combinedBuffer.set(new Uint8Array(chunk), offset);
+            offset += chunk.byteLength;
+          }
+          webSocket.send(combinedBuffer);
+        }
+      },
       abort(reason) {
+        console.error('Stream aborted:', reason);
       }
     }));
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  if (!hasIncoming && retry) {
+
+  // 如果没有收到数据并且有重试逻辑，则调用重试
+  if (chunks.length === 0 && retry) {
     retry();
   }
 }
+
 function base64ToArrayBuffer(base64Str) {
   if (!base64Str) {
-    return {
-      error: null
-    };
+    return { earlyData: null, error: null };
   }
   try {
-    base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-    const decode = atob(base64Str);
-    const arryBuffer = Uint8Array.from(decode, c => c.charCodeAt(0));
-    return {
-      earlyData: arryBuffer.buffer,
-      error: null
-    };
+    const decodedStr = atob(base64Str.replace(/-/g, '+').replace(/_/g, '/'));
+    const length = decodedStr.length;
+    const uint8Array = new Uint8Array(length);
+    for (let i = 0; i < length; i++) {
+      uint8Array[i] = decodedStr.charCodeAt(i);
+    }    
+    return { earlyData: uint8Array.buffer, error: null };
   } catch (error) {
-    return {
-      error
-    };
+    return { earlyData: null, error };
   }
 }
 function isValidUUID(uuid) {
@@ -313,61 +330,47 @@ function stringify(arr, offset = 0) {
   return uuid;
 }
 async function handleUDPOutBound(webSocket, vlessResponseHeader) {
-  let isVlessHeaderSent = false;
   const transformStream = new TransformStream({
-    start(controller) {},
-    transform(chunk, controller) {
+    async transform(chunk, controller) {
       let index = 0;
       while (index < chunk.byteLength) {
         const lengthBuffer = chunk.slice(index, index + 2);
         const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
         const udpData = new Uint8Array(chunk.slice(index + 2, index + 2 + udpPacketLength));
         index += 2 + udpPacketLength;
-        controller.enqueue(udpData);
-      }
-    },
-    flush(controller) {}
-  });
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      try {
-        const dnsQueryResult = await fetchDNSQuery(chunk);
-        const udpSizeBuffer = createUDPSizeBuffer(dnsQueryResult.byteLength);
-        await sendWebSocketMessage(webSocket, vlessResponseHeader, udpSizeBuffer, dnsQueryResult);
-      } catch (error) {
+        await handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller);
       }
     }
   });
-  transformStream.readable.pipeTo(writableStream).catch(error => {
+  chunkStream.readable.pipeTo(transformStream.writable).catch(error => {
   });
-  const writer = transformStream.writable.getWriter();
-  return {
-    write(chunk) {
-      writer.write(chunk);
-    }
-  };
-  async function fetchDNSQuery(chunk) {
-    const response = await fetch('https://1.1.1.1/dns-query', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/dns-message'
-      },
-      body: chunk
-    });
-    return response.arrayBuffer();
+}
+async function handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller) {
+  try {
+    const dnsQueryResult = await fetchDNSQuery(udpData);
+    const udpSizeBuffer = createUDPSizeBuffer(dnsQueryResult.byteLength);
+    await sendWebSocketMessage(webSocket, vlessResponseHeader, udpSizeBuffer, dnsQueryResult);
+  } catch (error) {
   }
-  function createUDPSizeBuffer(size) {
-    return new Uint8Array([size >> 8 & 0xff, size & 0xff]);
-  }
-  async function sendWebSocketMessage(webSocket, header, sizeBuffer, data) {
-    if (webSocket.readyState === WS_READY_STATE_OPEN) {
-      const combinedBuffer = new Uint8Array(header.byteLength + sizeBuffer.byteLength + data.byteLength);
-      combinedBuffer.set(new Uint8Array(header), 0);
-      combinedBuffer.set(sizeBuffer, header.byteLength);
-      combinedBuffer.set(new Uint8Array(data), header.byteLength + sizeBuffer.byteLength);
-      webSocket.send(combinedBuffer.buffer);
-      isVlessHeaderSent = true;
-    }
+}
+async function fetchDNSQuery(chunk) {
+  const response = await fetch('https://1.1.1.1/dns-query', {
+    method: 'POST',
+    headers: { 'content-type': 'application/dns-message' },
+    body: chunk
+  });
+  return response.arrayBuffer();
+}
+function createUDPSizeBuffer(size) {
+  return new Uint8Array([size >> 8 & 0xff, size & 0xff]);
+}
+async function sendWebSocketMessage(webSocket, header, sizeBuffer, data) {
+  if (webSocket.readyState === WS_READY_STATE_OPEN) {
+    const combinedBuffer = new Uint8Array(header.byteLength + sizeBuffer.byteLength + data.byteLength);
+    combinedBuffer.set(new Uint8Array(header), 0);
+    combinedBuffer.set(sizeBuffer, header.byteLength);
+    combinedBuffer.set(new Uint8Array(data), header.byteLength + sizeBuffer.byteLength);
+    webSocket.send(combinedBuffer.buffer);
   }
 }
 function getVLESSConfig(userID, hostName) {
