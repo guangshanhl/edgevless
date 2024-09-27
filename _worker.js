@@ -60,6 +60,23 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
+const connectionPool = new Map(); // 使用 Map 存储连接池
+
+const getConnection = async (address, port) => {
+  const key = `${address}:${port}`;
+  if (connectionPool.has(key)) {
+    const existingSocket = connectionPool.get(key);
+    if (existingSocket && !existingSocket.closed) {
+      return existingSocket; // 返回现有连接
+    }
+  }
+
+  // 如果没有可用连接，创建新连接并存入连接池
+  const newSocket = await connect({ hostname: address, port });
+  connectionPool.set(key, newSocket);
+  return newSocket;
+};
+
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
@@ -72,15 +89,18 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     closeWebSocket(webSocket);
   }
 };
+
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);   
-  } else {
-    remoteSocket.value = await connect({ hostname: address, port });
-    await writeToRemote(remoteSocket.value, rawClientData);
-  }
-  return remoteSocket.value;
+  // 获取可用的连接
+  const socket = await getConnection(address, port);
+
+  // 写入数据
+  await writeToRemote(socket, rawClientData);
+
+  // 返回远程套接字
+  return socket;
 };
+
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
