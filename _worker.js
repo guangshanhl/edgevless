@@ -240,13 +240,28 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
       start() {},
       async write(chunk, controller) {
         hasIncoming = true;
-        if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+        if (webSocket.readyState !== WebSocket.OPEN) {
           return;
         }
         if (vlessHeader) {
-          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
-          combinedBuffer.set(new Uint8Array(vlessHeader), 0);
-          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
+          const headerLength = vlessHeader.byteLength;
+          const chunkLength = chunk.byteLength;
+          const combinedBuffer = new Uint8Array(headerLength + chunkLength);
+          
+          // 循环展开
+          for (let i = 0; i < headerLength; i += 4) {
+            combinedBuffer[i] = vlessHeader[i];
+            combinedBuffer[i + 1] = vlessHeader[i + 1];
+            combinedBuffer[i + 2] = vlessHeader[i + 2];
+            combinedBuffer[i + 3] = vlessHeader[i + 3];
+          }
+          for (let i = 0; i < chunkLength; i += 4) {
+            combinedBuffer[headerLength + i] = chunk[i];
+            combinedBuffer[headerLength + i + 1] = chunk[i + 1];
+            combinedBuffer[headerLength + i + 2] = chunk[i + 2];
+            combinedBuffer[headerLength + i + 3] = chunk[i + 3];
+          }
+          
           webSocket.send(combinedBuffer);
           vlessHeader = null;
         } else {
@@ -255,15 +270,18 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
       },
       close() {},
       abort(reason) {
+        console.error('Stream aborted:', reason);
       }
     }));
   } catch (error) {
+    console.error('Error piping stream:', error);
     closeWebSocket(webSocket);
   }
   if (!hasIncoming && retry) {
     retry();
   }
 }
+
 function base64ToArrayBuffer(base64Str) {
   if (!base64Str) {
     return { earlyData: null, error: null };
