@@ -29,10 +29,18 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
   const processChunk = async (chunk) => {
-    if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
-    if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+    if (isDns && udpStreamWrite) {
+    await udpStreamWrite(chunk);
+    return;
+    }  
+    if (remoteSocket.value) {
+    await writeToRemote(remoteSocket.value, chunk);
+    return;
+    }
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
-    if (hasError) return;
+    if (hasError) {
+    return;
+    }
     const responseHeader = new Uint8Array([Version[0], 0]);
     const rawClientData = chunk.slice(rawDataIndex);
     if (isUDP) {
@@ -149,22 +157,28 @@ const stringify = (arr, offset = 0) => {
     .join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const processAndSendChunk = async (chunk, index) => {
-    const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-    const dnsResult = await fetch('https://cloudflare-dns.com/dns-query', {
+  const udpRequests = [];
+  let index = 0;
+  while (index < rawClientData.byteLength) {
+    const udpPacketLength = new DataView(rawClientData.buffer, index, 2).getUint16(0);
+    const packet = rawClientData.slice(index + 2, index + 2 + udpPacketLength);
+    udpRequests.push(packet);
+    index += 2 + udpPacketLength;
+  }
+  const dnsResults = await Promise.all(udpRequests.map(packet => {
+    return fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/dns-message' },
-      body: chunk.slice(index + 2, index + 2 + udpPacketLength)
+      body: packet
     }).then(response => response.arrayBuffer());
+  }));
+  let resultIndex = 0;
+  for (const dnsResult of dnsResults) {
     if (webSocket.readyState === WebSocket.OPEN) {
       const combinedData = new Uint8Array([...responseHeader, (dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff, ...new Uint8Array(dnsResult)]);
       webSocket.send(combinedData);
     }
-    return index + 2 + udpPacketLength;
-  };
-  let index = 0;
-  while (index < rawClientData.byteLength) {
-    index = await processAndSendChunk(rawClientData, index);
+    resultIndex++;
   }
 };
 const getConfig = (userID, hostName) => `
