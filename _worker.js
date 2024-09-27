@@ -339,14 +339,12 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
       }
     }
   });
-
   try {
     await chunkStream.readable.pipeTo(transformStream.writable);
   } catch (error) {
     console.error('Error piping stream:', error);
   }
 }
-
 async function handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller) {
   try {
     const dnsQueryResult = await fetchDNSQuery(udpData);
@@ -356,7 +354,6 @@ async function handleDNSQuery(udpData, webSocket, vlessResponseHeader, controlle
     console.error('Error handling DNS query:', error);
   }
 }
-
 async function fetchDNSQuery(chunk) {
   try {
     const response = await fetch('https://1.1.1.1/dns-query', {
@@ -373,11 +370,9 @@ async function fetchDNSQuery(chunk) {
     throw error;
   }
 }
-
 function createUDPSizeBuffer(size) {
   return new Uint8Array([size >> 8 & 0xff, size & 0xff]);
 }
-
 async function sendWebSocketMessage(webSocket, header, sizeBuffer, data) {
   if (webSocket.readyState === WebSocket.OPEN) {
     const combinedBuffer = new Uint8Array(header.byteLength + sizeBuffer.byteLength + data.byteLength);
