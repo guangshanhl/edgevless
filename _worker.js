@@ -329,45 +329,64 @@ function stringify(arr, offset = 0) {
 async function handleUDPOutBound(webSocket, vlessResponseHeader) {
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
+      const dataView = new DataView(chunk.buffer);
       let index = 0;
       while (index < chunk.byteLength) {
-        const lengthBuffer = chunk.slice(index, index + 2);
-        const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
-        const udpData = new Uint8Array(chunk.slice(index + 2, index + 2 + udpPacketLength));
+        const udpPacketLength = dataView.getUint16(index);
+        const udpData = new Uint8Array(chunk.buffer, index + 2, udpPacketLength);
         index += 2 + udpPacketLength;
         await handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller);
       }
     }
   });
-  chunkStream.readable.pipeTo(transformStream.writable).catch(error => {
-  });
+
+  try {
+    await chunkStream.readable.pipeTo(transformStream.writable);
+  } catch (error) {
+    console.error('Error piping stream:', error);
+  }
 }
+
 async function handleDNSQuery(udpData, webSocket, vlessResponseHeader, controller) {
   try {
     const dnsQueryResult = await fetchDNSQuery(udpData);
     const udpSizeBuffer = createUDPSizeBuffer(dnsQueryResult.byteLength);
     await sendWebSocketMessage(webSocket, vlessResponseHeader, udpSizeBuffer, dnsQueryResult);
   } catch (error) {
+    console.error('Error handling DNS query:', error);
   }
 }
+
 async function fetchDNSQuery(chunk) {
-  const response = await fetch('https://1.1.1.1/dns-query', {
-    method: 'POST',
-    headers: { 'content-type': 'application/dns-message' },
-    body: chunk
-  });
-  return response.arrayBuffer();
+  try {
+    const response = await fetch('https://1.1.1.1/dns-query', {
+      method: 'POST',
+      headers: { 'content-type': 'application/dns-message' },
+      body: chunk
+    });
+    if (!response.ok) {
+      throw new Error('Network response was not ok');
+    }
+    return response.arrayBuffer();
+  } catch (error) {
+    console.error('Error fetching DNS query:', error);
+    throw error;
+  }
 }
+
 function createUDPSizeBuffer(size) {
   return new Uint8Array([size >> 8 & 0xff, size & 0xff]);
 }
+
 async function sendWebSocketMessage(webSocket, header, sizeBuffer, data) {
-  if (webSocket.readyState === WS_READY_STATE_OPEN) {
+  if (webSocket.readyState === WebSocket.OPEN) {
     const combinedBuffer = new Uint8Array(header.byteLength + sizeBuffer.byteLength + data.byteLength);
     combinedBuffer.set(new Uint8Array(header), 0);
     combinedBuffer.set(sizeBuffer, header.byteLength);
     combinedBuffer.set(new Uint8Array(data), header.byteLength + sizeBuffer.byteLength);
     webSocket.send(combinedBuffer.buffer);
+  } else {
+    console.error('WebSocket is not open');
   }
 }
 function getVLESSConfig(userID, hostName) {
