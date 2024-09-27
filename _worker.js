@@ -73,7 +73,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const createSocketStream = (webSocket, earlyHeader) => {
-  const reuseStream = new ReadableStream({
+  reuseStream = new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToArrayBuffer(earlyHeader);
       if (error) {
@@ -87,7 +87,6 @@ const createSocketStream = (webSocket, earlyHeader) => {
     },
     cancel: () => closeWebSocket(webSocket)
   });
-  return reuseStream;
 };
 const processSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
