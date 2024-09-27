@@ -28,30 +28,59 @@ const handlewsRequest = async (request, userID, proxyIP) => {
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
   const readableStream = createWebSocketStream(webSocket, earlyDataHeader);
   let remoteSocket = { value: null }, udpStreamWrite = null, isDns = false;
-  const processChunk = async (chunk) => {
+  const chunkBuffer = [];
+const BUFFER_LIMIT = 10; // 设置缓冲区限制
+
+const processChunk = async (chunk) => {
+  // 将数据块加入缓冲区
+  chunkBuffer.push(chunk);
+
+  // 如果缓冲区达到限制，进行批量处理
+  if (chunkBuffer.length >= BUFFER_LIMIT) {
+    const bufferedChunks = chunkBuffer.splice(0, BUFFER_LIMIT);
+    await handleBufferedChunks(bufferedChunks);
+  }
+};
+
+const handleBufferedChunks = async (chunks) => {
+  for (const chunk of chunks) {
     if (isDns && udpStreamWrite) {
-    await udpStreamWrite(chunk);
-    return;
-    }  
-    if (remoteSocket.value) {
-    await writeToRemote(remoteSocket.value, chunk);
-    return;
+      await udpStreamWrite(chunk);
+      continue; // 提前退出
     }
+
+    if (remoteSocket.value) {
+      await writeToRemote(remoteSocket.value, chunk);
+      continue; // 提前退出
+    }
+
     const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
     if (hasError) {
-    return;
+      console.error("WebSocket header processing error");
+      continue; // 处理下一个块
     }
+
     const responseHeader = new Uint8Array([Version[0], 0]);
     const rawClientData = chunk.slice(rawDataIndex);
+
     if (isUDP) {
       isDns = portRemote === 53;
       if (isDns) {
         udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
       }
     } else {
-      handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+      await handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
     }
-  };
+  }
+};
+
+// 确保在 WebSocket 关闭时处理剩余的数据
+const flushBuffer = async () => {
+  if (chunkBuffer.length > 0) {
+    await handleBufferedChunks(chunkBuffer.splice(0, chunkBuffer.length));
+  }
+};
+
   readableStream.pipeTo(new WritableStream({ write: processChunk }));
   return new Response(null, { status: 101, webSocket: client });
 };
