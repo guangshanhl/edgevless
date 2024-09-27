@@ -137,11 +137,13 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   }
   if (!hasData && retry) retry();
 };
-const base64ToBuffer = base64Str => {
+const base64ToBuffer = (base64Str) => {
   try {
-    const formattedStr = base64Str.replace(/[-_]/g, m => (m === '-' ? '+' : '/'));
-    const binaryStr = atob(formattedStr);
-    const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
+    const binaryStr = atob(base64Str.replace(/[-_]/g, m => (m === '-' ? '+' : '/')));
+    const buffer = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      buffer[i] = binaryStr.charCodeAt(i);
+    }    
     return { earlyData: buffer.buffer, error: null };
   } catch (error) {
     return { error };
