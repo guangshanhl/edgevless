@@ -70,14 +70,15 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(remoteSocket.value, rawClientData);
   return remoteSocket.value;
 };
-let reuseStream;
 const createSocketStream = (webSocket, earlyHeader) => {
-  if (reuseStream) { reuseStream.cancel(); reuseStream = null; }
-  const { earlyData, error } = base64ToBuffer(earlyHeader);
-  if (error) return new ReadableStream().cancel();
-  reuseStream = new ReadableStream({
+  const reuseStream = new ReadableStream({
     start(controller) {
-      if (earlyData) controller.enqueue(earlyData);
+      const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
+			if (error) {
+				controller.error(error);
+			} else if (earlyData) {
+				controller.enqueue(earlyData);
+			}
       webSocket.addEventListener('message', event => controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
