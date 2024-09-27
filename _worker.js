@@ -98,13 +98,10 @@ async function vlessOverWSHandler(request) {
 			handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log);
 		},
 		close() {
-			log(`readableWebSocketStream is close`);
 		},
 		abort(reason) {
-			log(`readableWebSocketStream is abort`, JSON.stringify(reason));
 		},
 	})).catch((err) => {
-		log('readableWebSocketStream pipeTo error', err);
 	});
 	return new Response(null, {
 		status: 101,
@@ -156,7 +153,6 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 			}
 			);
 			webSocketServer.addEventListener('error', (err) => {
-				log('webSocketServer has error');
 				controller.error(err);
 			}
 			);
@@ -173,7 +169,6 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 			if (readableStreamCancel) {
 				return;
 			}
-			log(`ReadableStream was canceled, due to ${reason}`)
 			readableStreamCancel = true;
 			safeCloseWebSocket(webSocketServer);
 		}
@@ -300,7 +295,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
 					}
 				},
 				close() {
-					log(`remoteConnection!.readable is close with hasIncomingData is ${hasIncomingData}`);
 				},
 				abort(reason) {
 					console.error(`remoteConnection!.readable abort`, reason);
@@ -315,7 +309,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
 			safeCloseWebSocket(webSocket);
 		});
 	if (hasIncomingData === false && retry) {
-		log(`retry`)
 		retry();
 	}
 }
@@ -394,7 +387,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 			const udpSize = dnsQueryResult.byteLength;
 			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
 			if (webSocket.readyState === WS_READY_STATE_OPEN) {
-				log(`doh success and dns message length is ${udpSize}`);
 				if (isVlessHeaderSent) {
 					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
 				} else {
@@ -404,7 +396,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 			}
 		}
 	})).catch((error) => {
-		log('dns udp has error' + error)
 	});
 	const writer = transformStream.writable.getWriter();
 	return {
@@ -420,24 +411,6 @@ function getVLESSConfig(userID, hostName) {
 v2ray
 ---------------------------------------------------------------
 ${vlessMain}
----------------------------------------------------------------
-################################################################
-clash-meta
----------------------------------------------------------------
-- type: vless
-  name: ${hostName}
-  server: ${hostName}
-  port: 443
-  uuid: ${userID}
-  network: ws
-  tls: true
-  udp: false
-  sni: ${hostName}
-  client-fingerprint: chrome
-  ws-opts:
-    path: "/?ed=2560"
-    headers:
-      host: ${hostName}
 ---------------------------------------------------------------
 ################################################################
 `;
