@@ -132,8 +132,8 @@ const base64ToBuffer = (base64Str) => {
     return { error };
   }
 };
-const closeWebSocket = webSocke => {
-  if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocke.readyState)) webSocke.close();
+const closeWebSocket = webSocket => {
+  if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) webSocket.close();
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
