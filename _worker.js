@@ -118,16 +118,21 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
   }
   let hasData = false;
   try {
-    await remoteSocket.readable.pipeTo(new WritableStream({
+    const writer = new WritableStream({
       async write(chunk) {
         hasData = true;
         const dataToSend = ResponseHeader 
-          ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
+          ? new Uint8Array(ResponseHeader.length + chunk.byteLength)
           : chunk;
-        webSocket.send(dataToSend);
+        if (ResponseHeader) {
+          dataToSend.set(ResponseHeader, 0);
+          dataToSend.set(new Uint8Array(chunk), ResponseHeader.length);
+        }
+        webSocket.send(dataToSend.buffer);
         ResponseHeader = null;
       }
-    }));
+    });
+    await remoteSocket.readable.pipeTo(writer);
   } catch (error) {
     closeWebSocket(webSocket);
   }
@@ -166,21 +171,25 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
       let index = 0;
+      const udpPackets = [];
       while (index < chunk.byteLength) {
         const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
         const dnsChunk = chunk.slice(index + 2, index + 2 + udpPacketLength);
-        const dnsResult = await dnsFetch(dnsChunk);
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-        if (webSocket.readyState === WebSocket.OPEN) {
-          const message = new Uint8Array(ResponseHeader.length + udpSizeBuffer.length + dnsResult.byteLength);
-          message.set(ResponseHeader, 0);
-          message.set(udpSizeBuffer, ResponseHeader.length);
-          message.set(new Uint8Array(dnsResult), ResponseHeader.length + udpSizeBuffer.length);
-          webSocket.send(message.buffer);
-        }
+        const dnsResult = await dnsFetch(dnsChunk);   
+        udpPackets.push(dnsResult);
         index += 2 + udpPacketLength;
       }
-      rawClientData = null;
+      const totalLength = udpPackets.reduce((sum, packet) => sum + packet.byteLength, 0);
+      const message = new Uint8Array(ResponseHeader.length + totalLength);
+      message.set(ResponseHeader);
+      let offset = ResponseHeader.length;
+      for (const packet of udpPackets) {
+        message.set(new Uint8Array(packet), offset);
+        offset += packet.byteLength;
+      }
+      if (webSocket.readyState === WebSocket.OPEN) {
+        webSocket.send(message.buffer);
+      }   
       controller.terminate();
     }
   });
