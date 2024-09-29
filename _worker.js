@@ -105,7 +105,6 @@ const getAddressInfo = (view, buffer, startIndex) => {
     : addressType === 2 
       ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
       : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
-
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
@@ -168,7 +167,6 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
         const dnsChunk = chunk.slice(index + 2, index + 2 + udpPacketLength);
         const dnsResult = await dnsFetch(dnsChunk);
         const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-
         if (webSocket.readyState === WebSocket.OPEN) {
           const message = new Uint8Array(ResponseHeader.length + udpSizeBuffer.length + dnsResult.byteLength);
           message.set(ResponseHeader, 0);
