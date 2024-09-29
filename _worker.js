@@ -49,15 +49,17 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+  let socket;
   if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);
-    return remoteSocket.value;
+    socket = remoteSocket.value;
+    await writeToRemote(socket, rawClientData);
   } else {
-    const tcpSocket = await connect({ hostname: address, port });
-    remoteSocket.value = tcpSocket;
-    await writeToRemote(tcpSocket, rawClientData);
-    return tcpSocket;
+    socket = await connect({ hostname: address, port });
+    remoteSocket.value = socket;
+    await writeToRemote(socket, rawClientData);
   }
+  rawClientData = null;
+  return socket;
 };
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
   try {
@@ -67,6 +69,7 @@ const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
+    rawClientData = null;
   } catch (error) {
     closeWebSocket(webSocket);
   }
@@ -176,6 +179,7 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
         }
         index += 2 + udpPacketLength;
       }
+      rawClientData = null;
       controller.terminate();
     }
   });
