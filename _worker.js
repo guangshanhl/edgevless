@@ -110,53 +110,30 @@ const getAddressInfo = (view, buffer, startIndex) => {
       : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-class ReusableWritableStream {
-  constructor() {
-    this.stream = this.createStream();
-  }
-
-  createStream() {
-    return new WritableStream({
-      write: async (chunk) => {
-        if (this.ResponseHeader) {
-          const dataToSend = new Uint8Array([...this.ResponseHeader, ...new Uint8Array(chunk)]).buffer;
-          this.webSocket.send(dataToSend);
-          this.ResponseHeader = null;
-        } else {
-          this.webSocket.send(chunk);
-        }
-      }
-    });
-  }
-
-  reset(ResponseHeader, webSocket) {
-    this.ResponseHeader = ResponseHeader;
-    this.webSocket = webSocket;
-  }
-}
-
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
     return;
   }
-
   let hasData = false;
-  const reusableStream = new ReusableWritableStream();
-  reusableStream.reset(ResponseHeader, webSocket);
-
   try {
-    await remoteSocket.readable.pipeTo(reusableStream.stream);
-    hasData = true;
+    await remoteSocket.readable.pipeTo(new WritableStream({
+      async write(chunk) {
+        hasData = true;
+        const dataToSend = ResponseHeader 
+          ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
+          : chunk;
+        webSocket.send(dataToSend);
+        ResponseHeader = null;
+      }
+    }));
   } catch (error) {
     closeWebSocket(webSocket);
   }
-
   if (!hasData && retry) {
     retry();
   }
 };
-
 const base64ToBuffer = base64Str => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, match => (match === '-' ? '+' : '/')));
