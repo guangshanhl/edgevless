@@ -110,23 +110,27 @@ const getAddressInfo = (view, buffer, startIndex) => {
       : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
+const writableStream = new WritableStream({
+  async write(chunk) {
+    if (webSocket.readyState !== WebSocket.OPEN) {
+      closeWebSocket(webSocket);
+      return;
+    }
+    const dataToSend = ResponseHeader 
+      ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
+      : chunk;
+    webSocket.send(dataToSend);
+    ResponseHeader = null;
+  }
+});
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
     return;
-  }
+  }  
   let hasData = false;
   try {
-    await remoteSocket.readable.pipeTo(new WritableStream({
-      async write(chunk) {
-        hasData = true;
-        const dataToSend = ResponseHeader 
-          ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
-          : chunk;
-        webSocket.send(dataToSend);
-        ResponseHeader = null;
-      }
-    }));
+    await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
@@ -134,6 +138,7 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     retry();
   }
 };
+
 const base64ToBuffer = base64Str => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, match => (match === '-' ? '+' : '/')));
