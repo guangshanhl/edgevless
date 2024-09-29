@@ -110,30 +110,48 @@ const getAddressInfo = (view, buffer, startIndex) => {
       : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-const writableStream = new WritableStream({
-  async write(chunk) {
-    if (webSocket.readyState !== WebSocket.OPEN) {
-      closeWebSocket(webSocket);
-      return;
-    }
-    const dataToSend = ResponseHeader 
-      ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
-      : chunk;
-    webSocket.send(dataToSend);
-    ResponseHeader = null;
+class ReusableWritableStream {
+  constructor() {
+    this.stream = this.createStream();
   }
-});
+
+  createStream() {
+    return new WritableStream({
+      write: async (chunk) => {
+        if (this.ResponseHeader) {
+          const dataToSend = new Uint8Array([...this.ResponseHeader, ...new Uint8Array(chunk)]).buffer;
+          this.webSocket.send(dataToSend);
+          this.ResponseHeader = null;
+        } else {
+          this.webSocket.send(chunk);
+        }
+      }
+    });
+  }
+
+  reset(ResponseHeader, webSocket) {
+    this.ResponseHeader = ResponseHeader;
+    this.webSocket = webSocket;
+  }
+}
+
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
     return;
-  }  
+  }
+
   let hasData = false;
+  const reusableStream = new ReusableWritableStream();
+  reusableStream.reset(ResponseHeader, webSocket);
+
   try {
-    await remoteSocket.readable.pipeTo(writableStream);
+    await remoteSocket.readable.pipeTo(reusableStream.stream);
+    hasData = true;
   } catch (error) {
     closeWebSocket(webSocket);
   }
+
   if (!hasData && retry) {
     retry();
   }
