@@ -58,7 +58,6 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     remoteSocket.value = socket;
     await writeToRemote(socket, rawClientData);
   }
-  rawClientData = null;
   return socket;
 };
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
@@ -72,6 +71,8 @@ const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     rawClientData = null;
   } catch (error) {
     closeWebSocket(webSocket);
+  } finally {
+    rawClientData = null;
   }
 };
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
