@@ -164,34 +164,38 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
     });
     return response.arrayBuffer();
   };
+  const totalLength = new DataView(rawClientData.buffer).getUint16(0);
+  const udpPackets = new Uint8Array(totalLength);
+  let index = 0;
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
-      let index = 0;
-      const udpPackets = [];
-      while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const dnsChunk = chunk.slice(index + 2, index + 2 + udpPacketLength);
-        const dnsResult = await dnsFetch(dnsChunk);   
-        udpPackets.push(dnsResult);
-        index += 2 + udpPacketLength;
+      let offset = 0;
+      while (offset < chunk.byteLength) {
+        const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
+        const dnsChunk = chunk.slice(offset + 2, offset + 2 + udpPacketLength);
+        const dnsResult = await dnsFetch(dnsChunk);
+        udpPackets.set(new Uint8Array(dnsResult), index);
+        index += dnsResult.byteLength;
+        if (index >= udpPackets.byteLength) {
+          controller.enqueue(udpPackets.slice(0, index));
+          index = 0;
+        }
+        offset += 2 + udpPacketLength;
       }
-      const totalLength = udpPackets.reduce((sum, packet) => sum + packet.byteLength, 0);
-      const message = new Uint8Array(ResponseHeader.length + totalLength);
-      message.set(ResponseHeader);
-      let offset = ResponseHeader.length;
-      for (const packet of udpPackets) {
-        message.set(new Uint8Array(packet), offset);
-        offset += packet.byteLength;
+    },
+    async flush(controller) {
+      if (index > 0) {
+        controller.enqueue(udpPackets.slice(0, index));
       }
-      if (webSocket.readyState === WebSocket.OPEN) {
-        webSocket.send(message.buffer);
-      }   
-      controller.terminate();
     }
   });
   const writer = transformStream.writable.getWriter();
   await writer.write(rawClientData);
   writer.close();
+  const finalMessage = await transformStream.readable.getReader().read();
+  if (webSocket.readyState === WebSocket.OPEN) {
+    webSocket.send(finalMessage.value.buffer);
+  }
 };
 const getUserConfig = (userID, hostName) => `
 vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
