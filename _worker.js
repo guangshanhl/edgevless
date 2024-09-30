@@ -116,15 +116,32 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     closeWebSocket(webSocket);
     return;
   }
+  const chunkSizeLimit = 65536;
+  let buffer = new Uint8Array(chunkSizeLimit);
+  let bufferLength = 0;
   let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      const dataToSend = ResponseHeader 
-        ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
-        : chunk;
-      webSocket.send(dataToSend);
-      ResponseHeader = null;
+      if (bufferLength + chunk.byteLength > chunkSizeLimit) {
+        await sendBuffer(buffer.slice(0, bufferLength));
+        bufferLength = 0;
+      }
+      buffer.set(new Uint8Array(chunk), bufferLength);
+      bufferLength += chunk.byteLength;
+      if (bufferLength >= chunkSizeLimit) {
+        await sendBuffer(buffer.slice(0, bufferLength));
+        bufferLength = 0;
+      }
+    },
+    async close() {
+      if (bufferLength > 0) {
+        await sendBuffer(buffer.slice(0, bufferLength));
+      }
+      closeWebSocket(webSocket);
+    },
+    async abort(err) {
+      closeWebSocket(webSocket);
     }
   });
   try {
@@ -134,6 +151,11 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
   }
   if (!hasData && retry) {
     retry();
+  }
+};
+const sendBuffer = async (data) => {
+  if (data.length > 0) {
+    await webSocket.send(data.buffer);
   }
 };
 const base64ToBuffer = base64Str => {
