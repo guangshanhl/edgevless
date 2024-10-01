@@ -80,12 +80,23 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream
     const { earlyData, error } = base64ToBuffer(earlyDataHeader);
     if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
-    const addWebSocketListener = (type, handler) => webSocket.addEventListener(type, handler);
-    addWebSocketListener('message', event => controller.enqueue(event.data));
-    addWebSocketListener('close', () => controller.close());
-    addWebSocketListener('error', err => controller.error(err));
+    const eventHandlers = new WeakMap();
+    const handleMessage = (event) => controller.enqueue(event.data);
+    const handleClose = () => controller.close();
+    const handleError = (err) => controller.error(err);
+    eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
+    webSocket.addEventListener('message', handleMessage);
+    webSocket.addEventListener('close', handleClose);
+    webSocket.addEventListener('error', handleError);
   },
   cancel() {
+    const eventHandlers = new WeakMap();
+    const handlers = eventHandlers.get(webSocket);
+    if (handlers) {
+      webSocket.removeEventListener('message', handlers.handleMessage);
+      webSocket.removeEventListener('close', handlers.handleClose);
+      webSocket.removeEventListener('error', handlers.handleError);
+    }
     closeWebSocket(webSocket);
   }
 });
