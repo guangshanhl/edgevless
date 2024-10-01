@@ -66,7 +66,6 @@ const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
   } catch (error) {
-    console.error('Error handling TCP request:', error);
     closeWebSocket(webSocket);
   } finally {
     rawClientData = null;
@@ -171,8 +170,11 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
-  const batchSize = 6;
-  let lastReadyState = webSocket.readyState;
+  const batchSize = 10;
+  const totalLength = new DataView(rawClientData.buffer).getUint16(0);
+  const udpPackets = new Uint8Array(totalLength);
+  let index = 0;
+  let batch = [];
   const dnsFetch = async (chunks) => {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
@@ -181,20 +183,21 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
     });
     return response.arrayBuffer();
   };
-  const totalLength = new DataView(rawClientData.buffer).getUint16(0);
-  const udpPackets = new Uint8Array(totalLength);
-  let index = 0;
-  let batch = [];
+  const processBatch = async () => {
+    const dnsResults = await Promise.all(batch.map(dnsFetch));
+    dnsResults.forEach(dnsResult => {
+      index = processDnsResult(dnsResult, udpPackets, index);
+    });
+  };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
       let offset = 0;
       while (offset < chunk.byteLength) {
         const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
-        const dnsChunk = chunk.slice(offset + 2, offset + 2 + udpPacketLength);
-        batch.push(dnsChunk);
+        batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
+
         if (batch.length >= batchSize) {
-          const dnsResult = await dnsFetch(batch);
-          index = processDnsResult(dnsResult, udpPackets, index);
+          await processBatch();
           controller.enqueue(udpPackets.slice(0, index));
           index = 0;
           batch = [];
@@ -203,9 +206,8 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
       }
     },
     async flush(controller) {
-      if (batch.length > 0) {
-        const dnsResult = await dnsFetch(batch);
-        index = processDnsResult(dnsResult, udpPackets, index);
+      if (batch.length) {
+        await processBatch();
         controller.enqueue(udpPackets.slice(0, index));
       }
     }
@@ -214,21 +216,18 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   await writer.write(rawClientData);
   writer.close();
   const finalMessage = await transformStream.readable.getReader().read();
-  if (webSocket.readyState !== lastReadyState) {
-    lastReadyState = webSocket.readyState;
-    if (lastReadyState === WebSocket.OPEN) {
-      webSocket.send(finalMessage.value.buffer);
-    }
+  if (webSocket.readyState === WebSocket.OPEN) {
+    webSocket.send(finalMessage.value.buffer);
   }
 };
 const concatenateChunks = (chunks) => {
   const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-  const result = new Uint8Array(totalLength);  
+  const result = new Uint8Array(totalLength);
   let offset = 0;
   for (const chunk of chunks) {
     result.set(new Uint8Array(chunk), offset);
     offset += chunk.byteLength;
-  } 
+  }
   return result.buffer;
 };
 const processDnsResult = (dnsResult, udpPackets, index) => {
@@ -236,11 +235,10 @@ const processDnsResult = (dnsResult, udpPackets, index) => {
   let offset = 0;
   while (offset < responseArray.byteLength) {
     const responseLength = new DataView(responseArray.buffer, offset, 2).getUint16(0);
-    const dnsResponse = responseArray.slice(offset, offset + responseLength);   
-    udpPackets.set(dnsResponse, index);
-    index += dnsResponse.byteLength;
+    udpPackets.set(responseArray.slice(offset, offset + responseLength), index);
+    index += responseLength;
     offset += responseLength;
-  } 
+  }  
   return index;
 };
 const getUserConfig = (userID, hostName) => `
