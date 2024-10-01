@@ -111,6 +111,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
       : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
+let cachedReadyState = WebSocket.CLOSED;
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
   if (cachedReadyState !== webSocket.readyState) {
     cachedReadyState = webSocket.readyState;
