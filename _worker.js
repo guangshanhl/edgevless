@@ -3,7 +3,6 @@ export default {
   async fetch(request, env) {
     const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP || '';
-    const proxyIPort = env.PROXYIPORT || '8443';
     try {
       return request.headers.get('Upgrade') === 'websocket'
         ? handleWsRequest(request, userID, proxyIP)
@@ -21,7 +20,7 @@ const handleHttpRequest = async (request, userID) => {
   };
   return responses[url.pathname] || new Response('Not found', { status: 404 });
 };
-const handleWsRequest = async (request, userID, proxyIP, proxyIPort) => {
+const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const readableStream = createWebSocketStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
@@ -38,7 +37,7 @@ const handleWsRequest = async (request, userID, proxyIP, proxyIPort) => {
       if (isDns) {
         udpStreamWrite = await handleudpRequest(webSocket, ResponseHeader, rawClientData);
       } else {
-        handletcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP, proxyIPort);
+        handletcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP);
       }
     }
   }));
@@ -58,11 +57,11 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
-const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP, proxyIPort) => {
+const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, ResponseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, proxyIPort || portRemote, rawClientData);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
