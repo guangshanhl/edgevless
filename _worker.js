@@ -120,57 +120,26 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
       return;
     }
   }
-
   let hasData = false;
-  const buffer = []; // 用于缓存 chunks
-  const BATCH_SIZE = 5; // 设置批处理大小
-
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      buffer.push(chunk);
-
-      // 检查是否达到批处理大小
-      if (buffer.length >= BATCH_SIZE) {
-        const dataToSend = ResponseHeader 
-          ? new Uint8Array([...ResponseHeader, ...buffer.flat()]).buffer 
-          : buffer.flat();
-
-        webSocket.send(dataToSend);
-        ResponseHeader = null; // 清空 ResponseHeader
-        buffer.length = 0; // 清空缓冲区
-      }
-    },
-    async close() {
-      // 处理剩余数据
-      if (buffer.length > 0) {
-        const dataToSend = ResponseHeader 
-          ? new Uint8Array([...ResponseHeader, ...buffer.flat()]).buffer 
-          : buffer.flat();
-
-        webSocket.send(dataToSend);
-      }
-      // 清理引用，帮助垃圾回收
+      const dataToSend = ResponseHeader 
+        ? new Uint8Array([...ResponseHeader, ...chunk]).buffer 
+        : chunk;
+      webSocket.send(dataToSend);
       ResponseHeader = null;
     }
   });
-
   try {
     await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
   } catch (error) {
     closeWebSocket(webSocket);
   }
-
   if (!hasData && retry) {
     retry();
   }
-
-  // 在没有数据时，确保引用清理
-  if (!hasData) {
-    ResponseHeader = null;
-  }
 };
-
 const base64ToBuffer = base64Str => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, match => (match === '-' ? '+' : '/')));
