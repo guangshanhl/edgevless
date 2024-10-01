@@ -195,7 +195,6 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
       while (offset < chunk.byteLength) {
         const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
         batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
-
         if (batch.length >= batchSize) {
           await processBatch();
           controller.enqueue(udpPackets.slice(0, index));
