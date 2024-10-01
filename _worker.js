@@ -28,7 +28,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
-      if (remoteSocket.value) return await writeToSocket(remoteSocket.value, chunk);
+      if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
       const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
       const ResponseHeader = new Uint8Array([Version[0], 0]);
@@ -48,48 +48,36 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const writeToSocket = async (socket, address, port, data) => {
+const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+  let socket = remoteSocket.value;
   if (!socket || socket.closed) {
     socket = await connect({ hostname: address, port });
-  }
-  const writer = socket.writable.getWriter();
-  await writer.write(data);
-  writer.releaseLock();
-  return socket;
-}
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  let socket;
-  if (remoteSocket.value && !remoteSocket.value.closed) {
-    socket = remoteSocket.value;
-    await writeToRemote(socket, rawClientData);
-  } else {
-    socket = await connect({ hostname: address, port });
     remoteSocket.value = socket;
-    await writeToRemote(socket, rawClientData);
   }
+  await writeToRemote(socket, rawClientData);
   return socket;
 };
 const handletcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP) => {
   try {
-    const tcpSocket = await writeToSocket(remoteSocket, addressRemote, portRemote, rawClientData);
+    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, ResponseHeader, async () => {
-      const fallbackSocket = await writeToSocket(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, ResponseHeader);
     });
-    rawClientData = null;
   } catch (error) {
+    console.error('Error handling TCP request:', error);
     closeWebSocket(webSocket);
   } finally {
     rawClientData = null;
   }
 };
+const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
     const { earlyData, error } = base64ToBuffer(earlyDataHeader);
     if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
-    const eventHandlers = new WeakMap();
     const handleMessage = (event) => controller.enqueue(event.data);
     const handleClose = () => controller.close();
     const handleError = (err) => controller.error(err);
@@ -99,7 +87,6 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream
     webSocket.addEventListener('error', handleError);
   },
   cancel() {
-    const eventHandlers = new WeakMap();
     const handlers = eventHandlers.get(webSocket);
     if (handlers) {
       webSocket.removeEventListener('message', handlers.handleMessage);
@@ -124,11 +111,15 @@ const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
   const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
   const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-  const addressValue = addressType === 1 
-    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-    : addressType === 2 
-      ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-      : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+  let addressValue;
+  if (addressType === 1) {
+    addressValue = Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.');
+  } else if (addressType === 2) {
+    addressValue = new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength));
+  } else {
+    const addressArray = new Uint8Array(buffer, addressValueIndex, 16);
+    addressValue = Array.from(addressArray).map(b => b.toString(16).padStart(2, '0')).join(':');
+  }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 let cachedReadyState = WebSocket.CLOSED;
