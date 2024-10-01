@@ -112,28 +112,25 @@ const getAddressInfo = (view, buffer, startIndex) => {
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 let cachedReadyState = WebSocket.CLOSED;
-let cachedResponseHeader = null;
-let hasData = false;
-const writableStream = new WritableStream({
-  async write(chunk) {
-    hasData = true;
-    const dataToSend = cachedResponseHeader 
-      ? new Uint8Array([...cachedResponseHeader, ...new Uint8Array(chunk)]).buffer 
-      : chunk;
-    await webSocket.send(dataToSend);
-});
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
-  if (webSocket.readyState !== cachedReadyState) {
+  if (cachedReadyState !== webSocket.readyState) {
     cachedReadyState = webSocket.readyState;
     if (cachedReadyState !== WebSocket.OPEN) {
       closeWebSocket(webSocket);
       return;
     }
   }
-  if (ResponseHeader) {
-    cachedResponseHeader = ResponseHeader;
-  }
-  hasData = false;
+  let hasData = false;
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      hasData = true;
+      const dataToSend = ResponseHeader 
+        ? new Uint8Array([...ResponseHeader, ...new Uint8Array(chunk)]).buffer 
+        : chunk;
+      webSocket.send(dataToSend);
+      ResponseHeader = null;
+    }
+  });
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
@@ -143,7 +140,6 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     retry();
   }
 };
-
 const base64ToBuffer = base64Str => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, match => (match === '-' ? '+' : '/')));
