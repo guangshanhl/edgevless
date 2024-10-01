@@ -21,7 +21,7 @@ const handleHttpRequest = async (request, userID) => {
   };
   return responses[url.pathname] || new Response('Not found', { status: 404 });
 };
-const handleWsRequest = async (request, userID, proxyIP) => {
+const handleWsRequest = async (request, userID, proxyIP, proxyIPort) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const readableStream = createWebSocketStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
@@ -38,7 +38,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       if (isDns) {
         udpStreamWrite = await handleudpRequest(webSocket, ResponseHeader, rawClientData);
       } else {
-        handletcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP);
+        handletcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, ResponseHeader, proxyIP, proxyIPort);
       }
     }
   }));
