@@ -111,39 +111,29 @@ const getAddressInfo = (view, buffer, startIndex) => {
       : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
+let cachedReadyState = WebSocket.CLOSED;
+let cachedResponseHeader = null;
+let hasData = false;
+const writableStream = new WritableStream({
+  async write(chunk) {
+    hasData = true;
+    const dataToSend = cachedResponseHeader 
+      ? new Uint8Array([...cachedResponseHeader, ...new Uint8Array(chunk)]).buffer 
+      : chunk;
+    await webSocket.send(dataToSend);
+});
 const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
-  if (webSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(webSocket);
-    return;
-  }
-  const chunkSizeLimit = 65536;
-  let buffer = new Uint8Array(chunkSizeLimit);
-  let bufferLength = 0;
-  let hasData = false;
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      hasData = true;
-      if (bufferLength + chunk.byteLength > chunkSizeLimit) {
-        await sendBuffer(buffer.slice(0, bufferLength));
-        bufferLength = 0;
-      }
-      buffer.set(new Uint8Array(chunk), bufferLength);
-      bufferLength += chunk.byteLength;
-      if (bufferLength >= chunkSizeLimit) {
-        await sendBuffer(buffer.slice(0, bufferLength));
-        bufferLength = 0;
-      }
-    },
-    async close() {
-      if (bufferLength > 0) {
-        await sendBuffer(buffer.slice(0, bufferLength));
-      }
+  if (webSocket.readyState !== cachedReadyState) {
+    cachedReadyState = webSocket.readyState;
+    if (cachedReadyState !== WebSocket.OPEN) {
       closeWebSocket(webSocket);
-    },
-    async abort(err) {
-      closeWebSocket(webSocket);
+      return;
     }
-  });
+  }
+  if (ResponseHeader) {
+    cachedResponseHeader = ResponseHeader;
+  }
+  hasData = false;
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
@@ -153,11 +143,7 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
     retry();
   }
 };
-const sendBuffer = async (data) => {
-  if (data.length > 0) {
-    await webSocket.send(data.buffer);
-  }
-};
+
 const base64ToBuffer = base64Str => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, match => (match === '-' ? '+' : '/')));
