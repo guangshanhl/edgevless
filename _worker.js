@@ -77,7 +77,6 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       await forwardToData(fallbackSocket, webSocket, responseHeader);
     });
   } catch (error) {
-    console.error('Error in handleTcpRequest:', error);
     closeWebSocket(webSocket);
   }
 };
@@ -155,7 +154,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   try {
     await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
   } catch (error) {
-    console.error('Error in forwardToData:', error);
     closeWebSocket(webSocket);
   }
   if (!hasData && retry) retry();
