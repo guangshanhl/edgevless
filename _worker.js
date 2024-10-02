@@ -125,7 +125,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => {
+const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
     return;
@@ -135,13 +135,11 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
   const targetStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      const dataToSend = ResponseHeader
-        ? new Uint8Array([...ResponseHeader, ...chunk]).buffer
-        : chunk;
-      if (webSocket.readyState === WebSocket.OPEN) {
-        webSocket.send(dataToSend);
-        ResponseHeader = null;
-      }
+      const dataToSend = responseHeader ?
+        Uint8Array.from([...responseHeader, ...chunk]) :
+        chunk;
+      webSocket.readyState === WebSocket.OPEN && webSocket.send(dataToSend);
+      responseHeader = null;
     },
     close() {
       closeWebSocket(webSocket);
@@ -155,8 +153,7 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
   } catch (error) {
     closeWebSocket(webSocket);
   }
-
-  if (!hasData && retry) retry();
+  !hasData && retry && retry();
 };
 const base64ToBuffer = base64Str => {
   try {
