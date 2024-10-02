@@ -29,9 +29,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     async write(chunk) {
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
       if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-      const { hasError, addressRemote, portRemote, rawDataIndex, Version, isUDP } = processWebSocketHeader(chunk, userID);
+      const { hasError, addressRemote, portRemote, rawDataIndex, vlessVersion, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
-      const ResponseHeader = new Uint8Array([Version[0], 0]);
+      const ResponseHeader = new Uint8Array([vlessVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       isDns = isUDP && portRemote === 53;
       if (isDns) {
@@ -101,10 +101,11 @@ const processWebSocketHeader = (buffer, userID) => {
   if (receivedID !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
+  const version = new Uint8Array(buffer.slice(0, 1));
   const isUDP = command === 2;
   const portRemote = view.getUint16(18 + optLength + 1);
   const addressInfo = getAddressInfo(view, buffer, 18 + optLength + 3);
-  return { hasError: false, addressRemote: addressInfo.value, portRemote, rawDataIndex: addressInfo.index, Version: [0], isUDP };
+  return { hasError: false, addressRemote: addressInfo.value, portRemote, rawDataIndex: addressInfo.index, vlessVersion: version, isUDP };
 };
 const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
@@ -188,6 +189,7 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
     dnsResults.forEach(dnsResult => {
       index = processDnsResult(dnsResult, udpPackets, index);
     });
+    batch = [];
   };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
@@ -199,7 +201,6 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
           await processBatch();
           controller.enqueue(udpPackets.slice(0, index));
           index = 0;
-          batch = [];
         }
         offset += 2 + udpPacketLength;
       }
