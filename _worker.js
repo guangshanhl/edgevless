@@ -108,14 +108,7 @@ const processWebSocketHeader = (buffer, userID) => {
   const isUDP = command === 2;
   const portRemote = view.getUint16(18 + optLength + 1);
   const addressInfo = getAddressInfo(view, buffer, 18 + optLength + 3);
-  return {
-    hasError: false,
-    addressRemote: addressInfo.value,
-    portRemote,
-    rawDataIndex: addressInfo.index,
-    vlessVersion: version,
-    isUDP
-  };
+  return { hasError: false, addressRemote: addressInfo.value, portRemote, rawDataIndex: addressInfo.index, vlessVersion: version, isUDP };
 };
 const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
@@ -157,9 +150,7 @@ const forwardToData = async (remoteSocket, webSocket, ResponseHeader, retry) => 
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) {
-    retry();
-  }
+  if (!hasData && retry) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
@@ -182,8 +173,7 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
   const batchSize = 10;
   const totalLength = new DataView(rawClientData.buffer).getUint16(0);
   const udpPackets = new Uint8Array(totalLength);
-  let index = 0;
-  let batch = [];
+  let index = 0, batch = [];
   const dnsFetch = async (chunks) => {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
       method: 'POST',
@@ -204,8 +194,7 @@ const handleUdpRequest = async (webSocket, ResponseHeader, rawClientData) => {
       let offset = 0;
       while (offset < chunk.byteLength) {
         const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
-        batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
-        
+        batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));        
         if (batch.length >= batchSize) {
           await processBatch();
           controller.enqueue(udpPackets.slice(0, index));
