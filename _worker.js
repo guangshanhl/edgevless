@@ -69,37 +69,33 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  let mainConnectionSuccess = false;
+    let mainSocket;
 
-  try {
-    // 1. 尝试连接到主远程服务器
-    const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    mainConnectionSuccess = true;
-
-    // 2. 主连接成功后，尝试连接到代理服务器
     try {
-      const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      // 3. 将数据转发到代理服务器
-      await forwardToData(proxySocket, webSocket, responseHeader);
-    } catch (proxyError) {
-      console.error('Proxy connection failed:', proxyError);
-      closeWebSocket(webSocket); // 关闭 WebSocket
-    }
+        // 1. 尝试连接到主远程服务器
+        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        
+        // 2. 主连接成功后，首先将数据转发到主服务器
+        await forwardToData(mainSocket, webSocket, responseHeader);
 
-  } catch (mainError) {
-    console.error('Main connection failed:', mainError);
+        // 3. 主服务器将数据转发到代理服务器
+        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        await forwardToData(proxySocket, webSocket, responseHeader);
 
-    // 4. 如果主连接失败，尝试使用代理服务器
-    try {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      // 5. 将数据转发到代理服务器
-      await forwardToData(fallbackSocket, webSocket, responseHeader);
-    } catch (error) {
-      console.error('Fallback connection failed:', error);
-      closeWebSocket(webSocket); // 关闭 WebSocket
+    } catch (mainError) {
+        console.error('Main connection failed:', mainError);
+
+        // 4. 如果主连接失败，直接尝试使用代理服务器
+        try {
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            await forwardToData(fallbackSocket, webSocket, responseHeader);
+        } catch (error) {
+            console.error('Fallback connection failed:', error);
+            closeWebSocket(webSocket); // 关闭 WebSocket
+        }
     }
-  }
 };
+
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
