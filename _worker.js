@@ -69,15 +69,19 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-    let mainConnectionSuccess = false;
-    const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+    let mainSocket;
     try {
-        const successfulConnection = await Promise.race([mainSocket, proxySocket]);
-        await forwardToData(successfulConnection, webSocket, responseHeader);
-        mainConnectionSuccess = true;
-    } catch (error) {
-        closeWebSocket(webSocket);
+        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        await forwardToData(mainSocket, webSocket, responseHeader);
+        //const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+       // await forwardToData(proxySocket, webSocket, responseHeader);
+    } catch (mainError) {
+        try {
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            await forwardToData(fallbackSocket, webSocket, responseHeader);
+        } catch (error) {
+            closeWebSocket(webSocket);
+        }
     }
 };
 const eventHandlers = new WeakMap();
@@ -156,9 +160,8 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) retry();
+//  if (!hasData && retry) retry();
 };
-
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
