@@ -76,12 +76,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         await forwardToData(proxySocket, webSocket, responseHeader);
     } catch (Error) {
-       // try {
-       //     const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-       //     await forwardToData(fallbackSocket, webSocket, responseHeader);
-      //  } catch (error) {
-            closeWebSocket(webSocket);
-      //  }
+        closeWebSocket(webSocket);
     }
 };
 const eventHandlers = new WeakMap();
