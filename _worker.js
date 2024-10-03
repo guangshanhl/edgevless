@@ -140,56 +140,31 @@ const getAddressInfo = (view, buffer, startIndex) => {
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 let cachedReadyState = WebSocket.CLOSED;
-const forwardToData = async (mainSocket, proxySocket, webSocket, responseHeader) => {
-    if (cachedReadyState !== webSocket.readyState) {
-      cachedReadyState = webSocket.readyState;
-      if (cachedReadyState !== WebSocket.OPEN) {
-        closeWebSocket(webSocket);
-        return;
-      }
+const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
+  if (cachedReadyState !== webSocket.readyState) {
+    cachedReadyState = webSocket.readyState;
+    if (cachedReadyState !== WebSocket.OPEN) {
+      closeWebSocket(webSocket);
+      return;
     }
-    const writer = webSocket.getWriter();    
-    const forwardFromMain = async () => {
-        try {
-            const writableStream = new WritableStream({
-                async write(chunk) {
-                    const dataToSend = responseHeader
-                        ? new Uint8Array([...responseHeader, ...chunk]).buffer
-                        : chunk;
-                    await writer.write(dataToSend); // 将数据写入 WebSocket
-                    responseHeader = null; // 只发送一次响应头
-                }
-            });
-            await mainSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
-        } catch (error) {
-            console.error('Error reading from main socket:', error);
-            closeWebSocket(webSocket);
-        }
-    };
-
-    const forwardFromProxy = async () => {
-        try {
-            const writableStream = new WritableStream({
-                async write(chunk) {
-                    const dataToSend = responseHeader
-                        ? new Uint8Array([...responseHeader, ...chunk]).buffer
-                        : chunk;
-                    await writer.write(dataToSend); // 将数据写入 WebSocket
-                    responseHeader = null; // 只发送一次响应头
-                }
-            });
-            await proxySocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
-        } catch (error) {
-            console.error('Error reading from proxy socket:', error);
-            closeWebSocket(webSocket);
-        }
-    };
-
-    // 使用 Promise.all 来并行读取主连接和代理连接的数据
-    await Promise.all([forwardFromMain(), forwardFromProxy()]);
-
-    // 在读取完毕后，确保关闭 WebSocket
+  }
+  let hasData = false;
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      hasData = true;
+      const dataToSend = responseHeader 
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+        : chunk;
+      webSocket.send(dataToSend);
+      responseHeader = null;
+    }
+  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
+  } catch (error) {
     closeWebSocket(webSocket);
+  }
+  if (!hasData && retry) retry();
 };
 
 const base64ToBuffer = (base64Str) => {
