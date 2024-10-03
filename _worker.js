@@ -88,18 +88,6 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     }
 };
 
-// connectAndWrite 函数的实现
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    let socket = remoteSocket.value;
-    if (!socket || socket.closed) {
-        socket = await connect({ hostname: address, port });
-        remoteSocket.value = socket;
-    }
-    await writeToRemote(socket, rawClientData);
-    return socket;
-};
-
-
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
