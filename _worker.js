@@ -72,12 +72,12 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     let mainConnectionSuccess = false;
 
     // 创建两个连接的 Promise
-    const mainConnectionPromise = connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const proxyConnectionPromise = connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+    const mainSocket = connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    const proxySocket = connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
 
     try {
         // 使用 Promise.race 来处理最先成功的连接
-        const successfulConnection = await Promise.race([mainConnectionPromise, proxyConnectionPromise]);
+        const successfulConnection = await Promise.race([mainSocket, proxySocket]);
 
         // 一旦连接成功，转发数据
         await forwardToData(successfulConnection, webSocket, responseHeader);
