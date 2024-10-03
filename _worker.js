@@ -8,7 +8,7 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString(), { status: 500 });
+      return new Response(err.toString());
     }
   }
 };
