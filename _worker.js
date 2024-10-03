@@ -68,8 +68,8 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
-let useMainSocket = true; 
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+    let useMainSocket = true; 
     let socketToUse;
     if (useMainSocket) {
         try {
@@ -77,14 +77,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         } catch (error) {
             socketToUse = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         }
-    } else {
-        try {
-            socketToUse = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        } catch (error) {
-            socketToUse = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        }
     }
-    useMainSocket = !useMainSocket; 
     try {
         await forwardToData(socketToUse, webSocket, responseHeader);
     } catch (error) {
