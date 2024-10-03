@@ -70,24 +70,16 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     let mainConnectionSuccess = false;
-
-    // 创建两个连接的 Promise
-    const mainSocket = connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const proxySocket = connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-
+    const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
     try {
-        // 使用 Promise.race 来处理最先成功的连接
         const successfulConnection = await Promise.race([mainSocket, proxySocket]);
-
-        // 一旦连接成功，转发数据
         await forwardToData(successfulConnection, webSocket, responseHeader);
-        mainConnectionSuccess = true; // 标记主连接成功
+        mainConnectionSuccess = true;
     } catch (error) {
-        console.error('Both connections failed:', error);
-        closeWebSocket(webSocket); // 关闭 WebSocket
+        closeWebSocket(webSocket);
     }
 };
-
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
