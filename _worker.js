@@ -8,18 +8,14 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString());
+      return new Response(err.toString(), { status: 500 });
     }
   }
 };
 const handleHttpRequest = async (request, userID) => {
   const url = new URL(request.url);
-  let newHeaders = new Headers(request.headers);
-  newHeaders.set('User-Agent', forceShanghaiTimezone(request.headers.get('User-Agent')));
-  newHeaders.set('Accept-Language', forceShanghaiTimezone(request.headers.get('Accept-Language')));
-  let fakeCf = { ...request.cf, timezone: 'Asia/Shanghai' };
   const responses = {
-    '/': new Response(JSON.stringify(fakeCf, null, 4), { headers: newHeaders }),
+    '/': new Response(JSON.stringify(request.cf, null, 4)),
     [`/${userID}`]: new Response(
       getUserConfig(userID, request.headers.get('Host')),
       { headers: { "Content-Type": "text/plain;charset=utf-8" } }
@@ -45,7 +41,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
         return;
       }
       const { hasError, addressRemote, portRemote, rawDataIndex, vlessVersion, isUDP } = processWebSocketHeader(chunk, userID);
-      if (hasError) return;
+	  if (hasError) {
+        return;
+      }
       const responseHeader = new Uint8Array([vlessVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       isDns = isUDP && portRemote === 53;
@@ -81,20 +79,15 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         await forwardToData(proxySocket, webSocket, responseHeader);
     } catch (Error) {
         closeWebSocket(webSocket);
-    } finally {
-        rawClientData = null;
     }
 };
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
-    const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-    if (error) return controller.error(error);
+    const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
+  	if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
-    const handleMessage = (event) => {
-      let modifiedData = forceShanghaiTimezoneInWebSocket(event.data);
-      controller.enqueue(modifiedData);
-    };
+    const handleMessage = (event) => controller.enqueue(event.data);
     const handleClose = () => controller.close();
     const handleError = (err) => controller.error(err);
     eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
@@ -112,16 +105,6 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream
     closeWebSocket(webSocket);
   }
 });
-const forceShanghaiTimezone = (header) => {
-  if (!header) return header;
-  return header.replace(/(?:America|Europe|UTC|etc)\b\/\w+/gi, 'Asia/Shanghai');
-};
-const forceShanghaiTimezoneInWebSocket = (data) => {
-  if (typeof data === 'string') {
-    return data.replace(/(?:America|Europe|UTC|etc)\b\/\w+/gi, 'Asia/Shanghai');
-  }
-  return data;
-};
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
@@ -150,7 +133,11 @@ const getAddressInfo = (view, buffer, startIndex) => {
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-  if (webSocket.readyState !== WebSocket.OPEN) return closeWebSocket(webSocket);
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
+	}
+  }
   const writableStream = new WritableStream({
     async write(chunk) {
       const dataToSend = responseHeader 
