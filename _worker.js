@@ -8,23 +8,16 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString(), { status: 500 });
+      return new Response(err.toString());
     }
   }
 };
-
-// 处理 HTTP 请求，统一修改时区为 Asia/Shanghai
 const handleHttpRequest = async (request, userID) => {
   const url = new URL(request.url);
-  
-  // 自定义修改 HTTP 请求头，将所有时区相关信息统一为 Asia/Shanghai
   let newHeaders = new Headers(request.headers);
   newHeaders.set('User-Agent', forceShanghaiTimezone(request.headers.get('User-Agent')));
   newHeaders.set('Accept-Language', forceShanghaiTimezone(request.headers.get('Accept-Language')));
-  
-  // 手动覆盖时区为 Asia/Shanghai，并生成新的响应对象
   let fakeCf = { ...request.cf, timezone: 'Asia/Shanghai' };
-
   const responses = {
     '/': new Response(JSON.stringify(fakeCf, null, 4), { headers: newHeaders }),
     [`/${userID}`]: new Response(
@@ -32,11 +25,8 @@ const handleHttpRequest = async (request, userID) => {
       { headers: { "Content-Type": "text/plain;charset=utf-8" } }
     )
   };
-
   return responses[url.pathname] || new Response('Not found', { status: 404 });
 };
-
-// 处理 WebSocket 请求
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
@@ -44,7 +34,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null };
   let udpStreamWrite = null;
   let isDns = false;
-
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
       if (isDns && udpStreamWrite) {
@@ -57,11 +46,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       }
       const { hasError, addressRemote, portRemote, rawDataIndex, vlessVersion, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
-
       const responseHeader = new Uint8Array([vlessVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       isDns = isUDP && portRemote === 53;
-
       if (isDns) {
         udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
       } else {
@@ -69,7 +56,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       }
     }
   }));
-
   return new Response(null, { status: 101, webSocket: client });
 };
 const writeToRemote = async (socket, chunk) => {
@@ -105,16 +91,12 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream
     const { earlyData, error } = base64ToBuffer(earlyDataHeader);
     if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
-
     const handleMessage = (event) => {
-      // 修改 WebSocket 消息中的时区信息
       let modifiedData = forceShanghaiTimezoneInWebSocket(event.data);
       controller.enqueue(modifiedData);
     };
-
     const handleClose = () => controller.close();
     const handleError = (err) => controller.error(err);
-
     eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
     webSocket.addEventListener('message', handleMessage);
     webSocket.addEventListener('close', handleClose);
@@ -130,15 +112,10 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream
     closeWebSocket(webSocket);
   }
 });
-
-// 强制修改 HTTP 头中的时区信息
 const forceShanghaiTimezone = (header) => {
   if (!header) return header;
-  // 替换所有非上海的时区信息为 Asia/Shanghai
   return header.replace(/(?:America|Europe|UTC|etc)\b\/\w+/gi, 'Asia/Shanghai');
 };
-
-// 强制修改 WebSocket 消息中的时区信息
 const forceShanghaiTimezoneInWebSocket = (data) => {
   if (typeof data === 'string') {
     return data.replace(/(?:America|Europe|UTC|etc)\b\/\w+/gi, 'Asia/Shanghai');
