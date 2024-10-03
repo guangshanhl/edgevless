@@ -132,12 +132,9 @@ const getAddressInfo = (view, buffer, startIndex) => {
 };
 let cachedReadyState = WebSocket.CLOSED;
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-  if (cachedReadyState !== webSocket.readyState) {
-    cachedReadyState = webSocket.readyState;
-    if (cachedReadyState !== WebSocket.OPEN) {
-      closeWebSocket(webSocket);
-      return;
-    }
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
   }
   const writableStream = new WritableStream({
     async write(chunk) {
@@ -149,7 +146,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     }
   });
   try {
-    await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
+    await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
