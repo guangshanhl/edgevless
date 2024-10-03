@@ -139,9 +139,16 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
+let cachedReadyState = WebSocket.CLOSED;
 const forwardToData = async (mainSocket, proxySocket, webSocket, responseHeader) => {
-    const writer = webSocket.getWriter();
-    
+    if (cachedReadyState !== webSocket.readyState) {
+      cachedReadyState = webSocket.readyState;
+      if (cachedReadyState !== WebSocket.OPEN) {
+        closeWebSocket(webSocket);
+        return;
+      }
+    }
+    const writer = webSocket.getWriter();    
     const forwardFromMain = async () => {
         try {
             const writableStream = new WritableStream({
