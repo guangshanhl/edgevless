@@ -69,20 +69,34 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  let mainConnectionSuccess = false;
+
   try {
+    // 1. 尝试连接到主远程服务器
     const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    mainConnectionSuccess = true;
+
+    // 2. 主连接成功后，尝试连接到代理服务器
     try {
       const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      await forwardToData(mainSocket, proxySocket, responseHeader);
+      // 3. 将数据转发到代理服务器
+      await forwardToData(proxySocket, webSocket, responseHeader);
     } catch (proxyError) {
-      closeWebSocket(webSocket);
+      console.error('Proxy connection failed:', proxyError);
+      closeWebSocket(webSocket); // 关闭 WebSocket
     }
+
   } catch (mainError) {
+    console.error('Main connection failed:', mainError);
+
+    // 4. 如果主连接失败，尝试使用代理服务器
     try {
       const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+      // 5. 将数据转发到代理服务器
       await forwardToData(fallbackSocket, webSocket, responseHeader);
-    } catch (fallbackError) {
-      closeWebSocket(webSocket);
+    } catch (error) {
+      console.error('Fallback connection failed:', error);
+      closeWebSocket(webSocket); // 关闭 WebSocket
     }
   }
 };
