@@ -8,7 +8,7 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString());
+      return new Response(err.toString(), { status: 500 });
     }
   }
 };
@@ -72,14 +72,11 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     let mainSocket;
     try {
         mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        await forwardToData(mainSocket, webSocket, responseHeader);       
-    } catch (error) {
-        try {
-            const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-            await forwardToData(proxySocket, webSocket, responseHeader);
-        } catch (error) {
-            closeWebSocket(webSocket);
-        }
+        await forwardToData(mainSocket, webSocket, responseHeader);
+        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        await forwardToData(proxySocket, webSocket, responseHeader);
+    } catch (Error) {
+        closeWebSocket(webSocket);
     }
 };
 const eventHandlers = new WeakMap();
