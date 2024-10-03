@@ -74,14 +74,14 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
         await forwardToData(mainSocket, webSocket, responseHeader);
         const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-         await forwardToData(proxySocket, webSocket, responseHeader);
-    } catch (mainError) {
-        try {
-            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-            await forwardToData(fallbackSocket, webSocket, responseHeader);
-        } catch (error) {
+        await forwardToData(proxySocket, webSocket, responseHeader);
+    } catch (Error) {
+       // try {
+       //     const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+       //     await forwardToData(fallbackSocket, webSocket, responseHeader);
+      //  } catch (error) {
             closeWebSocket(webSocket);
-        }
+      //  }
     }
 };
 const eventHandlers = new WeakMap();
@@ -136,7 +136,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 let cachedReadyState = WebSocket.CLOSED;
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (cachedReadyState !== webSocket.readyState) {
     cachedReadyState = webSocket.readyState;
     if (cachedReadyState !== WebSocket.OPEN) {
@@ -160,7 +160,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   } catch (error) {
     closeWebSocket(webSocket);
   }
-//  if (!hasData && retry) retry();
 };
 const base64ToBuffer = (base64Str) => {
   try {
