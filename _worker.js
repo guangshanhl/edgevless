@@ -74,8 +74,8 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
       proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
       await Promise.all([
-        forwardToData(mainSocket, webSocket, responseHeader),
-        forwardToData(proxySocket, webSocket, responseHeader)
+        await forwardToData(mainSocket, webSocket, responseHeader),
+        await forwardToData(proxySocket, webSocket, responseHeader)
       ]);
     } catch (error) {
       closeWebSocket(webSocket);
