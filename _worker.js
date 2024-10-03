@@ -69,21 +69,17 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-    let useMainSocket = true; 
-    let socketToUse;
-    if (useMainSocket) {
-        try {
-            socketToUse = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        } catch (error) {
-            socketToUse = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        }
-    }
+    let mainSocket;
     try {
-        await forwardToData(socketToUse, webSocket, responseHeader);
+        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        await forwardToData(mainSocket, webSocket, responseHeader);       
     } catch (error) {
-        closeWebSocket(webSocket);
-    } finally {
-        socketToUse.destroy();
+        try {
+            const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            await forwardToData(proxySocket, webSocket, responseHeader);
+        } catch (error) {
+            closeWebSocket(webSocket);
+        }
     }
 };
 const eventHandlers = new WeakMap();
