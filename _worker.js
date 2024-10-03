@@ -84,8 +84,8 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
-    const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
-  	if (error) return controller.error(error);
+    const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+    if (error) return controller.error(error);
     if (earlyData) controller.enqueue(earlyData);
     const handleMessage = (event) => controller.enqueue(event.data);
     const handleClose = () => controller.close();
