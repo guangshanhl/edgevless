@@ -77,6 +77,8 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         await forwardToData(proxySocket, webSocket, responseHeader);
     } catch (Error) {
         closeWebSocket(webSocket);
+    } finally {
+        rawClientData = null;
     }
 };
 const eventHandlers = new WeakMap();
@@ -151,7 +153,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     }
   });
   try {
-    await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
+    await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
