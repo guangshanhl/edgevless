@@ -71,8 +71,8 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     let mainSocket, proxySocket;
     try {
-        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        await forwardToData(mainSocket, webSocket, responseHeader);
+        //mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        //await forwardToData(mainSocket, webSocket, responseHeader);
         proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         await forwardToData(proxySocket, webSocket, responseHeader);
     } catch (Error) {
