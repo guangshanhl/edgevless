@@ -168,14 +168,22 @@ const base64ToBuffer = base64Str => {
     return { error };
   }
 };
-const closeWebSocket = socket => {
-  if ([WebSocket.OPEN, WebSocket.CLOSING].includes(socket.readyState)) socket.close();
+const closeWebSocket = webSocket => {
+  if ([WebSocket.OPEN, WebSocket.CLOSING].includes(webSocket.readyState)) {
+    webSocket.close();
+  }
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
-  return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join(''))
-    .join('-').toLowerCase();
+  let result = '';
+  segments.forEach((len, index) => {
+    if (index > 0) result += '-';
+    for (let i = 0; i < len; i++) {
+      result += byteToHex[arr[offset++]];
+    }
+  });
+  return result.toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
   const processAndSendChunk = async (chunk, index) => {
