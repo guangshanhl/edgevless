@@ -69,14 +69,12 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+    let mainSocket;
     try {
-        const dataForward = await forwardToData(
-            await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData),
-            webSocket,
-            responseHeader
-        );
+        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        const dataForwarded = await forwardToData(mainSocket, webSocket, responseHeader);
         const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        if (!dataForward) {
+        if (!dataForwarded) {     
             await forwardToData(proxySocket, webSocket, responseHeader);
         }
     } catch (error) {
@@ -156,7 +154,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     } catch (error) {
         closeWebSocket(webSocket);
     }
-    return true;
 };
 const base64ToBuffer = (base64Str) => {
   try {
