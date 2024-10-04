@@ -71,8 +71,8 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     try {
         const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-		const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
+        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         if (!dataForward) {     
           await forwardToData(proxySocket, webSocket, responseHeader);
         }
@@ -134,7 +134,6 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     if (webSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(webSocket);
-        return;
     }
     const writableStream = new WritableStream({
         async write(chunk) {
