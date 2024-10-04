@@ -54,6 +54,26 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
+  }
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      const dataToSend = responseHeader 
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+        : chunk;
+      webSocket.send(dataToSend);
+      responseHeader = null;
+    }
+  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(webSocket);
+  }
+};
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
@@ -68,46 +88,20 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-  if (webSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(webSocket);
-    return;
-  }
-  let hasData = false;
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      hasData = true;
-      const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
-        : chunk;
-      webSocket.send(dataToSend);
-      responseHeader = null;
-    }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(webSocket);
-  }
-  // 将 retry 的逻辑移除
-};
-
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  let tcpSocket;
   try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    await forwardToData(tcpSocket, webSocket, responseHeader);
-
+    tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
   } catch (error) {
-    // 如果发生错误，尝试使用代理 IP 进行重试
     try {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      await forwardToData(fallbackSocket, webSocket, responseHeader);
+      tcpSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
     } catch (fallbackError) {
       closeWebSocket(webSocket);
+      return;
     }
   }
+  await forwardToData(tcpSocket, webSocket, responseHeader);
 };
-
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
