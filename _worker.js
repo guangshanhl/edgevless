@@ -8,7 +8,7 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString(), { status: 500 });
+      return new Response(err.toString());
     }
   }
 };
@@ -131,14 +131,10 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-let cachedReadyState = WebSocket.CLOSED;
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (cachedReadyState !== webSocket.readyState) {
-    cachedReadyState = webSocket.readyState;
-    if (cachedReadyState !== WebSocket.OPEN) {
-      closeWebSocket(webSocket);
-      return;
-    }
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
   }
   let hasData = false;
   const writableStream = new WritableStream({
@@ -152,7 +148,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
     }
   });
   try {
-    await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
+    await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
