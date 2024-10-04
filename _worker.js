@@ -68,26 +68,78 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
+let dataForwarded = false; // 全局标志位，默认值为 false
+
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+  // 检查 webSocket 状态
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    console.error('WebSocket is not open. Closing remoteSocket.');
+    remoteSocket.close(); // 确保关闭 remoteSocket
+    return;
+  }
+
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      try {
+        const dataToSend = responseHeader 
+          ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+          : chunk;
+        webSocket.send(dataToSend);
+        dataForwarded = true; // 数据成功发送后设置标志位
+        responseHeader = null; // 仅在第一次发送后将其设置为 null
+      } catch (error) {
+        console.error('Error sending data to WebSocket:', error);
+        closeWebSocket(webSocket); // 关闭 WebSocket
+        remoteSocket.close(); // 关闭 remoteSocket
+      }
+    }
+  });
+
+  try {
+    // 管道数据流到可写流
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    console.error('Error during data piping:', error);
+    closeWebSocket(webSocket); // 关闭 WebSocket
+    remoteSocket.close(); // 关闭 remoteSocket
+  } finally {
+    // 确保在所有处理后关闭 remoteSocket
+    if (remoteSocket) {
+      remoteSocket.close(); // 确保关闭 remoteSocket
+    }
+  }
+};
+
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     let mainSocket;
-    let dataForwarded = false;
+    dataForwarded = false; // 每次处理请求时重置标志位
     try {
+        // 连接到远程地址
         mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        // 转发数据到 WebSocket
         await forwardToData(mainSocket, webSocket, responseHeader);
-        dataForwarded = true;
     } catch (error) {
-        closeWebSocket(webSocket);
-        return;
+        console.error('Error in mainSocket processing:', error);
+        closeWebSocket(webSocket); // 关闭 WebSocket
+        return; // 终止后续处理
     }
+
     try {
+        // 连接到代理地址
         const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        // 只有在没有数据被转发的情况下才转发
         if (!dataForwarded) {
             await forwardToData(proxySocket, webSocket, responseHeader);
         }
     } catch (error) {
-        closeWebSocket(webSocket);
+        console.error('Error in proxySocket processing:', error);
+        closeWebSocket(webSocket); // 关闭 WebSocket
+    } finally {
+        // 确保所有 socket 被关闭
+        if (mainSocket) mainSocket.close();
     }
 };
+
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
@@ -139,26 +191,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-  if (webSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(webSocket);
-    return;
-  }
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
-        : chunk;
-      webSocket.send(dataToSend);
-      responseHeader = null;
-    }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(webSocket);
-  }
-};
+
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
