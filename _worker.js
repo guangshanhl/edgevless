@@ -69,36 +69,23 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-    let mainSocket, proxySocket;
+    let mainSocket;
+    let dataForwarded = false;
     try {
-        // 连接到远程地址
         mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        // 转发数据
         await forwardToData(mainSocket, webSocket, responseHeader);
+        dataForwarded = true;
     } catch (error) {
-        console.error('Error in mainSocket processing:', error);
-        if (mainSocket) {
-            mainSocket.close();  // 关闭主连接
-        }
-        closeWebSocket(webSocket);  // 关闭 WebSocket
-        return; // 终止后续处理
+        closeWebSocket(webSocket);
+        return;
     }
-
     try {
-        // 连接到代理地址
-        proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        // 转发数据
-        await forwardToData(proxySocket, webSocket, responseHeader);
-    } catch (error) {
-        console.error('Error in proxySocket processing:', error);
-        if (proxySocket) {
-            proxySocket.close();  // 关闭代理连接
+        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        if (!dataForwarded) {
+            await forwardToData(proxySocket, webSocket, responseHeader);
         }
-        closeWebSocket(webSocket);  // 关闭 WebSocket
-    } finally {
-        // 确保所有 socket 被关闭
-        if (mainSocket) mainSocket.close();
-        if (proxySocket) proxySocket.close();
+    } catch (error) {
+        closeWebSocket(webSocket);
     }
 };
 const eventHandlers = new WeakMap();
