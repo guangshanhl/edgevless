@@ -142,7 +142,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     let dataForwarded = false;
     if (webSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(webSocket);
-        return dataForwarded;
     }
     const writableStream = new WritableStream({
         async write(chunk) {
