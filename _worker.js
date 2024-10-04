@@ -70,17 +70,16 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     try {
-        const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);       
         const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
         if (!dataForward) {
+          const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
           await forwardToData(proxySocket, webSocket, responseHeader);
         }
     } catch (error) {
         closeWebSocket(webSocket);
     }
 };
-
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
@@ -137,7 +136,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
         closeWebSocket(webSocket);
         return;
     }
-
     const writableStream = new WritableStream({
         async write(chunk) {
             try {
@@ -151,14 +149,12 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
             }
         }
     });
-
     try {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
         closeWebSocket(webSocket);
     }
 };
-
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
