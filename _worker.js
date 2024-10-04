@@ -8,7 +8,7 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString());
+      return new Response(err.toString(), { status: 500 });
     }
   }
 };
@@ -54,26 +54,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-  if (webSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(webSocket);
-    return;
-  }
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
-        : chunk;
-      webSocket.send(dataToSend);
-      responseHeader = null;
-    }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(webSocket);
-  }
-};
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
@@ -89,18 +69,37 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  let tcpSocket;
-  try {
-    tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-  } catch (error) {
+    let mainSocket, proxySocket;
     try {
-      tcpSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-    } catch (fallbackError) {
-      closeWebSocket(webSocket);
-      return;
+        // 连接到远程地址
+        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        // 转发数据
+        await forwardToData(mainSocket, webSocket, responseHeader);
+    } catch (error) {
+        console.error('Error in mainSocket processing:', error);
+        if (mainSocket) {
+            mainSocket.close();  // 关闭主连接
+        }
+        closeWebSocket(webSocket);  // 关闭 WebSocket
+        return; // 终止后续处理
     }
-  }
-  await forwardToData(tcpSocket, webSocket, responseHeader);
+
+    try {
+        // 连接到代理地址
+        proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        // 转发数据
+        await forwardToData(proxySocket, webSocket, responseHeader);
+    } catch (error) {
+        console.error('Error in proxySocket processing:', error);
+        if (proxySocket) {
+            proxySocket.close();  // 关闭代理连接
+        }
+        closeWebSocket(webSocket);  // 关闭 WebSocket
+    } finally {
+        // 确保所有 socket 被关闭
+        if (mainSocket) mainSocket.close();
+        if (proxySocket) proxySocket.close();
+    }
 };
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
@@ -153,7 +152,26 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
+  }
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      const dataToSend = responseHeader 
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+        : chunk;
+      webSocket.send(dataToSend);
+      responseHeader = null;
+    }
+  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(webSocket);
+  }
+};
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
