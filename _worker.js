@@ -68,30 +68,51 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+    let dataForwarded = false;
+    if (webSocket.readyState !== WebSocket.OPEN) {
+        closeWebSocket(webSocket);
+        return dataForwarded;
+    }
+    const writableStream = new WritableStream({
+        async write(chunk) {
+            try {
+                const dataToSend = responseHeader 
+                    ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+                    : chunk;
+                webSocket.send(dataToSend);
+                dataForwarded = true;
+                responseHeader = null;
+            } catch (error) {
+                closeWebSocket(webSocket);
+            }
+        }
+    });
+    try {
+        await remoteSocket.readable.pipeTo(writableStream);
+    } catch (error) {
+        closeWebSocket(webSocket);
+    }
+    return dataForwarded;
+};
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  let mainSocket;
-  let dataForwarded = false;
-  remoteSocket.refCount = (remoteSocket.refCount || 0) + 1;
-  try {
-    mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    dataForwarded = await forwardToData(remoteSocket, webSocket, responseHeader);
-  } catch (error) {
-    closeWebSocket(webSocket);
-    return;
-  }
-  try {
-    const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-    if (!dataForwarded) {
-      await forwardToData(proxySocket, webSocket, responseHeader);
+    let mainSocket;
+    let dataForwarded = false;
+    try {
+        mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        dataForwarded = await forwardToData(mainSocket, webSocket, responseHeader);
+    } catch (error) {
+        closeWebSocket(webSocket);
+        return;
     }
-  } catch (error) {
-    closeWebSocket(webSocket);
-  } finally {
-    remoteSocket.refCount--;
-    if (remoteSocket.refCount === 0) {
-      mainSocket.close();
+    try {
+        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        if (!dataForwarded) {
+            await forwardToData(proxySocket, webSocket, responseHeader);
+        }
+    } catch (error) {
+        closeWebSocket(webSocket);
     }
-  }
 };
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
@@ -144,47 +165,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-  let dataForwarded = false;
-  remoteSocket.refCount = (remoteSocket.refCount || 0) + 1;
-  if (webSocket.readyState !== WebSocket.OPEN) {
-    remoteSocket.refCount--;
-    if (remoteSocket.refCount === 0) {
-      remoteSocket.value.close();
-    }
-    return dataForwarded;
-  }
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      try {
-        const dataToSend = responseHeader 
-          ? new Uint8Array([...responseHeader, ...chunk]).buffer 
-          : chunk;
-        webSocket.send(dataToSend);
-        dataForwarded = true;
-        responseHeader = null;
-      } catch (error) {
-        console.error('Error sending data to WebSocket:', error);
-        closeWebSocket(webSocket);
-        remoteSocket.refCount--;
-        if (remoteSocket.refCount === 0) {
-          remoteSocket.value.close();
-        }
-      }
-    }
-  });
-  try {
-    await remoteSocket.value.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(webSocket);
-  } finally {
-    remoteSocket.refCount--;
-    if (remoteSocket.refCount === 0) {
-      remoteSocket.value.close();
-    }
-  }  
-  return dataForwarded;
-};
+
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
