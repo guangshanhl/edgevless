@@ -73,7 +73,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
         const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
         const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        if (!mainSocket || !dataForward) {     
+        if (proxySocket && !mainSocket || !dataForward) {     
             await forwardToData(proxySocket, webSocket, responseHeader);
         }
     } catch (error) {
