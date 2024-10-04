@@ -74,13 +74,8 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     try {
         mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
         dataForwarded = await forwardToData(mainSocket, webSocket, responseHeader);
-    } catch (error) {
-        closeWebSocket(webSocket);
-        return;
-    }
-    try {
-        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         if (!dataForwarded) {
+            const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
             await forwardToData(proxySocket, webSocket, responseHeader);
         }
     } catch (error) {
@@ -139,7 +134,6 @@ const getAddressInfo = (view, buffer, startIndex) => {
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-    let dataForwarded = false;
     if (webSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(webSocket);
     }
@@ -150,7 +144,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
                     ? new Uint8Array([...responseHeader, ...chunk]).buffer 
                     : chunk;
                 webSocket.send(dataToSend);
-                dataForwarded = true;
                 responseHeader = null;
             } catch (error) {
                 closeWebSocket(webSocket);
@@ -162,7 +155,6 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     } catch (error) {
         closeWebSocket(webSocket);
     }
-    return dataForwarded;
 };
 const base64ToBuffer = (base64Str) => {
   try {
