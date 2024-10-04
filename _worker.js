@@ -8,7 +8,7 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString(), { status: 500 });
+      return new Response(err.toString());
     }
   }
 };
@@ -67,33 +67,6 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
   await writeToRemote(socket, rawClientData);
   return socket;
-};
-const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
-    let dataForwarded = false;
-    if (webSocket.readyState !== WebSocket.OPEN) {
-        closeWebSocket(webSocket);
-        return dataForwarded;
-    }
-    const writableStream = new WritableStream({
-        async write(chunk) {
-            try {
-                const dataToSend = responseHeader 
-                    ? new Uint8Array([...responseHeader, ...chunk]).buffer 
-                    : chunk;
-                webSocket.send(dataToSend);
-                dataForwarded = true;
-                responseHeader = null;
-            } catch (error) {
-                closeWebSocket(webSocket);
-            }
-        }
-    });
-    try {
-        await remoteSocket.readable.pipeTo(writableStream);
-    } catch (error) {
-        closeWebSocket(webSocket);
-    }
-    return dataForwarded;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     let mainSocket;
@@ -165,7 +138,33 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+    let dataForwarded = false;
+    if (webSocket.readyState !== WebSocket.OPEN) {
+        closeWebSocket(webSocket);
+        return dataForwarded;
+    }
+    const writableStream = new WritableStream({
+        async write(chunk) {
+            try {
+                const dataToSend = responseHeader 
+                    ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+                    : chunk;
+                webSocket.send(dataToSend);
+                dataForwarded = true;
+                responseHeader = null;
+            } catch (error) {
+                closeWebSocket(webSocket);
+            }
+        }
+    });
+    try {
+        await remoteSocket.readable.pipeTo(writableStream);
+    } catch (error) {
+        closeWebSocket(webSocket);
+    }
+    return dataForwarded;
+};
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
