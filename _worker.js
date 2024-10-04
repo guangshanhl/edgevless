@@ -80,6 +80,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         closeWebSocket(webSocket);
     }
 };
+
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => new ReadableStream({
   start(controller) {
@@ -134,7 +135,9 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     if (webSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(webSocket);
+        return false; // 返回 false，表示 WebSocket 不可用
     }
+
     const writableStream = new WritableStream({
         async write(chunk) {
             try {
@@ -148,12 +151,16 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
             }
         }
     });
+
     try {
         await remoteSocket.readable.pipeTo(writableStream);
+        return true;
     } catch (error) {
         closeWebSocket(webSocket);
+        return false;
     }
 };
+
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
