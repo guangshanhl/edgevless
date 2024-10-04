@@ -132,7 +132,6 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-let cachedReadyState = WebSocket.CLOSED;
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
