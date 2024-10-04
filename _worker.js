@@ -135,7 +135,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     if (webSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(webSocket);
-        return false; // 返回 false，表示 WebSocket 不可用
+        return;
     }
 
     const writableStream = new WritableStream({
@@ -154,10 +154,8 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
 
     try {
         await remoteSocket.readable.pipeTo(writableStream);
-        return true;
     } catch (error) {
         closeWebSocket(webSocket);
-        return false;
     }
 };
 
