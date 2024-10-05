@@ -79,14 +79,31 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     }
   };
 
-  // 尝试主连接
-  const mainConnectionSuccess = await connectAndForward(addressRemote, portRemote);
-  
-  // 如果主连接失败，尝试备用连接
-  if (!mainConnectionSuccess) {
-    await connectAndForward(proxyIP, portRemote);
+  // 并行尝试主连接和代理连接
+  const mainConnectionPromise = connectAndForward(addressRemote, portRemote);
+  const proxyConnectionPromise = connectAndForward(proxyIP, portRemote);
+
+  // 等待任一连接成功
+  const results = await Promise.allSettled([mainConnectionPromise, proxyConnectionPromise]);
+
+  // 判断主连接和代理连接的状态
+  const mainConnectionSuccess = results[0].status === 'fulfilled';
+  const proxyConnectionSuccess = results[1].status === 'fulfilled';
+
+  // 处理连接结果
+  if (mainConnectionSuccess) {
+    // 如果主连接成功，关闭代理连接
+    console.log("Main connection successful. Closing proxy connection.");
+    closeWebSocket(webSocket); // 关闭代理连接
+  } else if (proxyConnectionSuccess) {
+    // 如果代理连接成功，关闭主连接
+    console.log("Proxy connection successful. Closing main connection.");
+    closeWebSocket(webSocket); // 关闭主连接
+  } else {
+    console.error("Both connections failed.");
   }
 };
+
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   const readableStream = new ReadableStream({
