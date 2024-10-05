@@ -66,23 +66,27 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  const tryConnectAndForward = async (address, port) => {
+  
+  // 处理连接和数据转发的逻辑
+  const connectAndForward = async (address, port) => {
     try {
       const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-      await forwardToData(tcpSocket, webSocket, responseHeader);      
-      return true;
+      await forwardToData(tcpSocket, webSocket, responseHeader);
+      return true; // 连接成功，返回 true
     } catch (error) {
-      closeWebSocket(webSocket);
-      return false;
+      console.error(`Connection to ${address}:${port} failed: ${error.message}`);
+      return false; // 连接失败，返回 false
     }
   };
-  const mainConnectionSuccess = await tryConnectAndForward(addressRemote, portRemote);
+
+  // 尝试主连接
+  const mainConnectionSuccess = await connectAndForward(addressRemote, portRemote);
+  
+  // 如果主连接失败，尝试备用连接
   if (!mainConnectionSuccess) {
-    await tryConnectAndForward(proxyIP, portRemote);
+    await connectAndForward(proxyIP, portRemote);
   }
 };
-
-
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   const readableStream = new ReadableStream({
