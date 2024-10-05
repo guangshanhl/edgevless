@@ -70,25 +70,32 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   // 创建连接的 Promise
   const primaryConnectionPromise = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
-  const fallbackConnectionPromise = connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
+  
+  // 尝试连接主要 TCP socket
+  const primaryTcpSocket = await primaryConnectionPromise;
 
-  // 同时处理主要和备用连接
-  const [primaryTcpSocket, fallbackTcpSocket] = await Promise.all([primaryConnectionPromise, fallbackConnectionPromise]);
-
-  if (primaryTcpSocket) {
+  if (!primaryTcpSocket) {
+    // 如果主要连接失败，尝试备用连接
+    console.warn(`Primary connection to ${addressRemote}:${portRemote} failed, attempting fallback connection to ${proxyIP}:${portRemote}`);
+    
+    const fallbackConnectionPromise = connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
+    
+    // 等待备用连接的结果
+    const fallbackTcpSocket = await fallbackConnectionPromise;
+    
+    if (fallbackTcpSocket) {
+      // 成功连接备用 socket
+      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    } else {
+      // 备用连接也失败
+      console.error(`Fallback connection to ${proxyIP}:${portRemote} failed`);
+      closeWebSocket(webSocket);
+    }
+  } else {
     // 成功连接主要 socket
     primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-  } else if (fallbackTcpSocket) {
-    // 如果主要连接失败，但备用连接成功
-    console.warn(`Primary connection to ${addressRemote}:${portRemote} failed, but fallback connection to ${proxyIP}:${portRemote} succeeded.`);
-    fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-  } else {
-    // 如果两个连接都失败
-    console.error(`Both primary and fallback connections failed.`);
-    closeWebSocket(webSocket);
   }
 };
-
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
