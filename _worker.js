@@ -83,51 +83,64 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-    const isDataForwarded = await forwardToData(tcpSocket, webSocket, responseHeader);
+    
+    // 先返回 TCP socket，然后同时处理数据转发
+    const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
+    
+    // 等待数据转发完成
+    const isDataForwarded = await forwardPromise;
+    
     if (!isDataForwarded) {
-      return null;
+      console.error("Data forwarding failed or no data was sent.");
+      return null; // 返回 null，表示数据转发失败
     }
-    return tcpSocket;
+    
+    return tcpSocket; // 返回已连接的 TCP socket
   } catch (error) {
-    return null;
+    console.error(`Connection error to ${address}:${port}`, error);
+    return null; // 返回 null，表示连接失败
   }
 };
+
 const eventHandlers = new WeakMap();
+
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   const readableStream = new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
+      
       const handleMessage = event => controller.enqueue(event.data);
       const handleClose = () => {
         controller.close();
-        cleanUp();
+        removeWebSocketListeners(webSocket); // 及时移除事件监听器
       };
       const handleError = err => {
         controller.error(err);
-        cleanUp();
+        removeWebSocketListeners(webSocket); // 及时移除事件监听器
       };
+
       eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
       webSocket.addEventListener('message', handleMessage);
       webSocket.addEventListener('close', handleClose);
       webSocket.addEventListener('error', handleError);
     },
     cancel() {
-      cleanUp();
+      removeWebSocketListeners(webSocket); // 确保在取消时移除监听器
+      closeWebSocket(webSocket);
     }
   });
-  const cleanUp = () => {
-    const handlers = eventHandlers.get(webSocket);
-    if (handlers) {
-      webSocket.removeEventListener('message', handlers.handleMessage);
-      webSocket.removeEventListener('close', handlers.handleClose);
-      webSocket.removeEventListener('error', handlers.handleError);
-      eventHandlers.delete(webSocket);
-    }
-    closeWebSocket(webSocket);
-  };
   return readableStream;
+};
+const removeWebSocketListeners = (webSocket) => {
+  const handlers = eventHandlers.get(webSocket);
+  if (handlers) {
+    webSocket.removeEventListener('message', handlers.handleMessage);
+    webSocket.removeEventListener('close', handlers.handleClose);
+    webSocket.removeEventListener('error', handlers.handleError);
+    eventHandlers.delete(webSocket);
+  }
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
@@ -155,29 +168,39 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
-    return false;
+    return false; // WebSocket 未打开，直接返回 false
   }
+
   let hasData = false;
+
   const writableStream = new WritableStream({
     async write(chunk) {
-      hasData = true;
+      hasData = true; // 收到数据
+
+      // 合并响应头和数据的过程可以优化
       const dataToSend = responseHeader 
         ? new Uint8Array([...responseHeader, ...chunk]).buffer 
         : chunk;
+
       webSocket.send(dataToSend);
-      responseHeader = null;
+      responseHeader = null; // 只发送一次响应头
     }
   });
+
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
+    console.error("Error while piping data:", error);
     closeWebSocket(webSocket);
-    return false;
+    return false; // 出现错误，返回 false
   }
+
   if (!hasData) {
-    return false;
+    console.warn("No data received from remote socket.");
+    return false; // 没有数据发送，返回 false
   }
-  return true;
+
+  return true; // 成功发送数据，返回 true
 };
 const base64ToBuffer = (base64Str) => {
   try {
