@@ -83,51 +83,39 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-    
-    // 先返回 TCP socket，然后同时处理数据转发
     const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-    
-    // 等待数据转发完成
-    const isDataForwarded = await forwardPromise;
-    
+    const isDataForwarded = await forwardPromise;   
     if (!isDataForwarded) {
-      console.error("Data forwarding failed or no data was sent.");
-      return null; // 返回 null，表示数据转发失败
-    }
-    
-    return tcpSocket; // 返回已连接的 TCP socket
+      return null;
+    }    
+    return tcpSocket;
   } catch (error) {
-    console.error(`Connection error to ${address}:${port}`, error);
-    return null; // 返回 null，表示连接失败
+    return null;
   }
 };
-
 const eventHandlers = new WeakMap();
-
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   const readableStream = new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
-      if (earlyData) controller.enqueue(earlyData);
-      
+      if (earlyData) controller.enqueue(earlyData);    
       const handleMessage = event => controller.enqueue(event.data);
       const handleClose = () => {
         controller.close();
-        removeWebSocketListeners(webSocket); // 及时移除事件监听器
+        removeWebSocketListeners(webSocket);
       };
       const handleError = err => {
         controller.error(err);
-        removeWebSocketListeners(webSocket); // 及时移除事件监听器
+        removeWebSocketListeners(webSocket);
       };
-
       eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
       webSocket.addEventListener('message', handleMessage);
       webSocket.addEventListener('close', handleClose);
       webSocket.addEventListener('error', handleError);
     },
     cancel() {
-      removeWebSocketListeners(webSocket); // 确保在取消时移除监听器
+      removeWebSocketListeners(webSocket);
       closeWebSocket(webSocket);
     }
   });
@@ -168,39 +156,29 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
-    return false; // WebSocket 未打开，直接返回 false
+    return false;
   }
-
   let hasData = false;
-
   const writableStream = new WritableStream({
     async write(chunk) {
-      hasData = true; // 收到数据
-
-      // 合并响应头和数据的过程可以优化
+      hasData = true;
       const dataToSend = responseHeader 
         ? new Uint8Array([...responseHeader, ...chunk]).buffer 
         : chunk;
-
       webSocket.send(dataToSend);
-      responseHeader = null; // 只发送一次响应头
+      responseHeader = null;
     }
   });
-
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
-    console.error("Error while piping data:", error);
     closeWebSocket(webSocket);
-    return false; // 出现错误，返回 false
+    return false;
   }
-
   if (!hasData) {
-    console.warn("No data received from remote socket.");
-    return false; // 没有数据发送，返回 false
+    return false;
   }
-
-  return true; // 成功发送数据，返回 true
+  return true;
 };
 const base64ToBuffer = (base64Str) => {
   try {
