@@ -31,7 +31,8 @@ export default {
 				return await vlessOverWSHandler(request);
 			}
 		} catch (err) {
-			return new Response(err.toString());
+			/** @type {Error} */ let e = err;
+			return new Response(e.toString());
 		}
 	},
 };
@@ -41,7 +42,7 @@ async function vlessOverWSHandler(request) {
 	webSocket.accept();
 	let address = '';
 	let portWithRandomLog = '';
-	const log = (event) => {
+	const log = (/** @type {string} */ info, /** @type {string | undefined} */ event) => {
 		console.log(`[${address}:${portWithRandomLog}] ${info}`, event || '');
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
@@ -412,6 +413,14 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 		}
 	};
 }
-const getVLESSConfig = (userID, hostName) => `
-vless://${userID}@${hostName}:8443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
+function getVLESSConfig(userID, hostName) {
+	const vlessMain = `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2048#${hostName}`
+	return `
+################################################################
+v2ray
+---------------------------------------------------------------
+${vlessMain}
+---------------------------------------------------------------
+################################################################
 `;
+}
