@@ -68,15 +68,25 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+  if (!primaryTcpSocket) {
+    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
+    if (fallbackTcpSocket) {
+      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    } else {
+      closeWebSocket(webSocket);
+    }
+  } else {
+    primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+  }
+};
+const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      await forwardToData(fallbackSocket, webSocket, responseHeader);
-    });
+    const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+    await forwardToData(tcpSocket, webSocket, responseHeader);   
+    return tcpSocket;
   } catch (error) {
-    closeWebSocket(webSocket);
+    return null;
   }
 };
 const eventHandlers = new WeakMap();
@@ -87,24 +97,33 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       const handleMessage = event => controller.enqueue(event.data);
-      const handleClose = () => controller.close();
-      const handleError = err => controller.error(err);
+      const handleClose = () => {
+        controller.close();
+        cleanUp();
+      };
+      const handleError = err => {
+        controller.error(err);
+        cleanUp();
+      };
       eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
       webSocket.addEventListener('message', handleMessage);
       webSocket.addEventListener('close', handleClose);
       webSocket.addEventListener('error', handleError);
     },
     cancel() {
-      const handlers = eventHandlers.get(webSocket);
-      if (handlers) {
-        webSocket.removeEventListener('message', handlers.handleMessage);
-        webSocket.removeEventListener('close', handlers.handleClose);
-        webSocket.removeEventListener('error', handlers.handleError);
-        eventHandlers.delete(webSocket);
-      }
-      closeWebSocket(webSocket);
+      cleanUp();
     }
   });
+  const cleanUp = () => {
+    const handlers = eventHandlers.get(webSocket);
+    if (handlers) {
+      webSocket.removeEventListener('message', handlers.handleMessage);
+      webSocket.removeEventListener('close', handlers.handleClose);
+      webSocket.removeEventListener('error', handlers.handleError);
+      eventHandlers.delete(webSocket);
+    }
+    closeWebSocket(webSocket);
+  };
   return readableStream;
 };
 const processWebSocketHeader = (buffer, userID) => {
@@ -151,7 +170,9 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) retry();
+  if (!hasData && retry) {
+    retry();
+  }
 };
 const base64ToBuffer = (base64Str) => {
   try {
