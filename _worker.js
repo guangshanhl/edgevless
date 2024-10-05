@@ -69,9 +69,10 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   const tryConnectAndForward = async (address, port) => {
     try {
       const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-      await forwardToData(tcpSocket, webSocket, responseHeader);
+      await forwardToData(tcpSocket, webSocket, responseHeader);      
       return true;
     } catch (error) {
+      closeWebSocket(webSocket);
       return false;
     }
   };
@@ -80,6 +81,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     await tryConnectAndForward(proxyIP, portRemote);
   }
 };
+
 
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
