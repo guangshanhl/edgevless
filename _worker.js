@@ -164,10 +164,12 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
-    return false;
+    return;
   }
+  let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk) {
+      hasData = true;
       const dataToSend = responseHeader 
         ? new Uint8Array([...responseHeader, ...chunk]).buffer 
         : chunk;
@@ -179,9 +181,8 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
-    return false;
   }
-  return true;
+  return hasData;
 };
 const base64ToBuffer = (base64Str) => {
   try {
