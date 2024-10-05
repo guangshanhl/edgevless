@@ -31,8 +31,7 @@ export default {
 				return await vlessOverWSHandler(request);
 			}
 		} catch (err) {
-			/** @type {Error} */ let e = err;
-			return new Response(e.toString());
+			return new Response(err.toString());
 		}
 	},
 };
@@ -42,7 +41,7 @@ async function vlessOverWSHandler(request) {
 	webSocket.accept();
 	let address = '';
 	let portWithRandomLog = '';
-	const log = (/** @type {string} */ info, /** @type {string | undefined} */ event) => {
+	const log = (event) => {
 		console.log(`[${address}:${portWithRandomLog}] ${info}`, event || '');
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
