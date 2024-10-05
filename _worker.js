@@ -69,13 +69,14 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  const handleFallback = async () => {
+    const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+    fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    await forwardToData(fallbackSocket, webSocket, responseHeader);
+  };
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    await forwardToData(tcpSocket, webSocket, responseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      await forwardToData(fallbackSocket, webSocket, responseHeader);
-    });
+    await forwardToData(tcpSocket, webSocket, responseHeader, handleFallback);
   } catch (error) {
     closeWebSocket(webSocket);
   }
@@ -131,28 +132,24 @@ const getAddressInfo = (view, buffer, startIndex) => {
   }
   return { value: addressValue, index: addressValueIndex + addressLength };
 };
-let cachedReadyState = WebSocket.CLOSED;
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-  if (cachedReadyState !== webSocket.readyState) {
-    cachedReadyState = webSocket.readyState;
-    if (cachedReadyState !== WebSocket.OPEN) {
-      closeWebSocket(webSocket);
-      return;
-    }
+  if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket);
+    return;
   }
   let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
       const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+        ? new Uint8Array([...responseHeader, ...chunk])
         : chunk;
-      webSocket.send(dataToSend);
+      webSocket.send(dataToSend.buffer);
       responseHeader = null;
     }
   });
   try {
-    await remoteSocket.readable.pipeTo(writableStream, { preventClose: true, preventAbort: true });
+    await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
