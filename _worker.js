@@ -8,7 +8,7 @@ export default {
         ? handleWsRequest(request, userID, proxyIP)
         : handleHttpRequest(request, userID);
     } catch (err) {
-      return new Response(err.toString());
+      return new Response(err.toString(), { status: 500 });
     }
   }
 };
@@ -66,17 +66,20 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  const retry = async () => {
     try {
-        const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);       
-        const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);      
-        if (!dataForward) {
-            closeSocket(mainSocket);
-            const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-            await forwardToData(proxySocket, webSocket, responseHeader);
-        }
-    } catch (error) {
-        closeWebSocket(webSocket);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+      await forwardToData(fallbackSocket, webSocket, responseHeader);
+    } catch {
+      closeWebSocket(webSocket);
     }
+  };
+  try {
+    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    await forwardToData(tcpSocket, webSocket, responseHeader, retry);
+  } catch (error) {
+    closeWebSocket(webSocket);
+  }
 };
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
@@ -129,13 +132,15 @@ const getAddressInfo = (view, buffer, startIndex) => {
     : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { addressRemote: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
     return;
   }
+  let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk) {
+      hasData = true;
       const dataToSend = responseHeader 
         ? new Uint8Array([...responseHeader, ...chunk]).buffer 
         : chunk;
@@ -148,6 +153,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   } catch (error) {
     closeWebSocket(webSocket);
   }
+  if (!hasData && retry) retry();
 };
 const base64ToBuffer = (base64Str) => {
   try {
