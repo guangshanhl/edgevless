@@ -141,9 +141,9 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
     async write(chunk) {
       hasData = true;
       const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk])
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
         : chunk;
-      webSocket.send(dataToSend.buffer);
+      webSocket.send(dataToSend);
       responseHeader = null;
     }
   });
