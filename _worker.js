@@ -66,42 +66,16 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  
-  // 处理连接和数据转发的逻辑
-  const connectAndForward = async (address, port) => {
     try {
-      const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-      await forwardToData(tcpSocket, webSocket, responseHeader);
-      return true; // 连接成功，返回 true
+        const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);       
+        const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
+        if (!dataForward) {
+          const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+          await forwardToData(proxySocket, webSocket, responseHeader);
+        }
     } catch (error) {
-      console.error(`Connection to ${address}:${port} failed: ${error.message}`);
-      return false; // 连接失败，返回 false
+        closeWebSocket(webSocket);
     }
-  };
-
-  // 并行尝试主连接和代理连接
-  const mainConnectionPromise = connectAndForward(addressRemote, portRemote);
-  const proxyConnectionPromise = connectAndForward(proxyIP, portRemote);
-
-  // 等待任一连接成功
-  const results = await Promise.allSettled([mainConnectionPromise, proxyConnectionPromise]);
-
-  // 判断主连接和代理连接的状态
-  const mainConnectionSuccess = results[0].status === 'fulfilled';
-  const proxyConnectionSuccess = results[1].status === 'fulfilled';
-
-  // 处理连接结果
-  if (mainConnectionSuccess) {
-    // 如果主连接成功，关闭代理连接
-    console.log("Main connection successful. Closing proxy connection.");
-    closeWebSocket(webSocket); // 关闭代理连接
-  } else if (proxyConnectionSuccess) {
-    // 如果代理连接成功，关闭主连接
-    console.log("Proxy connection successful. Closing main connection.");
-    closeWebSocket(webSocket); // 关闭主连接
-  } else {
-    console.error("Both connections failed.");
-  }
 };
 
 const eventHandlers = new WeakMap();
