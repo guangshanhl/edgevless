@@ -68,16 +68,16 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     try {
         const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);       
-        const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
+        const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);      
         if (!dataForward) {
-          const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-          await forwardToData(proxySocket, webSocket, responseHeader);
+            closeSocket(mainSocket);
+            const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            await forwardToData(proxySocket, webSocket, responseHeader);
         }
     } catch (error) {
         closeWebSocket(webSocket);
     }
 };
-
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   const readableStream = new ReadableStream({
