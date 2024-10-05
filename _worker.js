@@ -68,32 +68,24 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  // 创建连接的 Promise
-  const primaryConnectionPromise = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
-  
-  // 尝试连接主要 TCP socket
-  const primaryTcpSocket = await primaryConnectionPromise;
-
-  if (!primaryTcpSocket) {
-    // 如果主要连接失败，尝试备用连接
-    console.warn(`Primary connection to ${addressRemote}:${portRemote} failed, attempting fallback connection to ${proxyIP}:${portRemote}`);
-    
-    const fallbackConnectionPromise = connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
-    
-    // 等待备用连接的结果
-    const fallbackTcpSocket = await fallbackConnectionPromise;
-    
-    if (fallbackTcpSocket) {
-      // 成功连接备用 socket
-      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-    } else {
-      // 备用连接也失败
-      console.error(`Fallback connection to ${proxyIP}:${portRemote} failed`);
-      closeWebSocket(webSocket);
+  const connectWithFallback = async () => {
+    const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
+    if (primaryTcpSocket) {
+      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+      return primaryTcpSocket;
     }
-  } else {
-    // 成功连接主要 socket
-    primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);   
+    if (fallbackTcpSocket) {
+      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+      return fallbackTcpSocket;
+    }
+    closeWebSocket(webSocket);
+    return null;
+  };
+  try {
+    await connectWithFallback();
+  } catch (error) {
+    closeWebSocket(webSocket);
   }
 };
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
