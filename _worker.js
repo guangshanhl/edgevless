@@ -69,6 +69,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+
   if (!primaryTcpSocket) {
     const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
     if (fallbackTcpSocket) {
@@ -80,6 +81,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
   }
 };
+
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
@@ -149,31 +151,40 @@ const getAddressInfo = (view, buffer, startIndex) => {
     : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { addressRemote: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
     return;
   }
+
   let hasData = false;
+
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
       const dataToSend = responseHeader 
         ? new Uint8Array([...responseHeader, ...chunk]).buffer 
         : chunk;
+
       webSocket.send(dataToSend);
-      responseHeader = null;
+      responseHeader = null; // 只发送一次响应头
     }
   });
+
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
+    console.error("Error while piping data:", error);
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) {
-    retry();
+
+  // 不再需要 retry 逻辑
+  if (!hasData) {
+    // 处理没有数据的情况，如果需要的话，可以在这里添加额外的逻辑
+    console.warn("No data received from remote socket.");
   }
 };
+
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
