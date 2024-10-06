@@ -67,50 +67,40 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-    try {
-        const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
-        if (!dataForward) {
-          await forwardToData(proxySocket, webSocket, responseHeader);
-        }
-    } catch (error) {
-        closeWebSocket(webSocket);
-    }
-};
-const handletTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  const connectWithFallback = async () => {
-    const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
-    if (primaryTcpSocket) {
-      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return primaryTcpSocket;
-    }
-    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);   
-    if (fallbackTcpSocket) {
-      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return fallbackTcpSocket;
-    }
-    closeWebSocket(webSocket);
-    return null;
-  };
-  try {
-    await connectWithFallback();
-  } catch (error) {
-    closeWebSocket(webSocket);
-  }
-};
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
     const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-    const isDataForwarded = await forwardPromise;   
+    const isDataForwarded = await forwardPromise;
     if (!isDataForwarded) {
       return null;
-    }    
+    }
     return tcpSocket;
   } catch (error) {
     return null;
+  }
+};
+
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  const connectInParallel = async () => {
+    const primaryPromise = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+    const fallbackPromise = connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
+    
+    try {
+      const tcpSocket = await Promise.race([primaryPromise, fallbackPromise]);
+
+      if (tcpSocket) {
+        tcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+        return tcpSocket;
+      }
+    } catch (error) {
+      closeWebSocket(webSocket);
+    }
+  };
+  try {
+    await connectInParallel();
+  } catch (error) {
+    closeWebSocket(webSocket);
   }
 };
 const eventHandlers = new WeakMap();
