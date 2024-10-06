@@ -68,6 +68,18 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+    try {
+        const mainSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        const proxySocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        const dataForward = await forwardToData(mainSocket, webSocket, responseHeader);
+        if (!dataForward) {
+          await forwardToData(proxySocket, webSocket, responseHeader);
+        }
+    } catch (error) {
+        closeWebSocket(webSocket);
+    }
+};
+const handletTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const connectWithFallback = async () => {
     const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
     if (primaryTcpSocket) {
