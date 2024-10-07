@@ -59,50 +59,53 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  let socket = remoteSocket.value;
-  if (!socket || socket.closed) {
-    socket = await connect({ hostname: address, port });
-    remoteSocket.value = socket;
+  if (!remoteSocket.value || remoteSocket.value.closed) {
+    remoteSocket.value = await connect({ hostname: address, port });
   }
-  await writeToRemote(socket, rawClientData);
-  return socket;
+  await writeToRemote(remoteSocket.value, rawClientData);
+  return remoteSocket.value;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  const connectWithFallback = async () => {
-    const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
-    if (primaryTcpSocket) {
-      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return primaryTcpSocket;
-    }
-    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);   
-    if (fallbackTcpSocket) {
-      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return fallbackTcpSocket;
-    }
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
+  if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
-    return null;
-  };
+    return false;
+  }
+  let hasData = false;
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      hasData = true;
+      const dataToSend = responseHeader 
+        ? new Uint8Array([...responseHeader, ...chunk])
+        : chunk;
+      webSocket.send(dataToSend.buffer);
+      responseHeader = null;
+    }
+  });
   try {
-    await connectWithFallback();
+    await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
+    return false;
   }
+  return hasData;
 };
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-    if (webSocket.readyState !== WebSocket.OPEN) {
-      return null;
-    }
-    const DataForward = await remoteSocket.readable.pipeTo(new WritableStream({
-      write(chunk) {
-        webSocket.send(responseHeader ? new Uint8Array([...responseHeader, ...chunk]).buffer : chunk);
-        responseHeader = null;
-      }
-    }));
-    return tcpSocket;
+    const isDataForwarded = await forwardToData(tcpSocket, webSocket, responseHeader);
+    return isDataForwarded ? tcpSocket : null;
   } catch (error) {
     return null;
+  }
+};
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  try {
+    const mainConnection = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+    if (!mainConnection) {
+      await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
+    }
+  } catch (error) {
+    closeWebSocket(webSocket);
   }
 };
 const eventHandlers = new WeakMap();
