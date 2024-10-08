@@ -53,9 +53,16 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
+const CHUNK_SIZE = 32 * 1024;
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  await writer.write(chunk);
+  let offset = 0;
+  while (offset < chunk.length) {
+    const sliceEnd = Math.min(offset + CHUNK_SIZE, chunk.length);
+    const dataChunk = chunk.slice(offset, sliceEnd);
+    await writer.write(dataChunk);
+    offset = sliceEnd;
+  } 
   writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
@@ -91,7 +98,12 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-    return await forwardToData(tcpSocket, webSocket, responseHeader);
+    const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
+    const isDataForwarded = await forwardPromise;   
+    if (!isDataForwarded) {
+      return null;
+    }    
+    return tcpSocket;
   } catch (error) {
     return null;
   }
@@ -164,11 +176,17 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk) {
-      hasData = true;
-      const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+      hasData = true;     
+      const dataToSend = responseHeader
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer
         : chunk;
-      webSocket.send(dataToSend);
+      let offset = 0;
+      while (offset < dataToSend.byteLength) {
+        const sliceEnd = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
+        const chunkToSend = dataToSend.slice(offset, sliceEnd);
+        webSocket.send(chunkToSend);
+        offset = sliceEnd;
+      }
       responseHeader = null;
     }
   });
@@ -198,43 +216,38 @@ const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
+const MAX_UDP_CHUNK_SIZE = 512;
+
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const batchSize = 10;
-  let index = 0;
+  let offset = 0;
   let batch = [];
   const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
-  const dnsFetch = async (chunks) => {
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'content-type': 'application/dns-message' },
-      body: concatenateChunks(chunks)
+  const processUdpBatch = async (controller) => {
+    const udpResults = await Promise.all(batch.map(dnsFetch));
+    udpResults.forEach(result => {
+      offset = processDnsResult(result, udpPackets, offset);
     });
-    return response.arrayBuffer();
-  };
-  const processBatch = async (controller) => {
-    const dnsResults = await Promise.all(batch.map(dnsFetch));
-    dnsResults.forEach(dnsResult => {
-      index = processDnsResult(dnsResult, udpPackets, index);
-    });
-    controller.enqueue(udpPackets.slice(0, index));
-    index = 0;
+    controller.enqueue(udpPackets.slice(0, offset));
+    offset = 0;
     batch = [];
   };
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
-      let offset = 0;
-      while (offset < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
-        batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
-        if (batch.length >= batchSize) {
-          await processBatch(controller);
+      let chunkOffset = 0;
+      while (chunkOffset < chunk.byteLength) {
+        const udpPacketLength = new DataView(chunk.buffer, chunkOffset, 2).getUint16(0);
+        const chunkSlice = chunk.slice(chunkOffset + 2, chunkOffset + 2 + udpPacketLength);
+        batch.push(chunkSlice);
+        if (batch.length * MAX_UDP_CHUNK_SIZE >= MAX_UDP_CHUNK_SIZE) {
+          await processUdpBatch(controller);
         }
-        offset += 2 + udpPacketLength;
+
+        chunkOffset += 2 + udpPacketLength;
       }
     },
     async flush(controller) {
       if (batch.length) {
-        await processBatch(controller);
+        await processUdpBatch(controller);
       }
     }
   });
