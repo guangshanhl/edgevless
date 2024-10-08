@@ -77,7 +77,6 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
       const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
       await forwardPromise;
-      return tcpSocket;
     } catch (error) {
       return null;
     }
