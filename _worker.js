@@ -75,21 +75,22 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
   const connectAndForward = async (address) => {
     try {
       const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
-      const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-      await forwardPromise;
+      await forwardToData(tcpSocket, webSocket, responseHeader);
+      return tcpSocket;
     } catch (error) {
       return null;
     }
   };
+  const handleConnection = async (address) => {
+    const tcpSocket = await connectAndForward(address);
+    if (tcpSocket) {
+      tcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    }
+    return tcpSocket;
+  };
   try {
-    const primaryTcpSocket = await connectAndForward(addressRemote);
-    if (primaryTcpSocket) {
-      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return;
-    }    
-    const fallbackTcpSocket = await connectAndForward(proxyIP);
-    if (fallbackTcpSocket) {
-      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    if (!(await handleConnection(addressRemote)) && !(await handleConnection(proxyIP))) {
+      closeWebSocket(webSocket);
     }
   } catch (error) {
     closeWebSocket(webSocket);
