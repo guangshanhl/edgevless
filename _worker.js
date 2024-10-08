@@ -79,7 +79,10 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
         fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
         return fallbackTcpSocket;
       }
-    };
+    }
+    closeWebSocket(webSocket);
+    return null;
+  };
     try {
       await connectWithFallback();
     } catch (error) {
