@@ -7,9 +7,11 @@ export default {
         const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
         const proxyIP = env.PROXYIP || '';
         try {
-            return request.headers.get('Upgrade') === 'websocket'
-             ? handleWsRequest(request, userID, proxyIP)
-             : handleHttpRequest(request, userID);
+            const isWebSocket = request.headers.get('Upgrade') === 'websocket';
+            if (isWebSocket) {
+                return handleWsRequest(request, userID, proxyIP);
+            }
+            return handleHttpRequest(request, userID);
         } catch (err) {
             return new Response(err.toString());
         }
@@ -105,15 +107,11 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
         }
     };
     try {
-        const primarySocket = await connectAndForward(addressRemote);
-        if (primarySocket) {
-            primarySocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-        } else {
-            const fallbackSocket = await connectAndForward(proxyIP);
-            if (fallbackSocket) {
-                fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-            }
+        const primarySocket = await tryConnectAndForward(addressRemote, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
+        if (!primarySocket) {
+            const fallbackSocket = await tryConnectAndForward(proxyIP, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
         }
+        closeWebSocket(webSocket);
     } catch (error) {
         closeWebSocket(webSocket);
     }
@@ -172,10 +170,11 @@ const processWebSocketHeader = (buffer, userID) => {
             hasError: true
         };
     const optLength = view.getUint8(17);
-    const command = view.getUint8(18 + optLength);
-    const version = new Uint8Array(buffer.slice(0, 1));
+    const startIndex = 18 + optLength;
+    const command = view.getUint8(startIndex);
     const isUDP = command === 2;
-    const portRemote = view.getUint16(18 + optLength + 1);
+    const portRemote = view.getUint16(startIndex + 1);
+    const version = new Uint8Array(buffer.slice(0, 1));
     const {
         addressRemote,
         rawDataIndex
@@ -226,10 +225,12 @@ const forwardToData = async(remoteSocket, webSocket, responseHeader) => {
     }
     return hasData;
 };
+const BASE64_REPLACE_REGEX = /[-_]/g;
+const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
     try {
-        const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
-        const buffer = Uint8Array.from(binaryStr, (char) => char.charCodeAt(0));
+        const binaryStr = atob(replaceBase64Chars(base64Str));
+        const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
         return {
             earlyData: buffer.buffer,
             error: null
