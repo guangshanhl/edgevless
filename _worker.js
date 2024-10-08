@@ -53,16 +53,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
-const CHUNK_SIZE = 32 * 1024;
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  let offset = 0;
-  while (offset < chunk.length) {
-    const sliceEnd = Math.min(offset + CHUNK_SIZE, chunk.length);
-    const dataChunk = chunk.slice(offset, sliceEnd);
-    await writer.write(dataChunk);
-    offset = sliceEnd;
-  } 
+  await writer.write(chunk);
   writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
@@ -174,20 +167,20 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     return;
   }
   let hasData = false;
+  const encoder = new TextEncoder();
   const writableStream = new WritableStream({
     async write(chunk) {
-      hasData = true;     
-      const dataToSend = responseHeader
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer
-        : chunk;
-      let offset = 0;
-      while (offset < dataToSend.byteLength) {
-        const sliceEnd = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
-        const chunkToSend = dataToSend.slice(offset, sliceEnd);
-        webSocket.send(chunkToSend);
-        offset = sliceEnd;
+      hasData = true;
+      if (responseHeader) {
+        const headerBuffer = encoder.encode(responseHeader);
+        const combinedData = new Uint8Array(headerBuffer.length + chunk.length);
+        combinedData.set(headerBuffer); // 复制header
+        combinedData.set(chunk, headerBuffer.length);
+        webSocket.send(combinedData);
+        responseHeader = null;
+      } else {
+        webSocket.send(chunk);
       }
-      responseHeader = null;
     }
   });
   try {
