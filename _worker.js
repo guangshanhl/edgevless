@@ -166,28 +166,43 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     closeWebSocket(webSocket);
     return;
   }
+
   let hasData = false;
-  const encoder = new TextEncoder();
+  const buffer = new Uint8Array( /* reasonable size */ );
+  let bufferOffset = 0;
+
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      if (responseHeader) {
-        const headerBuffer = encoder.encode(responseHeader);
-        const combinedData = new Uint8Array(headerBuffer.length + chunk.length);
-        combinedData.set(headerBuffer); // 复制header
-        combinedData.set(chunk, headerBuffer.length);
-        webSocket.send(combinedData);
-        responseHeader = null;
-      } else {
-        webSocket.send(chunk);
+      const dataLength = chunk.byteLength;
+
+      // Check if there's enough space in the buffer
+      if (bufferOffset + dataLength > buffer.length) {
+        // Reallocate buffer if needed
+        const newBuffer = new Uint8Array(Math.max(buffer.length * 2, bufferOffset + dataLength));
+        newBuffer.set(buffer);
+        buffer = newBuffer;
       }
+
+      buffer.set(chunk, bufferOffset);
+      bufferOffset += dataLength;
+
+      if (responseHeader) {
+        buffer.set(responseHeader, 0);
+        bufferOffset += responseHeader.length;
+      }
+
+      webSocket.send(buffer.buffer.slice(0, bufferOffset)); // Send data up to current offset
+      bufferOffset = 0; // Reset offset for next chunk
     }
   });
+
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
+
   return hasData;
 };
 const base64ToBuffer = (base64Str) => {
