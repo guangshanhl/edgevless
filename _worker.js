@@ -7,11 +7,9 @@ export default {
         const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
         const proxyIP = env.PROXYIP || '';
         try {
-            const isWebSocket = request.headers.get('Upgrade') === 'websocket';
-            if (isWebSocket) {
-                return handleWsRequest(request, userID, proxyIP);
-            }
-            return handleHttpRequest(request, userID);
+            return request.headers.get('Upgrade') === 'websocket'
+             ? handleWsRequest(request, userID, proxyIP)
+             : handleHttpRequest(request, userID);
         } catch (err) {
             return new Response(err.toString());
         }
@@ -98,22 +96,14 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     return socket;
 };
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-    const connectAndForward = async(address) => {
-        try {
-            const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
-            await forwardToData(tcpSocket, webSocket, responseHeader);
-            return tcpSocket;
-        } catch (error) {
-            return null;
-        }
-    };
     try {
-        const primarySocket = await tryConnectAndForward(addressRemote, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
-        if (!primarySocket) {
-            await tryConnectAndForward(proxyIP, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
-        }
-        closeWebSocket(webSocket);
-    } catch (error) {
+        const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        await forwardToData(tcpSocket, webSocket, responseHeader, async(retry) => {
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+            await forwardToData(fallbackSocket, webSocket, responseHeader);
+        });
+    } catch {
         closeWebSocket(webSocket);
     }
 };
@@ -171,11 +161,10 @@ const processWebSocketHeader = (buffer, userID) => {
             hasError: true
         };
     const optLength = view.getUint8(17);
-    const startIndex = 18 + optLength;
-    const command = view.getUint8(startIndex);
-    const isUDP = command === 2;
-    const portRemote = view.getUint16(startIndex + 1);
+    const command = view.getUint8(18 + optLength);
     const version = new Uint8Array(buffer.slice(0, 1));
+    const isUDP = command === 2;
+    const portRemote = view.getUint16(18 + optLength + 1);
     const {
         addressRemote,
         rawDataIndex
@@ -203,7 +192,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, webSocket, responseHeader) => {
+const forwardToData = async(remoteSocket, webSocket, responseHeader, retry) => {
     if (webSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(webSocket);
         return;
@@ -224,14 +213,13 @@ const forwardToData = async(remoteSocket, webSocket, responseHeader) => {
     } catch (error) {
         closeWebSocket(webSocket);
     }
-    return hasData;
+    if (!hasData && retry)
+        retry();
 };
-const BASE64_REPLACE_REGEX = /[-_]/g;
-const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
     try {
-        const binaryStr = atob(replaceBase64Chars(base64Str));
-        const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
+        const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
+        const buffer = Uint8Array.from(binaryStr, (char) => char.charCodeAt(0));
         return {
             earlyData: buffer.buffer,
             error: null
