@@ -13,7 +13,8 @@ export default {
   }
 };
 const handleHttpRequest = (request, userID) => {
-  const path = new URL(request.url).pathname;
+  const url = new URL(request.url);
+  const path = url.pathname;
   if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
   if (path === `/${userID}`) {
     return new Response(getConfig(userID, request.headers.get("Host")), {
@@ -61,7 +62,6 @@ const writeToRemote = async (socket, chunk) => {
     writer.releaseLock();
   }
 };
-
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   let socket = remoteSocket.value;
   if (!socket || socket.closed) {
@@ -94,11 +94,7 @@ const connectAndForward = async (remoteSocket, address, port, rawClientData, web
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
     const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-    const isDataForwarded = await forwardPromise;   
-    if (!isDataForwarded) {
-      return null;
-    }    
-    return tcpSocket;
+    await forwardPromise;   
   } catch (error) {
     return null;
   }
