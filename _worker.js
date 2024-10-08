@@ -76,12 +76,12 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
     if (primaryTcpSocket) {
       primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return primaryTcpSocket;
+      //return primaryTcpSocket;
     }
     const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);   
     if (fallbackTcpSocket) {
       fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      return fallbackTcpSocket;
+      //return fallbackTcpSocket;
     }
   };
   try {
