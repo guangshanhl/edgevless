@@ -73,8 +73,8 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   try {
-    const primaryConnection = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const fallbackConnection = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+    const primaryConnection = connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+    const fallbackConnection = connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
     const tcpSocket = await Promise.race([primaryConnection, fallbackConnection]);
     if (!tcpSocket) {
       throw new Error('Both primary and fallback connections failed.');
