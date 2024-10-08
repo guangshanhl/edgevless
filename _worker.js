@@ -73,14 +73,16 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const connectAndForward = async (address) => {
-    try {
-      const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
-      const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-      await forwardPromise;
-    } catch (error) {
-      return null;
-    }
-  };
+  try {
+    const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
+    await forwardToData(tcpSocket, webSocket, responseHeader);
+    return tcpSocket; // 返回 TCP socket
+  } catch (error) {
+    console.error(`Error connecting or forwarding to ${address}: ${error.message}`);
+    return null; // 连接或转发失败
+  }
+};
+
   try {
     const primaryTcpSocket = await connectAndForward(addressRemote);
     if (primaryTcpSocket) {
