@@ -13,11 +13,8 @@ export default {
   }
 };
 const handleHttpRequest = (request, userID) => {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  if (path === "/") {
-    return new Response(JSON.stringify(request.cf, null, 4));
-  }
+  const path = new URL(request.url).pathname;
+  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
   if (path === `/${userID}`) {
     return new Response(getConfig(userID, request.headers.get("Host")), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
@@ -58,11 +55,8 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 };
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  try {
-    await writer.write(chunk);
-  } finally {
-    writer.releaseLock();
-  }
+  await writer.write(chunk);
+  writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   let socket = remoteSocket.value;
@@ -82,17 +76,19 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
 
     if (tcpSocket) {
       tcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    } else {
+      closeWebSocket(webSocket);
     }
   } catch (error) {
-    closeWebSocket(webSocket;
+    closeWebSocket(webSocket);
   }
 };
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
     const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-    const dataForward = await forwardPromise;   
-    if (!dataForward) {
+    const isDataForwarded = await forwardPromise;   
+    if (!isDataForwarded) {
       return null;
     }    
     return tcpSocket;
