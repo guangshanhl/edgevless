@@ -73,18 +73,20 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const connectWithFallback = async () => {
-  const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+    // 定义连接主TCP socket的Promise
+    const primaryConnection = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+    
+    // 定义连接备用TCP socket的Promise
+    const fallbackConnection = connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
 
-  if (primaryTcpSocket) {
-    primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-  } else {
-    // 只有在主服务器连接失败时才尝试备用服务器
-    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
-    if (fallbackTcpSocket) {
-      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    // 使用 Promise.race 选择哪个连接更快
+    const selectedTcpSocket = await Promise.race([primaryConnection, fallbackConnection]);
+
+    // 处理连接的关闭事件
+    if (selectedTcpSocket) {
+      selectedTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
     }
-  }
-};
+  };
 
   try {
     await connectWithFallback();
@@ -92,6 +94,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
     closeWebSocket(webSocket);
   }
 };
+
 const connectAndForward = async (remoteSocket, address, port, rawClientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
