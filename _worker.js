@@ -72,16 +72,26 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  try {
-    const primaryConnection = connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const fallbackConnection = connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-    const tcpSocket = await Promise.race([primaryConnection, fallbackConnection]);
-    if (!tcpSocket) {
-      throw new Error('Both primary and fallback connections failed.');
+  const connectAndForward = async (address) => {
+    try {
+      const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
+      const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
+      await forwardPromise;
+      return tcpSocket;
+    } catch (error) {
+      return null;
     }
-    const forwardPromise = forwardToData(tcpSocket, webSocket, responseHeader);
-    await forwardPromise;
-    tcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+  };
+  try {
+    const primaryTcpSocket = await connectAndForward(addressRemote);
+    if (primaryTcpSocket) {
+      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+      return;
+    }    
+    const fallbackTcpSocket = await connectAndForward(proxyIP);
+    if (fallbackTcpSocket) {
+      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+    }
   } catch (error) {
     closeWebSocket(webSocket);
   }
