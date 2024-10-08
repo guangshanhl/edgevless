@@ -102,6 +102,7 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
             await forwardToData(tcpSocket, webSocket, responseHeader);
+            return tcpSocket;
         } catch (error) {
             return null;
         }
@@ -109,7 +110,7 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     try {
         const primarySocket = await tryConnectAndForward(addressRemote, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
         if (!primarySocket) {
-            const fallbackSocket = await tryConnectAndForward(proxyIP, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
+            await tryConnectAndForward(proxyIP, remoteSocket, portRemote, rawClientData, webSocket, responseHeader);
         }
         closeWebSocket(webSocket);
     } catch (error) {
