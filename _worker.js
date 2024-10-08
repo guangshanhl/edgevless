@@ -73,17 +73,19 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const connectWithFallback = async () => {
-    const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
-    if (primaryTcpSocket) {
-      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      //return primaryTcpSocket;
-    }
-    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);   
+  const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+
+  if (primaryTcpSocket) {
+    primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+  } else {
+    // 只有在主服务器连接失败时才尝试备用服务器
+    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
     if (fallbackTcpSocket) {
       fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      //return fallbackTcpSocket;
     }
-  };
+  }
+};
+
   try {
     await connectWithFallback();
   } catch (error) {
