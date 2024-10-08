@@ -218,10 +218,12 @@ const forwardToData = async(remoteSocket, webSocket, responseHeader, retry) => {
     if (!hasData && retry)
         retry();
 };
+const BASE64_REPLACE_REGEX = /[-_]/g;
+const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
     try {
-        const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
-        const buffer = Uint8Array.from(binaryStr, (char) => char.charCodeAt(0));
+        const binaryStr = atob(replaceBase64Chars(base64Str));
+        const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
         return {
             earlyData: buffer.buffer,
             error: null
