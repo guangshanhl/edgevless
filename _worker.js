@@ -100,7 +100,7 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
         const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
         await forwardToData(tcpSocket, webSocket, responseHeader, async(retry) => {
             const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-            fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+            //fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
             await forwardToData(fallbackSocket, webSocket, responseHeader);
         });
     } catch {
