@@ -55,9 +55,13 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 };
 const writeToRemote = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  try {
+    await writer.write(chunk);
+  } finally {
+    writer.releaseLock();
+  }
 };
+
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   let socket = remoteSocket.value;
   if (!socket || socket.closed) {
@@ -68,17 +72,20 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   return socket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  try {
-    const primaryTcpPromise = connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
-    const fallbackTcpPromise = connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);
-
-    const tcpSocket = await Promise.any([primaryTcpPromise, fallbackTcpPromise]);
-
-    if (tcpSocket) {
-      tcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-    } else {
-      closeWebSocket(webSocket);
+  const connectWithFallback = async () => {
+    const primaryTcpSocket = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);   
+    if (primaryTcpSocket) {
+      primaryTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+      return primaryTcpSocket;
     }
+    const fallbackTcpSocket = await connectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, webSocket, responseHeader);   
+    if (fallbackTcpSocket) {
+      fallbackTcpSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
+      return fallbackTcpSocket;
+    }
+  };
+  try {
+    await connectWithFallback();
   } catch (error) {
     closeWebSocket(webSocket);
   }
