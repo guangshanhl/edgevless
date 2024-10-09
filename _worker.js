@@ -37,8 +37,8 @@ const handleWsRequest = async(request, userID, proxyIP) => {
     const webSocketPair = new WebSocketPair();
     const clientSocket = webSocketPair[0];
     const serverSocket = webSocketPair[1];
-    const protocols = (request.headers.get('sec-websocket-protocol') || '').split(',');
-    serverSocket.accept(protocols.includes('permessage-deflate') ? protocols : []);
+    serverSocket.accept();
+    const protocols = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, protocols);
     let remoteSocket = {
         value: null
@@ -75,7 +75,6 @@ const handleWsRequest = async(request, userID, proxyIP) => {
                 }
             }
         }));
-	keepAlive(serverSocket);
     return new Response(null, {
         status: 101,
         webSocket: clientSocket
@@ -193,6 +192,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
+const CHUNK_SIZE = 64 * 1024;
 const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
@@ -202,9 +202,20 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
-            const dataToSend = responseHeader ? new Uint8Array([...responseHeader, ...chunk]).buffer : chunk;
-            serverSocket.send(dataToSend);
-            responseHeader = null;
+            let dataToSend;
+            if (responseHeader) {
+                const combinedBuffer = new Uint8Array(responseHeader.length + chunk.byteLength);
+                combinedBuffer.set(responseHeader);
+                combinedBuffer.set(new Uint8Array(chunk), responseHeader.length);
+                dataToSend = combinedBuffer.buffer;
+                responseHeader = null;
+            } else {
+                dataToSend = chunk;
+            }
+            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
+                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
+                serverSocket.send(dataToSend.slice(offset, end));
+            }
         }
     });
     try {
@@ -212,16 +223,9 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
     } catch (error) {
         closeWebSocket(serverSocket);
     }
-    if (!hasData && retry)
+    if (!hasData && retry) {
         retry();
-};
-const keepAlive = (serverSocket, interval = 30000) => {
-    const ping = () => {
-        if (serverSocket.readyState === WebSocket.OPEN) {
-            serverSocket.send('ping');
-        }
-    };
-    setInterval(ping, interval);
+    }
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
