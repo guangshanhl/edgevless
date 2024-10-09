@@ -6,14 +6,15 @@ export default {
     async fetch(request, env) {
         const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
         const proxyIP = env.PROXYIP || '';
-        const fakeIP = '192.0.2.1';
+        const fakeIP = '202.96.209.133';
         const fakeTimezone = 'Asia/Shanghai';
+        const fakeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36';
         try {
             const isWebSocket = request.headers.get('Upgrade') === 'websocket';
             if (isWebSocket) {
-                return handleWsRequest(request, userID, proxyIP);
+                return handleWsRequest(request, userID, proxyIP, fakeUserAgent);
             }
-            return handleHttpRequest(request, userID, fakeIP, fakeTimezone);
+            return handleHttpRequest(request, userID, fakeIP, fakeTimezone; fakeUserAgent);
         } catch (err) {
             return new Response(err.toString());
         }
@@ -24,7 +25,8 @@ const handleHttpRequest = (request, userID, fakeIP, fakeTimezone) => {
     const path = url.pathname;
     const headers = new Headers(request.headers);
     headers.set('X-Fake-IP', fakeIP);
-    headers.set('X-Fake-Timezone', fakeTimezone);  
+    headers.set('X-Fake-Timezone', fakeTimezone);
+    headers.set('User-Agent', fakeUserAgent);
     if (path === "/") {
         return new Response(JSON.stringify(request.cf, null, 4), { headers });
     }   
@@ -43,6 +45,8 @@ const handleHttpRequest = (request, userID, fakeIP, fakeTimezone) => {
 const handleWsRequest = async(request, userID, proxyIP) => {
     const [client, webSocket] = new WebSocketPair();
     webSocket.accept();
+    const headers = new Headers(request.headers);
+    headers.set('User-Agent', fakeUserAgent);
     const readableStream = createWebSocketStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
     let remoteSocket = {
         value: null
