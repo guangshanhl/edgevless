@@ -258,11 +258,20 @@ const stringify = (arr, offset = 0) => {
         }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
-    const batchSize = 10;
+    const BATCH_SIZE = 10;
+    const MAX_CONCURRENT_REQUESTS = 10;
+    const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000;
     let index = 0;
     let batch = [];
     const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
+    const dnsCache = new Map();
     const dnsFetch = async(chunks) => {
+        const domain = new TextDecoder().decode(chunks[0]);
+        const cachedEntry = dnsCache.get(domain);
+        const currentTime = Date.now();
+        if (cachedEntry && (currentTime - cachedEntry.timestamp) < CACHE_EXPIRY_TIME) {
+            return cachedEntry.data;
+        }
         const response = await fetch('https://cloudflare-dns.com/dns-query', {
             method: 'POST',
             headers: {
@@ -270,13 +279,31 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
             },
             body: concatenateChunks(chunks)
         });
-        return response.arrayBuffer();
+        const result = await response.arrayBuffer();
+        dnsCache.set(domain, {
+            data: result,
+            timestamp: currentTime
+        });
+        return result;
     };
     const processBatch = async(controller) => {
-        const dnsResults = await Promise.all(batch.map(dnsFetch));
-        dnsResults.forEach(dnsResult => {
-            index = processDnsResult(dnsResult, udpPackets, index);
-        });
+        const requests = [];
+        for (const chunk of batch) {
+            requests.push(dnsFetch(chunk));
+            if (requests.length >= MAX_CONCURRENT_REQUESTS) {
+                const dnsResults = await Promise.all(requests);
+                dnsResults.forEach(dnsResult => {
+                    index = processDnsResult(dnsResult, udpPackets, index);
+                });
+                requests.length = 0;
+            }
+        }
+        if (requests.length) {
+            const dnsResults = await Promise.all(requests);
+            dnsResults.forEach(dnsResult => {
+                index = processDnsResult(dnsResult, udpPackets, index);
+            });
+        }
         controller.enqueue(udpPackets.slice(0, index));
         index = 0;
         batch = [];
@@ -287,7 +314,7 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
             while (offset < chunk.byteLength) {
                 const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
                 batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
-                if (batch.length >= batchSize) {
+                if (batch.length >= BATCH_SIZE) {
                     await processBatch(controller);
                 }
                 offset += 2 + udpPacketLength;
