@@ -20,7 +20,7 @@ export default {
         }
     }
 };
-const handleHttpRequest = (request, userID, fakeIP, fakeTimezone) => {
+const handleHttpRequest = (request, userID, fakeIP, fakeTimezone, fakeUserAgent) => {
     const url = new URL(request.url);
     const path = url.pathname;
     const headers = new Headers(request.headers);
@@ -42,7 +42,7 @@ const handleHttpRequest = (request, userID, fakeIP, fakeTimezone) => {
         headers
     });
 };
-const handleWsRequest = async(request, userID, proxyIP) => {
+const handleWsRequest = async(request, userID, proxyIP, fakeUserAgent) => {
     const [client, webSocket] = new WebSocketPair();
     webSocket.accept();
     const headers = new Headers(request.headers);
