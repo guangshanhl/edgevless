@@ -77,65 +77,32 @@ const handleWsRequest = async(request, userID, proxyIP) => {
         webSocket: client
     });
 };
-const writeToRemote = async (socket, chunk) => {
+const writeToRemote = async(socket, chunk) => {
     const writer = socket.writable.getWriter();
-    try {
-        let bytesWritten = 0;
-        while (bytesWritten < chunk.byteLength) {
-            bytesWritten += await writer.write(chunk.slice(bytesWritten));
-        }
-    } finally {
-        writer.releaseLock();
-    }
+    await writer.write(chunk);
+    writer.releaseLock();
 };
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     let socket = remoteSocket.value;
     if (!socket || socket.closed) {
-        socket = await connect({ hostname: address, port });
+        socket = await connect({
+            hostname: address,
+            port
+        });
         remoteSocket.value = socket;
     }
     await writeToRemote(socket, rawClientData);
     return socket;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
     try {
         const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        await forwardToData(tcpSocket, webSocket, responseHeader, async (retry) => {
+        await forwardToData(tcpSocket, webSocket, responseHeader, async(retry) => {
             const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
             await forwardToData(fallbackSocket, webSocket, responseHeader);
         });
-    } catch (error) {
+    } catch {
         closeWebSocket(webSocket);
-    }
-};
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
-    if (webSocket.readyState !== WebSocket.OPEN) {
-        closeWebSocket(webSocket);
-        return;
-    }
-    let hasData = false;
-    const writableStream = new WritableStream({
-        async write(chunk) {
-            hasData = true;
-            const dataToSend = responseHeader
-                ? new Uint8Array([...responseHeader, ...chunk]).buffer
-                : chunk;
-            webSocket.send(dataToSend);
-            responseHeader = null;
-        }
-    });
-    const reader = remoteSocket.readable.getReader();
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            await writableStream.getWriter().write(value);
-        }
-    } catch (error) {
-        closeWebSocket(webSocket);
-    }
-    if (!hasData && retry) {
-        retry();
     }
 };
 const eventHandlers = new WeakMap();
@@ -192,7 +159,7 @@ const processWebSocketHeader = (buffer, userID) => {
             hasError: true
         };
     const optLength = view.getUint8(17);
-	const startIndex = 18 + optLength;
+    const startIndex = 18 + optLength;
     const command = view.getUint8(startIndex);
     const isUDP = command === 2;
     const portRemote = view.getUint16(startIndex + 1);
@@ -223,6 +190,30 @@ const getAddressInfo = (view, buffer, startIndex) => {
         addressRemote: addressValue,
         rawDataIndex: addressValueIndex + addressLength
     };
+};
+const forwardToData = async(remoteSocket, webSocket, responseHeader, retry) => {
+    if (webSocket.readyState !== WebSocket.OPEN) {
+        closeWebSocket(webSocket);
+        return;
+    }
+    let hasData = false;
+    const writableStream = new WritableStream({
+        async write(chunk) {
+            hasData = true;
+            const dataToSend = responseHeader
+                 ? new Uint8Array([...responseHeader, ...chunk]).buffer
+                 : chunk;
+            webSocket.send(dataToSend);
+            responseHeader = null;
+        }
+    });
+    try {
+        await remoteSocket.readable.pipeTo(writableStream);
+    } catch (error) {
+        closeWebSocket(webSocket);
+    }
+    if (!hasData && retry)
+        retry();
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
