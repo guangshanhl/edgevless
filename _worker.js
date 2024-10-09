@@ -14,7 +14,7 @@ export default {
             if (isWebSocket) {
                 return handleWsRequest(request, userID, proxyIP, fakeUserAgent);
             }
-            return handleHttpRequest(request, userID, fakeIP, fakeTimezone; fakeUserAgent);
+            return handleHttpRequest(request, userID, fakeIP, fakeTimezone, fakeUserAgent);
         } catch (err) {
             return new Response(err.toString());
         }
