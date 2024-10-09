@@ -6,31 +6,38 @@ export default {
     async fetch(request, env) {
         const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
         const proxyIP = env.PROXYIP || '';
+        const fakeIP = '192.0.2.1';
+        const fakeTimezone = 'Asia/Shanghai';
         try {
             const isWebSocket = request.headers.get('Upgrade') === 'websocket';
             if (isWebSocket) {
                 return handleWsRequest(request, userID, proxyIP);
             }
-            return handleHttpRequest(request, userID);
+            return handleHttpRequest(request, userID, fakeIP, fakeTimezone);
         } catch (err) {
             return new Response(err.toString());
         }
     }
 };
-const handleHttpRequest = (request, userID) => {
+const handleHttpRequest = (request, userID, fakeIP, fakeTimezone) => {
     const url = new URL(request.url);
     const path = url.pathname;
-    if (path === "/")
-        return new Response(JSON.stringify(request.cf, null, 4));
+    const headers = new Headers(request.headers);
+    headers.set('X-Fake-IP', fakeIP);
+    headers.set('X-Fake-Timezone', fakeTimezone);  
+    if (path === "/") {
+        return new Response(JSON.stringify(request.cf, null, 4), { headers });
+    }   
     if (path === `/${userID}`) {
         return new Response(getConfig(userID, request.headers.get("Host")), {
             headers: {
                 "Content-Type": "text/plain;charset=utf-8"
             }
         });
-    }
+    }    
     return new Response("Not found", {
-        status: 404
+        status: 404,
+        headers
     });
 };
 const handleWsRequest = async(request, userID, proxyIP) => {
