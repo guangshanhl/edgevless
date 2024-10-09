@@ -74,11 +74,11 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const connectAndForward = async (address) => {
     try {
-      const tcpSocket = await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
+      await connectAndWrite(remoteSocket, address, portRemote, rawClientData);
       await forwardToData(tcpSocket, webSocket, responseHeader);
-	 return true;   
+	return true;   
     } catch (error) {
-      return null;
+      return flase;
     }
   };
   try {
