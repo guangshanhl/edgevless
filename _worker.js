@@ -77,51 +77,16 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(remoteSocket.value, rawClientData);
   return remoteSocket.value;
 };
-const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  if (serverSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(serverSocket);
-    return;
-  }
-  let hasData = false;
-  const CHUNK_SIZE = 128 * 1024;
-  let reusableBuffer = responseHeader
-    ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
-    : new Uint8Array(CHUNK_SIZE);
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      hasData = true;
-      let dataToSend;
-      if (responseHeader) {
-        reusableBuffer.set(responseHeader);
-        reusableBuffer.set(chunk, responseHeader.length);
-        dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunk.byteLength);
-        responseHeader = null;
-      } else {
-        dataToSend = chunk;
-      }
-      for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-        serverSocket.send(dataToSend.subarray(offset, Math.min(offset + CHUNK_SIZE, dataToSend.byteLength)));
-      }
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    try {
+        const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        await forwardToData(tcpSocket, serverSocket, responseHeader, async(retry) => {
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            await forwardToData(fallbackSocket, serverSocket, responseHeader);
+        });
+    } catch {
+        closeWebSocket(serverSocket);
     }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
-  return hasData;
-};
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-    const hasData = await forwardToData(tcpSocket, serverSocket, responseHeader);    
-    if (!hasData) {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-      await forwardToData(fallbackSocket, serverSocket, responseHeader);
-    }
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   const eventListeners = new Map();
@@ -194,6 +159,42 @@ const getAddressInfo = (view, buffer, startIndex) => {
     addressRemote,
     rawDataIndex: addressValueIndex + addressLength
   };
+};
+const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
+  if (serverSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(serverSocket);
+    return;
+  }
+  let hasData = false;
+  const CHUNK_SIZE = 128 * 1024;
+  let reusableBuffer = responseHeader
+    ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
+    : new Uint8Array(CHUNK_SIZE);
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      hasData = true;
+      let dataToSend;
+      if (responseHeader) {
+        reusableBuffer.set(responseHeader);
+        reusableBuffer.set(chunk, responseHeader.length);
+        dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunk.byteLength);
+        responseHeader = null;
+      } else {
+        dataToSend = chunk;
+      }
+      for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
+        serverSocket.send(dataToSend.subarray(offset, Math.min(offset + CHUNK_SIZE, dataToSend.byteLength)));
+      }
+    }
+  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(serverSocket);
+  }
+  if (!hasData && retry) {
+    retry();
+  }
 };
 const base64ToBuffer = (base64Str) => {
   try {
