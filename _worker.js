@@ -202,32 +202,33 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const CHUNK_SIZE = 64 * 1024;
-const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
+const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
     }
     let hasData = false;
-    let dataToSend;
-    if (responseHeader) {
-        const combinedBuffer = new Uint8Array(responseHeader.length + chunk.byteLength);
-        combinedBuffer.set(responseHeader);
-        dataToSend = combinedBuffer;
-    }
+    const CHUNK_SIZE = 128 * 1024;
+    let reusableBuffer = responseHeader
+         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
+         : new Uint8Array(CHUNK_SIZE);
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
-            const finalChunk = dataToSend || chunk;
-            const totalSize = finalChunk.byteLength + (dataToSend ? chunk.byteLength : 0);
-            let offset = 0;
-            while (offset < totalSize) {
-                const end = Math.min(offset + CHUNK_SIZE, totalSize);
-                const slice = finalChunk.slice(offset, end);
-                serverSocket.send(slice);
-                offset += CHUNK_SIZE;
+            let dataToSend;
+            const chunkLength = chunk.byteLength;
+            if (responseHeader) {
+                reusableBuffer.set(responseHeader);
+                reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
+                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
+                responseHeader = null;
+            } else {
+                dataToSend = chunk;
             }
-            dataToSend = null;
+            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
+                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
+                serverSocket.send(dataToSend.slice(offset, end));
+            }
         }
     });
     try {
