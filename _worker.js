@@ -202,19 +202,16 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-let reusableBuffer = null;
-const CHUNK_SIZE = 256 * 1024;
-const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry, customChunkSize) => {
-    const isOpen = serverSocket.readyState === WebSocket.OPEN;
-    if (!isOpen) {
+const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
+    if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
-    }    
-    let hasData = false;
-    const chunkSize = customChunkSize || CHUNK_SIZE;
-    if (!reusableBuffer || reusableBuffer.length < (responseHeader.length + chunkSize)) {
-        reusableBuffer = new Uint8Array(responseHeader.length + chunkSize);
     }
+    let hasData = false;
+    const CHUNK_SIZE = 256 * 1024;
+    let reusableBuffer = responseHeader
+         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
+         : new Uint8Array(CHUNK_SIZE);
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
@@ -228,18 +225,14 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry, 
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += chunkSize) {
-                const end = Math.min(offset + chunkSize, dataToSend.byteLength);
+            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
+                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
                 serverSocket.send(dataToSend.slice(offset, end));
             }
         }
     });
     try {
-        if (remoteSocket.readable) {
-            for await (const chunk of remoteSocket.readable) {
-                await writableStream.write(chunk);
-            }
-        }
+        await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
         closeWebSocket(serverSocket);
     }
