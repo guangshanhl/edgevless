@@ -202,43 +202,35 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
-    if (serverSocket.readyState !== WebSocket.OPEN) {
-        closeWebSocket(serverSocket);
-        return;
+const MAX_BUFFER_SIZE = 512 * 1024;
+const preAllocatedBuffer = new Uint8Array(MAX_BUFFER_SIZE);
+const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
+  if (serverSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(serverSocket);
+    return;
+  }
+  let hasData = false;
+  const writableStream = new WritableStream({
+    async write(chunk) {
+      hasData = true;
+      let offset = 0;
+      if (responseHeader) {
+        preAllocatedBuffer.set(responseHeader);
+        offset = responseHeader.length;
+      }
+      preAllocatedBuffer.set(new Uint8Array(chunk), offset);
+      const dataToSend = preAllocatedBuffer.subarray(0, offset + chunk.byteLength);
+      serverSocket.send(dataToSend);
     }
-    let hasData = false;
-    const CHUNK_SIZE = 2048 * 1024;
-    let reusableBuffer = responseHeader
-         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
-         : new Uint8Array(CHUNK_SIZE);
-    const writableStream = new WritableStream({
-        async write(chunk) {
-            hasData = true;
-            let dataToSend;
-            const chunkLength = chunk.byteLength;
-            if (responseHeader) {
-                reusableBuffer.set(responseHeader);
-                reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
-                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
-                responseHeader = null;
-            } else {
-                dataToSend = chunk;
-            }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
-                serverSocket.send(dataToSend.slice(offset, end));
-            }
-        }
-    });
-    try {
-        await remoteSocket.readable.pipeTo(writableStream);
-    } catch (error) {
-        closeWebSocket(serverSocket);
-    }
-    if (!hasData && retry) {
-        retry();
-    }
+  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(serverSocket);
+  }
+  if (!hasData && retry) {
+    retry();
+  }
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
