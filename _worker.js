@@ -154,9 +154,9 @@ const getAddressInfo = (view, buffer, startIndex) => {
     ? new TextDecoder().decode(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + addressLength)))
     : Array.from(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + 16))).map(b => b.toString(16).padStart(2, '0')).join(':');
   return {
-    addressRemote,
-    rawDataIndex: addressValueIndex + addressLength
-  };
+        addressRemote: addressValue,
+        rawDataIndex: addressValueIndex + addressLength
+    };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
   if (serverSocket.readyState !== WebSocket.OPEN) {
