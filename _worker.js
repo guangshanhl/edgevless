@@ -208,7 +208,7 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
         return;
     }
     let hasData = false;
-    const CHUNK_SIZE = 1024 * 1024;
+    const CHUNK_SIZE = 512 * 1024;
     let reusableBuffer = responseHeader
          ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
          : new Uint8Array(CHUNK_SIZE);
