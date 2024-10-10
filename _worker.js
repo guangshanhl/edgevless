@@ -71,7 +71,6 @@ const handleWsRequest = async(request, userID, proxyIP) => {
                 responseHeader[1] = 0;
                 const rawClientData = chunk.slice(rawDataIndex);
                 isDns = isUDP && portRemote === 53;
-
                 if (isDns) {
                     udpStreamWrite = await handleUdpRequest(serverSocket, responseHeader, rawClientData);
                 } else {
@@ -161,7 +160,6 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
         });
         eventListeners.clear();
     };
-
     return readableStream;
 };
 const processWebSocketHeader = (buffer, userID) => {
