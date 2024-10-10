@@ -148,13 +148,11 @@ const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
   const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
   const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-
   const addressRemote = addressType === 1
     ? Array.from(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + 4))).join('.')
     : addressType === 2
     ? new TextDecoder().decode(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + addressLength)))
     : Array.from(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + 16))).map(b => b.toString(16).padStart(2, '0')).join(':');
-
   return {
     addressRemote,
     rawDataIndex: addressValueIndex + addressLength
@@ -226,7 +224,6 @@ const stringify = (arr, offset = 0) => {
       result += byteToHex[arr[offset++]];
     }
   });
-
   return result.toLowerCase();
 };
 const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => {
