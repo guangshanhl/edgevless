@@ -231,7 +231,7 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) 
                 const elapsed = currentTime - lastSendTime;
                 if (elapsed < 50) {
                     currentChunkSize = Math.max(256 * 1024, currentChunkSize / 2);
-                } else if (elapsed > 100) { // 如果发送太慢，增加块大小
+                } else if (elapsed > 100) {
                     currentChunkSize = Math.min(1 * 1024 * 1024, currentChunkSize * 1.5);
                 }                
                 lastSendTime = currentTime;
@@ -281,7 +281,7 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
     const BATCH_SIZE = 10;
     const MAX_CONCURRENT_REQUESTS = 10;
-    const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000; // 6 hours
+    const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000;
     let index = 0;
     let batch = [];
     const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
