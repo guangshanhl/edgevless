@@ -33,8 +33,7 @@ const handleHttpRequest = (request, userID) => {
         status: 404
     });
 };
-const BATCH_SIZE = 10
-    const handleWsRequest = async(request, userID, proxyIP) => {
+const handleWsRequest = async(request, userID, proxyIP) => {
     const webSocketPair = new WebSocketPair();
     const clientSocket = webSocketPair[0];
     const serverSocket = webSocketPair[1];
@@ -44,13 +43,20 @@ const BATCH_SIZE = 10
     let remoteSocket = {
         value: null
     };
-    let chunks = [];
     let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
     readableStream.pipeTo(
         new WritableStream({
             async write(chunk) {
+                if (isDns && udpStreamWrite) {
+                    await udpStreamWrite(chunk);
+                    return;
+                }
+                if (remoteSocket.value) {
+                    await writeToRemote(remoteSocket.value, chunk);
+                    return;
+                }
                 const {
                     hasError,
                     addressRemote,
@@ -68,50 +74,19 @@ const BATCH_SIZE = 10
                 if (isDns) {
                     udpStreamWrite = await handleUdpRequest(serverSocket, responseHeader, rawClientData);
                 } else {
-                    chunks.push(rawClientData);
-                    if (chunks.length >= BATCH_SIZE) {
-                        await writeToRemote(remoteSocket.value, chunks);
-                        chunks = [];
-                    }
                     handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
                 }
             },
-            async close() {
-                if (chunks.length > 0) {
-                    await writeToRemote(remoteSocket.value, chunks);
-                }
-            },
-            async abort(reason) {
-                closeWebSocket(serverSocket);
-            }
         }));
     return new Response(null, {
         status: 101,
         webSocket: clientSocket,
     });
 };
-const writeToRemote = async(socket, chunks) => {
-    if (!socket || !socket.writable)
-        return;
+const writeToRemote = async(socket, chunk) => {
     const writer = socket.writable.getWriter();
-    try {
-        const combinedChunk = concatenateChunks(chunks);
-        await writer.write(combinedChunk);
-    } catch (error) {
-        closeWebSocket(serverSocket)
-    } finally {
-        writer.releaseLock();
-    }
-};
-const concatenateChunks = (chunks) => {
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    chunks.forEach(chunk => {
-        result.set(new Uint8Array(chunk), offset);
-        offset += chunk.byteLength;
-    });
-    return result.buffer; // 返回 ArrayBuffer
+    await writer.write(chunk);
+    writer.releaseLock();
 };
 const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -227,32 +202,39 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
+const INITIAL_CHUNK_SIZE = 512 * 1024;
+let currentChunkSize = INITIAL_CHUNK_SIZE;
+const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
-    }
+    }  
     let hasData = false;
-    const CHUNK_SIZE = 512 * 1024;
-    let reusableBuffer = responseHeader
-         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
-         : new Uint8Array(CHUNK_SIZE);
+    let lastSendTime = Date.now();
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
             let dataToSend;
-            const chunkLength = chunk.byteLength;
             if (responseHeader) {
+                const reusableBuffer = new Uint8Array(responseHeader.length + chunk.byteLength);
                 reusableBuffer.set(responseHeader);
                 reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
-                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
+                dataToSend = reusableBuffer;
                 responseHeader = null;
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
+            for (let offset = 0; offset < dataToSend.byteLength; offset += currentChunkSize) {
+                const end = Math.min(offset + currentChunkSize, dataToSend.byteLength);
                 serverSocket.send(dataToSend.slice(offset, end));
+                const currentTime = Date.now();
+                const elapsed = currentTime - lastSendTime;
+                if (elapsed < 50) {
+                    currentChunkSize = Math.max(256 * 1024, currentChunkSize / 2);
+                } else if (elapsed > 100) { // 如果发送太慢，增加块大小
+                    currentChunkSize = Math.min(1 * 1024 * 1024, currentChunkSize * 1.5);
+                }                
+                lastSendTime = currentTime;
             }
         }
     });
@@ -297,6 +279,7 @@ const stringify = (arr, offset = 0) => {
 };
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
+    const BATCH_SIZE = 10;
     const MAX_CONCURRENT_REQUESTS = 10;
     const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000; // 6 hours
     let index = 0;
