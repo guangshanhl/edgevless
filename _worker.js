@@ -202,39 +202,32 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const INITIAL_CHUNK_SIZE = 512 * 1024;
-let currentChunkSize = INITIAL_CHUNK_SIZE;
-const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
+const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
-    }  
+    }
     let hasData = false;
-    let lastSendTime = Date.now();
+    const CHUNK_SIZE = 512 * 1024;
+    let reusableBuffer = responseHeader
+         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
+         : new Uint8Array(CHUNK_SIZE);
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
             let dataToSend;
+            const chunkLength = chunk.byteLength;
             if (responseHeader) {
-                const reusableBuffer = new Uint8Array(responseHeader.length + chunk.byteLength);
                 reusableBuffer.set(responseHeader);
                 reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
-                dataToSend = reusableBuffer;
+                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
                 responseHeader = null;
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += currentChunkSize) {
-                const end = Math.min(offset + currentChunkSize, dataToSend.byteLength);
+            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
+                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
                 serverSocket.send(dataToSend.slice(offset, end));
-                const currentTime = Date.now();
-                const elapsed = currentTime - lastSendTime;
-                if (elapsed < 50) {
-                    currentChunkSize = Math.max(256 * 1024, currentChunkSize / 2);
-                } else if (elapsed > 100) {
-                    currentChunkSize = Math.min(1 * 1024 * 1024, currentChunkSize * 1.5);
-                }                
-                lastSendTime = currentTime;
             }
         }
     });
