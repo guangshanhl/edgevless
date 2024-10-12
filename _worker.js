@@ -98,15 +98,37 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    let tcpSocket;
+
     try {
-        const tcpSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-        await forwardToData(tcpSocket, serverSocket, responseHeader, async(retry) => {
-            const fallbackSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        // 尝试连接到远程服务器
+        tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        
+        // 尝试通过远程服务器连接到代理 IP
+        try {
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            // 如果代理连接成功，将响应从代理转发到客户端
             await forwardToData(fallbackSocket, serverSocket, responseHeader);
-        });
-    } catch {
-        closeWebSocket(serverSocket);
+        } catch (proxyError) {
+            // 如果代理连接失败，将响应从远程服务器转发到客户端
+            await forwardToData(tcpSocket, serverSocket, responseHeader);
+        }
+    } catch (error) {
+        // 如果连接远程服务器失败，尝试直接通过代理 IP 连接
+        try {
+            tcpSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            // 如果代理连接成功，将响应从代理转发到客户端
+            await forwardToData(tcpSocket, serverSocket, responseHeader);
+        } catch (proxyError) {
+            // 如果代理连接失败，关闭与客户端的连接
+            closeWebSocket(serverSocket);
+        }
+    } finally {
+        // 确保关闭与远程服务器的连接，避免资源泄露
+        if (tcpSocket) {
+            tcpSocket.close();
+        }
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
@@ -202,16 +224,18 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
+const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
     }
+    
     let hasData = false;
     const CHUNK_SIZE = 512 * 1024;
     let reusableBuffer = responseHeader
-         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
-         : new Uint8Array(CHUNK_SIZE);
+        ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
+        : new Uint8Array(CHUNK_SIZE);
+    
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
@@ -231,13 +255,16 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
             }
         }
     });
+    
     try {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
         closeWebSocket(serverSocket);
     }
-    if (!hasData && retry) {
-        retry();
+    
+    if (!hasData) {
+        // 如果没有数据被写入，则关闭与客户端的连接
+        closeWebSocket(serverSocket);
     }
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
