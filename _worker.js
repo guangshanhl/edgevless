@@ -204,56 +204,40 @@ const getAddressInfo = (view, buffer, startIndex) => {
 };
 const INITIAL_CHUNK_SIZE = 512 * 1024;
 let currentChunkSize = INITIAL_CHUNK_SIZE;
-const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
+const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
-    }
+    }  
     let hasData = false;
     let lastSendTime = Date.now();
-    const dataBuffer = [];
-    const BUFFER_THRESHOLD = 32 * 1024;
-    let bufferedSize = 0;
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
+            let dataToSend;
             if (responseHeader) {
                 const reusableBuffer = new Uint8Array(responseHeader.length + chunk.byteLength);
                 reusableBuffer.set(responseHeader);
                 reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
-                chunk = reusableBuffer;
+                dataToSend = reusableBuffer;
                 responseHeader = null;
+            } else {
+                dataToSend = chunk;
             }
-            dataBuffer.push(chunk);
-            bufferedSize += chunk.byteLength;
-            if (bufferedSize >= BUFFER_THRESHOLD) {
-                await sendBufferedData(serverSocket, dataBuffer);
-                dataBuffer.length = 0;
-                bufferedSize = 0;
+            for (let offset = 0; offset < dataToSend.byteLength; offset += currentChunkSize) {
+                const end = Math.min(offset + currentChunkSize, dataToSend.byteLength);
+                serverSocket.send(dataToSend.slice(offset, end));
+                const currentTime = Date.now();
+                const elapsed = currentTime - lastSendTime;
+                if (elapsed < 50) {
+                    currentChunkSize = Math.max(256 * 1024, currentChunkSize / 2);
+                } else if (elapsed > 100) {
+                    currentChunkSize = Math.min(1 * 1024 * 1024, currentChunkSize * 1.5);
+                }                
+                lastSendTime = currentTime;
             }
-            const currentTime = Date.now();
-            const elapsed = currentTime - lastSendTime;
-            if (elapsed < 50) {
-                currentChunkSize = Math.max(256 * 1024, currentChunkSize / 2);
-            } else if (elapsed > 100) {
-                currentChunkSize = Math.min(1 * 1024 * 1024, currentChunkSize * 2);
-            }
-            lastSendTime = currentTime;
         }
     });
-    const sendBufferedData = async(serverSocket, dataBuffer) => {
-        const totalSize = dataBuffer.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-        const combinedBuffer = new Uint8Array(totalSize);
-        let offset = 0;
-        for (const chunk of dataBuffer) {
-            combinedBuffer.set(chunk, offset);
-            offset += chunk.byteLength;
-        }
-        for (let offset = 0; offset < combinedBuffer.byteLength; offset += currentChunkSize) {
-            const end = Math.min(offset + currentChunkSize, combinedBuffer.byteLength);
-            serverSocket.send(combinedBuffer.slice(offset, end));
-        }
-    };
     try {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
@@ -261,9 +245,6 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
     }
     if (!hasData && retry) {
         retry();
-    }
-    if (dataBuffer.length > 0) {
-        await sendBufferedData(serverSocket, dataBuffer);
     }
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
