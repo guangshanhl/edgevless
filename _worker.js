@@ -83,116 +83,69 @@ const handleWsRequest = async(request, userID, proxyIP) => {
         webSocket: clientSocket,
     });
 };
-const activeConnections = new Map(); // 存储活动连接
-const MAX_IDLE_TIME = 30000; // 30秒的空闲超时时间
-
-// 写入远程服务器的函数
-const writeToRemote = async (socket, chunk) => {
+const writeToRemote = async(socket, chunk) => {
     const writer = socket.writable.getWriter();
     await writer.write(chunk);
     writer.releaseLock();
 };
-
-// 关闭连接的辅助函数
-const closeConnection = async (socket) => {
-    if (socket && !socket.closed) {
-        await socket.close();
-        console.log('Connection closed');
-    }
-};
-
-// 检查空闲连接并关闭
-const checkIdleConnections = () => {
-    const now = Date.now();
-    for (const [key, connection] of activeConnections.entries()) {
-        if (connection.lastActivity && (now - connection.lastActivity > MAX_IDLE_TIME)) {
-            closeConnection(connection.socket); // 关闭空闲连接
-            activeConnections.delete(key); // 从活动连接中移除
-        }
-    }
-};
-
-// 定期检查空闲连接
-setInterval(checkIdleConnections, 10000); // 每10秒检查一次
-
-// 连接并写入数据的函数
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    const key = `${address}:${port}`;
-
+const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
-        if (activeConnections.has(key)) {
-            remoteSocket.value = activeConnections.get(key).socket; // 重用已存在的连接
-        } else {
-            remoteSocket.value = await connect({ hostname: address, port });
-            activeConnections.set(key, { socket: remoteSocket.value, lastActivity: Date.now() }); // 保存新连接和活动时间
-        }
+        remoteSocket.value = await connect({
+            hostname: address,
+            port
+        });
     }
-
-    // 更新活动时间
-    activeConnections.get(key).lastActivity = Date.now();
-
-    // 发送数据
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-
-// 处理 TCP 请求的函数
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     try {
-        const targetConnectionPromise = connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        const proxyConnectionPromise = connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-
-        const tcpSocket = await Promise.race([targetConnectionPromise, proxyConnectionPromise]);
-        await forwardToData(tcpSocket, serverSocket, responseHeader, async (retry) => {
-            const fallbackSocket = await proxyConnectionPromise;
+        const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+        await forwardToData(tcpSocket, serverSocket, responseHeader, async(retry) => {
+            //const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
             await forwardToData(fallbackSocket, serverSocket, responseHeader);
         });
-
-        // 关闭连接（如果不再需要）
-        closeConnection(tcpSocket);
-    } catch (error) {
-        console.error('TCP Request Handling Error:', error);
-        closeConnection(remoteSocket.value); // 出错时关闭连接
+    } catch {
+        closeWebSocket(serverSocket);
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     const eventListeners = new Map();
     const readableStream = new ReadableStream({
         start(controller) {
-            const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-            if (error) return controller.error(error);
-            if (earlyData) controller.enqueue(earlyData);
             const handleMessage = (event) => controller.enqueue(event.data);
             const handleClose = () => {
                 controller.close();
                 removeListeners();
-            };  
+            };
             const handleError = (err) => {
                 controller.error(err);
                 removeListeners();
             };
+            
+            const addListener = (event, handler) => {
+                serverSocket.addEventListener(event, handler);
+                eventListeners.set(event, handler);
+            };
+            
+            const removeListeners = () => {
+                eventListeners.forEach((handler, event) => serverSocket.removeEventListener(event, handler));
+                eventListeners.clear();
+            };
+            
             addListener('message', handleMessage);
             addListener('close', handleClose);
             addListener('error', handleError);
-            function addListener(event, handler) {
-                serverSocket.addEventListener(event, handler);
-                eventListeners.set(event, handler);
-            }
         },
         cancel() {
             removeListeners();
             closeWebSocket(serverSocket);
         }
     });
-    function removeListeners() {
-        eventListeners.forEach((handler, event) => {
-            serverSocket.removeEventListener(event, handler);
-        });
-        eventListeners.clear();
-    }
-
     return readableStream;
 };
+
 const processWebSocketHeader = (buffer, userID) => {
     const view = new DataView(buffer);
     const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
@@ -309,38 +262,35 @@ const stringify = (arr, offset = 0) => {
     });
     return result.toLowerCase();
 };
-const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => {
+const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
     const BATCH_SIZE = 5;
     const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000;
-    const CLEANUP_INTERVAL = 30 * 60 * 1000;
     let index = 0;
     let batch = [];
-    setInterval(cleanExpiredCache, CLEANUP_INTERVAL);
     if (!rawClientData || rawClientData.byteLength === 0) {
         return;
     }
     const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
-    const dnsFetch = async (chunks) => {
+    const dnsFetch = async(chunks) => {
         const domain = new TextDecoder().decode(chunks[0]);
-        const currentTime = Date.now();
         const cachedEntry = dnsCache.get(domain);
-        if (cachedEntry && (currentTime - cachedEntry.timestamp) < cachedEntry.ttl) {
+        const currentTime = Date.now();
+        if (cachedEntry && (currentTime - cachedEntry.timestamp) < CACHE_EXPIRY_TIME) {
             return cachedEntry.data;
         }
         try {
             const response = await fetch('https://cloudflare-dns.com/dns-query', {
                 method: 'POST',
                 headers: {
-                    'content-type': 'application/dns-message',
+                    'content-type': 'application/dns-message'
                 },
-                body: concatenateChunks(chunks),
+                body: concatenateChunks(chunks)
             });
             const result = await response.arrayBuffer();
             dnsCache.set(domain, {
                 data: result,
-                timestamp: currentTime,
-                ttl: CACHE_EXPIRY_TIME,
+                timestamp: currentTime
             });
             return result;
         } catch (error) {
@@ -348,9 +298,9 @@ const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => 
             return null;
         }
     };
-    const processBatch = async (controller) => {
+    const processBatch = async(controller) => {
         const dnsResults = await Promise.all(batch.map(dnsFetch));
-        dnsResults.forEach((dnsResult) => {
+        dnsResults.forEach(dnsResult => {
             if (dnsResult) {
                 index = processDnsResult(dnsResult, udpPackets, index);
             }
@@ -384,20 +334,12 @@ const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => 
     if (serverSocket.readyState === WebSocket.OPEN) {
         serverSocket.send(finalMessage.value.buffer);
     }
-    function cleanExpiredCache() {
-        const currentTime = Date.now();
-        dnsCache.forEach((value, key) => {
-            if ((currentTime - value.timestamp) > value.ttl) {
-                dnsCache.delete(key);
-            }
-        });
-    }
 };
 const concatenateChunks = (chunks) => {
     const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
-    chunks.forEach((chunk) => {
+    chunks.forEach(chunk => {
         result.set(chunk, offset);
         offset += chunk.byteLength;
     });
