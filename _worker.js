@@ -204,9 +204,10 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) 
   } catch (error) {
     closeWebSocket(serverSocket);
   }
-  if (!hasData && retry) {
-    retry();
-  }
+  return hasData;
+  //if (!hasData && retry) {
+  //  retry();
+ // }
 };
 const base64ToBuffer = (base64Str) => {
   try {
