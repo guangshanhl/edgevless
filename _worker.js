@@ -208,7 +208,7 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
         return;
     }
     let hasData = false;
-    const CHUNK_SIZE = 512 * 1024;
+    const CHUNK_SIZE = 256 * 1024;
     let reusableBuffer = responseHeader
          ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
          : new Uint8Array(CHUNK_SIZE);
@@ -366,7 +366,7 @@ const processDnsResult = (dnsResult, udpPackets, index) => {
     let offset = 0;
     while (offset < responseArray.byteLength) {
         const responseLength = new DataView(responseArray.buffer, offset, 2).getUint16(0);
-        udpPackets.set(responseArray.subarray(offset, offset + responseLength), index); // 使用 subarray
+        udpPackets.set(responseArray.subarray(offset, offset + responseLength), index);
         index += responseLength;
         offset += responseLength;
     }
