@@ -34,7 +34,9 @@ const handleHttpRequest = (request, userID) => {
     });
 };
 const handleWsRequest = async(request, userID, proxyIP) => {
-    const [clientSocket, serverSocket] = new WebSocketPair();
+    const webSocketPair = new WebSocketPair();
+    const clientSocket = webSocketPair[0];
+    const serverSocket = webSocketPair[1];
     serverSocket.accept();
     const protocols = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, protocols);
@@ -96,21 +98,16 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  let tcpSocket, tcpToData; 
-  try {
-      tcpSocket = await connectAndWrite(remoteSocket, addressRemote, port, rawClientData);
-  } catch {
-      tcpSocket = await connectAndWrite(remoteSocket, proxyIP, port, rawClientData);
-  }
-  try {
-    tcpToData = await forwardToData(tcpSocket, serverSocket, responseHeader);
-    if (!tcpToData) {
-      tcpToData = await forwardToData(tcpSocket, serverSocket, responseHeader);
-    } 
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    try {
+        const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
+        await forwardToData(tcpSocket, serverSocket, responseHeader, async(retry) => {
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            await forwardToData(fallbackSocket, serverSocket, responseHeader);
+        });
+    } catch {
+        closeWebSocket(serverSocket);
+    }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     const eventListeners = new Set();
@@ -205,7 +202,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
+const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
@@ -239,7 +236,9 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     } catch (error) {
         closeWebSocket(serverSocket);
     }
-    return hasData;
+    if (!hasData && retry) {
+        retry();
+    }
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
@@ -274,10 +273,12 @@ const stringify = (arr, offset = 0) => {
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
     const BATCH_SIZE = 5;
-    const MAX_CONCURRENT_REQUESTS = 5;
     const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000;
     let index = 0;
     let batch = [];
+    if (!rawClientData || rawClientData.byteLength === 0) {
+        return;
+    }
     const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
     const dnsFetch = async(chunks) => {
         const domain = new TextDecoder().decode(chunks[0]);
@@ -306,27 +307,12 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
         }
     };
     const processBatch = async(controller) => {
-        const requests = [];
-        for (const chunk of batch) {
-            requests.push(dnsFetch(chunk));
-            if (requests.length >= MAX_CONCURRENT_REQUESTS) {
-                const dnsResults = await Promise.all(requests);
-                dnsResults.forEach(dnsResult => {
-                    if (dnsResult) {
-                        index = processDnsResult(dnsResult, udpPackets, index);
-                    }
-                });
-                requests.length = 0;
+        const dnsResults = await Promise.all(batch.map(dnsFetch));
+        dnsResults.forEach(dnsResult => {
+            if (dnsResult) {
+                index = processDnsResult(dnsResult, udpPackets, index);
             }
-        }
-        if (requests.length) {
-            const dnsResults = await Promise.all(requests);
-            dnsResults.forEach(dnsResult => {
-                if (dnsResult) {
-                    index = processDnsResult(dnsResult, udpPackets, index);
-                }
-            });
-        }
+        });
         controller.enqueue(udpPackets.slice(0, index));
         index = 0;
         batch = [];
@@ -362,7 +348,7 @@ const concatenateChunks = (chunks) => {
     const result = new Uint8Array(totalLength);
     let offset = 0;
     chunks.forEach(chunk => {
-        result.set(new Uint8Array(chunk), offset);
+        result.set(chunk, offset);
         offset += chunk.byteLength;
     });
     return result.buffer;
@@ -372,7 +358,7 @@ const processDnsResult = (dnsResult, udpPackets, index) => {
     let offset = 0;
     while (offset < responseArray.byteLength) {
         const responseLength = new DataView(responseArray.buffer, offset, 2).getUint16(0);
-        udpPackets.set(responseArray.slice(offset, offset + responseLength), index);
+        udpPackets.set(responseArray.subarray(offset, offset + responseLength), index); // 使用 subarray
         index += responseLength;
         offset += responseLength;
     }
