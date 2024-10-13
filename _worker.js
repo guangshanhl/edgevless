@@ -209,11 +209,11 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) 
         return;
     }
     let hasData = false;
-    const CHUNK_SIZE = 512 * 1024;
-    const BUFFER_SIZE = 512 * 1024;
-    const requiredBufferSize = responseHeader ? (responseHeader.length + CHUNK_SIZE) : CHUNK_SIZE;
+    const chunk_size = 512 * 1024;
+    const buffer_size = 512 * 1024;
+    const requiredBufferSize = responseHeader ? (responseHeader.length + chunk_size) : chunk_size;
     if (!reusableBuffer || reusableBuffer.byteLength < requiredBufferSize) {
-        const newBufferSize = reusableBuffer ? reusableBuffer.byteLength * 2 : BUFFER_SIZE;
+        const newBufferSize = reusableBuffer ? reusableBuffer.byteLength * 2 : buffer_size;
         reusableBuffer = new Uint8Array(Math.max(newBufferSize, requiredBufferSize));
     }    
     const writableStream = new WritableStream({
@@ -229,8 +229,8 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) 
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
+            for (let offset = 0; offset < dataToSend.byteLength; offset += chunk_size) {
+                const end = Math.min(offset + chunk_size, dataToSend.byteLength);
                 serverSocket.send(dataToSend.slice(offset, end));
             }
         }
@@ -284,8 +284,8 @@ const stringify = (arr, offset = 0) => {
 };
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
-    const BATCH_SIZE = 5;
-    const CACHE_EXPIRY_TIME = 6 * 60 * 60 * 1000;
+    const batch_size = 5;
+    const cache_time = 6 * 60 * 60 * 1000;
     let index = 0;
     let batch = [];
     if (!rawClientData || rawClientData.byteLength === 0) {
@@ -296,7 +296,7 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
         const domain = new TextDecoder().decode(chunks[0]);
         const cachedEntry = dnsCache.get(domain);
         const currentTime = Date.now();
-        if (cachedEntry && (currentTime - cachedEntry.timestamp) < CACHE_EXPIRY_TIME) {
+        if (cachedEntry && (currentTime - cachedEntry.timestamp) < cache_time) {
             return cachedEntry.data;
         }
         try {
@@ -314,7 +314,6 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
             });
             return result;
         } catch (error) {
-            console.error('DNS Fetch error:', error);
             return null;
         }
     };
@@ -335,7 +334,7 @@ const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
             while (offset < chunk.byteLength) {
                 const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
                 batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
-                if (batch.length >= BATCH_SIZE) {
+                if (batch.length >= batch_size) {
                     await processBatch(controller);
                 }
                 offset += 2 + udpPacketLength;
