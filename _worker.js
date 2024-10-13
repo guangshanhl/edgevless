@@ -97,7 +97,7 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  let tcpSocket,tcpToData; 
+  let tcpSocket, tcpToData; 
   try {
       tcpSocket = await connectAndWrite(remoteSocket, addressRemote, port, rawClientData);
   } catch {
