@@ -121,18 +121,15 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
             const handleError = (err) => {
                 controller.error(err);
                 removeListeners();
-            };
-            
+            };            
             const addListener = (event, handler) => {
                 serverSocket.addEventListener(event, handler);
                 eventListeners.set(event, handler);
-            };
-            
+            };          
             const removeListeners = () => {
                 eventListeners.forEach((handler, event) => serverSocket.removeEventListener(event, handler));
                 eventListeners.clear();
-            };
-            
+            };            
             addListener('message', handleMessage);
             addListener('close', handleClose);
             addListener('error', handleError);
@@ -144,7 +141,6 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     });
     return readableStream;
 };
-
 const processWebSocketHeader = (buffer, userID) => {
     const view = new DataView(buffer);
     const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
