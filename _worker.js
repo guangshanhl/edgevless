@@ -110,57 +110,45 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-    const eventListeners = new Set();
-    const readableStream = new ReadableStream({
-        start(controller) {
-            const {
-                earlyData,
-                error
-            } = base64ToBuffer(earlyDataHeader);
-            if (error)
-                return controller.error(error);
-            if (earlyData)
-                controller.enqueue(earlyData);
-            const handleMessage = (event) => controller.enqueue(event.data);
-            const handleClose = () => {
-                controller.close();
-                removeWebSocketListeners(serverSocket);
-            };
-            const handleError = (err) => {
-                controller.error(err);
-                removeWebSocketListeners(serverSocket);
-            };
-            eventListeners.add({
-                event: 'message',
-                handler: handleMessage
-            });
-            eventListeners.add({
-                event: 'close',
-                handler: handleClose
-            });
-            eventListeners.add({
-                event: 'error',
-                handler: handleError
-            });
-            serverSocket.addEventListener('message', handleMessage);
-            serverSocket.addEventListener('close', handleClose);
-            serverSocket.addEventListener('error', handleError);
-        },
-        cancel() {
-            removeWebSocketListeners(serverSocket);
-            closeWebSocket(serverSocket);
-        }
+  const eventListeners = new Map();
+  const removeWebSocketListeners = (socket) => {
+    eventListeners.forEach((handler, event) => {
+      socket.removeEventListener(event, handler);
     });
-    const removeWebSocketListeners = (socket) => {
-        eventListeners.forEach(({
-                event,
-                handler
-            }) => {
-            socket.removeEventListener(event, handler);
-        });
-        eventListeners.clear();
-    };
-    return readableStream;
+    eventListeners.clear();
+  };
+  const readableStream = new ReadableStream({
+    start(controller) {
+      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+      if (error) {
+        controller.error(error);
+        return;
+      }
+      if (earlyData) {
+        controller.enqueue(earlyData);
+      }
+      const handleMessage = (event) => controller.enqueue(event.data);
+      const handleClose = () => {
+        controller.close();
+        removeWebSocketListeners(serverSocket);
+      };
+      const handleError = (err) => {
+        controller.error(err);
+        removeWebSocketListeners(serverSocket);
+      };
+      eventListeners.set('message', handleMessage);
+      eventListeners.set('close', handleClose);
+      eventListeners.set('error', handleError);
+      eventListeners.forEach((handler, event) => {
+        serverSocket.addEventListener(event, handler);
+      });
+    },
+    cancel() {
+      removeWebSocketListeners(serverSocket);
+      closeWebSocket(serverSocket);
+    }
+  });
+  return readableStream;
 };
 const processWebSocketHeader = (buffer, userID) => {
     const view = new DataView(buffer);
