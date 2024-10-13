@@ -241,37 +241,42 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
     }
 };
 const base64ToBuffer = (base64Str) => {
-  try {
-    const formattedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-    const binaryStr = atob(formattedStr);
-    const buffer = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      buffer[i] = binaryStr.charCodeAt(i);
+    try {
+        const formattedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+        const binaryStr = atob(formattedStr);
+        const buffer = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+            buffer[i] = binaryStr.charCodeAt(i);
+        }
+        return {
+            earlyData: buffer.buffer,
+            error: null
+        };
+    } catch (error) {
+        return {
+            error
+        };
     }
-    return {
-      earlyData: buffer.buffer,
-      error: null
-    };
-  } catch (error) {
-    return { error };
-  }
 };
 const closeWebSocket = (serverSocket) => {
-  if (serverSocket.readyState === WebSocket.OPEN || serverSocket.readyState === WebSocket.CLOSING) {
-    serverSocket.close();
-  }
-};
-const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
-const stringify = (arr, offset = 0) => {
-  const segments = [4, 2, 2, 2, 6];
-  let result = '';
-  segments.forEach((len, index) => {
-    if (index > 0) result += '-';
-    for (let i = 0; i < len; i++) {
-      result += byteToHex[arr[offset++]];
+    if (serverSocket.readyState === WebSocket.OPEN || serverSocket.readyState === WebSocket.CLOSING) {
+        serverSocket.close();
     }
-  });
-  return result.toLowerCase();
+};
+const byteToHex = Array.from({
+    length: 256
+}, (_, i) => (i + 256).toString(16).slice(1));
+const stringify = (arr, offset = 0) => {
+    const segments = [4, 2, 2, 2, 6];
+    let result = '';
+    segments.forEach((len, index) => {
+        if (index > 0)
+            result += '-';
+        for (let i = 0; i < len; i++) {
+            result += byteToHex[arr[offset++]];
+        }
+    });
+    return result.toLowerCase();
 };
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
