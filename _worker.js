@@ -101,9 +101,8 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     try {
         const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
-        const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
         await forwardToData(tcpSocket, serverSocket, responseHeader, async(retry) => {
-            //const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
             await forwardToData(fallbackSocket, serverSocket, responseHeader);
         });
     } catch {
