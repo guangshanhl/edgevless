@@ -111,39 +111,82 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-  let iscancelled = false;
-  return new ReadableStream({
-    start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) return controller.error(error);
-      if (earlyData) controller.enqueue(earlyData);
-      serverSocket.addEventListener('message', event => !iscancelled && controller.enqueue(event.data));
-      serverSocket.addEventListener('close', () => controller.close());
-      serverSocket.addEventListener('error', err => controller.error(err));
-    },
-    cancel() {
-      iscancelled = true;
-      closeWebSocket(serverSocket);
-    }
-  });
+    const eventListeners = new Set();
+    const preBufferSize = 256 * 1024;
+    let reusableBuffer = new Uint8Array(preBufferSize);
+    let bufferOffset = 0;
+    const readableStream = new ReadableStream({
+        start(controller) {
+            const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+            if (error) return controller.error(error);
+            if (earlyData) controller.enqueue(earlyData);
+            const handleMessage = (event) => {
+                const chunk = new Uint8Array(event.data);
+                let offset = 0;
+                while (offset < chunk.byteLength) {
+                    const chunkSize = Math.min(preBufferSize - bufferOffset, chunk.byteLength - offset);
+                    reusableBuffer.set(chunk.subarray(offset, offset + chunkSize), bufferOffset);
+                    bufferOffset += chunkSize;
+                    offset += chunkSize;
+                    if (bufferOffset === preBufferSize) {
+                        controller.enqueue(reusableBuffer.subarray(0, bufferOffset));
+                        bufferOffset = 0;
+                    }
+                    if (shouldTerminate(chunk)) {
+                        controller.close();
+                        return;
+                    }
+                }
+            };
+            const handleClose = () => {
+                if (bufferOffset > 0) {
+                    controller.enqueue(reusableBuffer.subarray(0, bufferOffset));
+                    bufferOffset = 0;
+                }
+                controller.close();
+                removeWebSocketListeners(serverSocket);
+            };
+            const handleError = (err) => {
+                controller.error(err);
+                removeWebSocketListeners(serverSocket);
+            };
+            eventListeners.add({ event: 'message', handler: handleMessage });
+            eventListeners.add({ event: 'close', handler: handleClose });
+            eventListeners.add({ event: 'error', handler: handleError });
+
+            serverSocket.addEventListener('message', handleMessage);
+            serverSocket.addEventListener('close', handleClose);
+            serverSocket.addEventListener('error', handleError);
+        },
+        cancel() {
+            removeWebSocketListeners(serverSocket);
+            closeWebSocket(serverSocket);
+        }
+    });
+    const removeWebSocketListeners = (socket) => {
+        eventListeners.forEach(({ event, handler }) => {
+            socket.removeEventListener(event, handler);
+        });
+        eventListeners.clear();
+    };
+    return readableStream;
+};
+const shouldTerminate = (chunk) => {
+    return chunk[0] === 255;
 };
 const processWebSocketHeader = (buffer, userID) => {
-    const view = new DataView(buffer);
+    const view = new DataView(buffer.buffer);
     const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
-    if (receivedID !== userID)
-        return {
-            hasError: true
-        };
+    if (receivedID !== userID) {
+        return { hasError: true };
+    }
     const optLength = view.getUint8(17);
     const startIndex = 18 + optLength;
     const command = view.getUint8(startIndex);
     const isUDP = command === 2;
     const portRemote = view.getUint16(startIndex + 1);
     const version = new Uint8Array(buffer.slice(0, 1));
-    const {
-        addressRemote,
-        rawDataIndex
-    } = getAddressInfo(view, buffer, 18 + optLength + 3);
+    const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, startIndex + 3);
     return {
         hasError: false,
         addressRemote,
@@ -158,10 +201,10 @@ const getAddressInfo = (view, buffer, startIndex) => {
     const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
     const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
     const addressValue = addressType === 1
-         ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-         : addressType === 2
-         ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-         : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+        ? Array.from(new Uint8Array(buffer.buffer, addressValueIndex, 4)).join('.')
+        : addressType === 2
+        ? new TextDecoder().decode(new Uint8Array(buffer.buffer, addressValueIndex, addressLength))
+        : Array.from(new Uint8Array(buffer.buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
     return {
         addressRemote: addressValue,
         rawDataIndex: addressValueIndex + addressLength
@@ -235,50 +278,98 @@ const stringify = (arr, offset = 0) => {
             length: len
         }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
-const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => {
-  const dnsCache = new Map();
-  const cacheTime = 3600000;
-  const getDnsResult = async (query) => {
-    const cacheKey = btoa(query);
-    const cachedResult = dnsCache.get(cacheKey);
-    if (cachedResult && (Date.now() - cachedResult.timestamp < cacheTime)) {
-      return cachedResult.data;
+const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
+    const dnsCache = new Map();
+    const batch_size = 5;
+    const cache_time = 5 * 60 * 60 * 1000;
+    let index = 0;
+    let batch = [];
+    if (!rawClientData || rawClientData.byteLength === 0) {
+        return;
     }
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'content-type': 'application/dns-message' },
-      body: query
-    });
-    const data = await response.arrayBuffer();
-    dnsCache.set(cacheKey, { data, timestamp: Date.now() });
-    return data;
-  };
-  const batchDnsFetch = async (queries) => {
-    const results = await Promise.all(queries.map(query => getDnsResult(query)));
-    return results;
-  };
-  const transformStream = new TransformStream({
-    async transform(chunk, controller) {
-      const udpPackets = [];
-      let index = 0;
-      while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const udpPacket = chunk.slice(index + 2, index + 2 + udpPacketLength);
-        udpPackets.push(udpPacket);
-        index += 2 + udpPacketLength;
-      }
-      const dnsResults = await batchDnsFetch(udpPackets);
-      dnsResults.forEach((dnsResult, i) => {
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-        if (webSocket.readyState === WebSocket.OPEN) {
-          webSocket.send(new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+    const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
+    const dnsFetch = async(chunks) => {
+        const domain = new TextDecoder().decode(chunks[0]);
+        const cachedEntry = dnsCache.get(domain);
+        const currentTime = Date.now();
+        if (cachedEntry && (currentTime - cachedEntry.timestamp) < cache_time) {
+            return cachedEntry.data;
         }
-      });
-    }
-  });
-  const writer = transformStream.writable.getWriter();
+        try {
+            const response = await fetch('https://cloudflare-dns.com/dns-query', {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/dns-message'
+                },
+                body: concatenateChunks(chunks)
+            });
+            const result = await response.arrayBuffer();
+            dnsCache.set(domain, {
+                data: result,
+                timestamp: currentTime
+            });
+            return result;
+        } catch (error) {
+            return null;
+        }
+    };
+    const processBatch = async(controller) => {
+        const dnsResults = await Promise.all(batch.map(dnsFetch));
+        dnsResults.forEach(dnsResult => {
+            if (dnsResult) {
+                index = processDnsResult(dnsResult, udpPackets, index);
+            }
+        });
+        controller.enqueue(udpPackets.slice(0, index));
+        index = 0;
+        batch = [];
+    };
+    const transformStream = new TransformStream({
+        async transform(chunk, controller) {
+            let offset = 0;
+            while (offset < chunk.byteLength) {
+                const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
+                batch.push(chunk.slice(offset + 2, offset + 2 + udpPacketLength));
+                if (batch.length >= batch_size) {
+                    await processBatch(controller);
+                }
+                offset += 2 + udpPacketLength;
+            }
+        },
+        async flush(controller) {
+            if (batch.length) {
+                await processBatch(controller);
+            }
+        }
+    });
+    const writer = transformStream.writable.getWriter();
     await writer.write(rawClientData);
     writer.close();
+    const finalMessage = await transformStream.readable.getReader().read();
+    if (serverSocket.readyState === WebSocket.OPEN) {
+        serverSocket.send(finalMessage.value.buffer);
+    }
+};
+const concatenateChunks = (chunks) => {
+    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    chunks.forEach(chunk => {
+        result.set(chunk, offset);
+        offset += chunk.byteLength;
+    });
+    return result.buffer;
+};
+const processDnsResult = (dnsResult, udpPackets, index) => {
+    const responseArray = new Uint8Array(dnsResult);
+    let offset = 0;
+    while (offset < responseArray.byteLength) {
+        const responseLength = new DataView(responseArray.buffer, offset, 2).getUint16(0);
+        udpPackets.set(responseArray.subarray(offset, offset + responseLength), index);
+        index += responseLength;
+        offset += responseLength;
+    }
+    return index;
 };
 const getConfig = (userID, hostName) => `
 vless://${userID}@${hostName}:8443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
