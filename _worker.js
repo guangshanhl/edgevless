@@ -84,72 +84,21 @@ const handleWsRequest = async(request, userID, proxyIP) => {
     });
 };
 const connectionManager = {
-    connections: new Map(),
-    connectionTimeout: 300000, // 连接超时时间（毫秒）
-    idleTimeout: 600000, // 闲置连接超时时间（毫秒）
-
-    async getConnection(address, port) {
-        const key = `${address}:${port}`;
-        const now = Date.now();
-
-        if (this.connections.has(key)) {
-            const { socket, lastUsed } = this.connections.get(key);
-            if (socket.closed || (now - lastUsed > this.connectionTimeout)) {
-                socket.close();
-                this.connections.delete(key);
-            } else {
-                this.connections.set(key, { socket, lastUsed: now });
-                return socket;
-            }
-        }
-
-        const socket = await connect({ hostname: address, port });
-        this.connections.set(key, { socket, lastUsed: now });
-        return socket;
-    },
-
-    closeConnection(address, port) {
-        const key = `${address}:${port}`;
-        if (this.connections.has(key)) {
-            const { socket } = this.connections.get(key);
-            socket.close();
-            this.connections.delete(key);
-        }
-    },
-
-    cleanupIdleConnections() {
-        const now = Date.now();
-        for (const [key, { socket, lastUsed }] of this.connections) {
-            if (now - lastUsed > this.idleTimeout) {
-                socket.close();
-                this.connections.delete(key);
-            }
-        }
-    },
-
-    startIdleCleanup(interval = 60000) {
-        setInterval(() => this.cleanupIdleConnections(), interval);
+  connections: new Map(),
+  async getConnection(address, port) {
+    const key = `${address}:${port}`;
+    if (!this.connections.has(key) || this.connections.get(key).closed) {
+      this.connections.set(key, await connect({ hostname: address, port }));
     }
+    return this.connections.get(key);
+  }
 };
-
-// 启动闲置连接清理
-connectionManager.startIdleCleanup();
-
-const writeToRemote = async (socket, chunk) => {
-    const writer = socket.writable.getWriter();
-    await writer.write(chunk);
-    writer.releaseLock();
+const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+  const socket = await connectionManager.getConnection(address, port);
+  await writeToRemote(socket, rawClientData);
+  remoteSocket.value = socket;
+  return socket;
 };
-
-const connectAndWrite = async (address, port, rawClientData) => {
-    const socket = await connectionManager.getConnection(address, port);
-    await writeToRemote(socket, rawClientData);
-    return socket;
-};
-
-// 示例用法
-// connectAndWrite("example.com", 80, rawClientData);
-
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const connectAndForward = async(address, port) => {
         try {
