@@ -88,20 +88,26 @@ const writeToRemote = async(socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
-    if (!remoteSocket.value || remoteSocket.value.closed) {
-        remoteSocket.value = await connect({
-            hostname: address,
-            port
-        });
+const connectionManager = {
+    connections: new Map(),
+    async getConnection(address, port) {
+        const key = `${address}:${port}`;
+        if (!this.connections.has(key) || this.connections.get(key).closed) {
+            const socket = await connect({ hostname: address, port });
+            this.connections.set(key, socket);
+        }
+        return this.connections.get(key);
     }
-    await writeToRemote(remoteSocket.value, rawClientData);
-    return remoteSocket.value;
+};
+const connectAndWrite = async (address, port, rawClientData) => {
+    const socket = await connectionManager.getConnection(address, port);
+    await writeToRemote(socket, rawClientData);
+    return socket;
 };
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const connectAndForward = async(address, port) => {
         try {
-            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+            const tcpSocket = await connectAndWrite(address, port, rawClientData);
             const hasData = await forwardToData(tcpSocket, serverSocket, responseHeader);
             return hasData;
         } catch (error) {
