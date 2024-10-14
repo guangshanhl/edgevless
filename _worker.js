@@ -60,7 +60,7 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, rawClientData,
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, vlessResponseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, vlessResponseHeader);
     });
@@ -97,6 +97,7 @@ const createWstream = (webSocket, earlyDataHeader) => {
 };
 const processVlessHeader = (buffer, userID) => {
   const view = new DataView(buffer);
+  const version = new Uint8Array(buffer.slice(0, 1));
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true }; 
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
@@ -120,7 +121,7 @@ const processVlessHeader = (buffer, userID) => {
     addressRemote: addressValue,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    vlessVersion: [0],
+    vlessVersion: version,
     isUDP
   };
 };
@@ -169,7 +170,7 @@ const stringify = (arr, offset = 0) => {
 };
 const handleUDP = async (webSocket, vlessResponseHeader, rawClientData) => {
   const dnsCache = new Map();
-  const cacheExpirationTime = 86400000;
+  const cacheExpirationTime = 3600000;
   const getDnsResult = async (query) => {
     const cacheKey = btoa(query);
     const cachedResult = dnsCache.get(cacheKey);
