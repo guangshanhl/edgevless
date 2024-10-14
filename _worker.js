@@ -60,7 +60,7 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, rawClientData,
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
     await forwardToData(tcpSocket, webSocket, vlessResponseHeader, async () => {
-      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP || addressRemote, portRemote, rawClientData);
+      const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
       fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
       await forwardToData(fallbackSocket, webSocket, vlessResponseHeader);
     });
@@ -73,24 +73,23 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
   }
-    const tcpSocket = await connect({ hostname: address, port });
-    remoteSocket.value = tcpSocket;
-    await writeToRemote(tcpSocket, rawClientData);
-    return tcpSocket;
+    const remoteSocket.value = await connect({ hostname: address, port });
+    await writeToRemote(remoteSocket.value, rawClientData);
+    return remoteSocket.value;
 };
 const createWstream = (webSocket, earlyDataHeader) => {
-  let isCancelled = false;
+  let cancelled = false;
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => !isCancelled && controller.enqueue(event.data));
+      webSocket.addEventListener('message', event => !cancelled && controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel() {
-      isCancelled = true;
+      cancelled = true;
       closeWebSocket(webSocket);
     }
   });
@@ -130,11 +129,11 @@ const forwardToData = async (remoteSocket, webSocket, vlessResponseHeader, retry
     closeWebSocket(webSocket);
     return;
   }
-  let hasIncomingData = false;
+  let hasData = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       async write(chunk) {
-        hasIncomingData = true;
+        hasData = true;
         const dataToSend = vlessResponseHeader
           ? new Uint8Array([...vlessResponseHeader, ...new Uint8Array(chunk)]).buffer
           : chunk;
@@ -145,7 +144,7 @@ const forwardToData = async (remoteSocket, webSocket, vlessResponseHeader, retry
   } catch {
     closeWebSocket(webSocket);
   }
-  if (!hasIncomingData && retry) retry();
+  if (!hasData && retry) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
@@ -170,11 +169,11 @@ const stringify = (arr, offset = 0) => {
 };
 const handleUDP = async (webSocket, vlessResponseHeader, rawClientData) => {
   const dnsCache = new Map();
-  const cacheExpirationTime = 3600000;
+  const cacheTime = 3600000;
   const getDnsResult = async (query) => {
     const cacheKey = btoa(query);
     const cachedResult = dnsCache.get(cacheKey);
-    if (cachedResult && (Date.now() - cachedResult.timestamp < cacheExpirationTime)) {
+    if (cachedResult && (Date.now() - cachedResult.timestamp < cacheTime)) {
       return cachedResult.data;
     }
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
