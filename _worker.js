@@ -25,7 +25,6 @@ const handleHttpRequest = (request, userID) => {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
-
   return new Response("Not found", { status: 404 });
 };
 const handleWsRequest = async (request, userID, proxyIP) => {
@@ -69,6 +68,22 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
+const connectionManager = {
+  connections: new Map(),
+  async getConnection(address, port) {
+    const key = `${address}:${port}`;
+    if (!this.connections.has(key) || this.connections.get(key).closed) {
+      const socket = await connect({ hostname: address, port });
+      this.connections.set(key, socket);
+    }
+    return this.connections.get(key);
+  }
+};
+const connectAndWrite = async (address, port, rawClientData) => {
+  const socket = await connectionManager.getConnection(address, port);
+  await writeToRemote(socket, rawClientData);
+  return socket;
+};
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (!remoteSocket.value || remoteSocket.value.closed) {
     remoteSocket.value = await connect({ hostname: address, port });
@@ -86,7 +101,6 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
       return false;
     }
   };
-
   try {
     const mainConnectionSuccess = await tryConnectAndForward(addressRemote, portRemote);
     if (!mainConnectionSuccess) {
@@ -181,17 +195,14 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     closeWebSocket(serverSocket);
     return false;
   }
-
   let hasData = false;
   const CHUNK_SIZE = 256 * 1024;
   let reusableBuffer = responseHeader ? new Uint8Array(responseHeader.length + CHUNK_SIZE) : new Uint8Array(CHUNK_SIZE);
-
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
       let dataToSend;
       const chunkLength = chunk.byteLength;
-
       if (responseHeader) {
         reusableBuffer.set(responseHeader);
         reusableBuffer.set(chunk, responseHeader.length);
@@ -200,21 +211,18 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
       } else {
         dataToSend = chunk;
       }
-
       for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
         const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
         serverSocket.send(dataToSend.subarray(offset, end).buffer);
       }
     }
   });
-
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(serverSocket);
     return false;
   }
-
   return hasData;
 };
 const base64ToBuffer = (base64Str) => {
@@ -279,7 +287,6 @@ const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => 
       dnsCache.set(domain, { data: result, timestamp: currentTime });
       return result;
     } catch (error) {
-      console.error('DNS Fetch error:', error);
       return null;
     }
   };
