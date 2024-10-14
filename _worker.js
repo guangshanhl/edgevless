@@ -88,7 +88,7 @@ const writeToRemote = async(socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const remoteSocket = {
+const mremoteSocket = {
     connections: {
         addressRemoteConnection: null,
         proxyConnection: null
@@ -98,15 +98,15 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     let connectionKey = `${address}:${port}`;
     let connection;
     if (address === 'proxyIP') {
-        if (!remoteSocket.connections.proxyConnection || remoteSocket.connections.proxyConnection.closed) {
-            remoteSocket.connections.proxyConnection = await connect({ hostname: address, port });
+        if (!mremoteSocket.connections.proxyConnection || mremoteSocket.connections.proxyConnection.closed) {
+            mremoteSocket.connections.proxyConnection = await connect({ hostname: address, port });
         }
-        connection = remoteSocket.connections.proxyConnection;
+        connection = mremoteSocket.connections.proxyConnection;
     } else {
-        if (!remoteSocket.connections.addressRemoteConnection || remoteSocket.connections.addressRemoteConnection.closed) {
-            remoteSocket.connections.addressRemoteConnection = await connect({ hostname: address, port });
+        if (!mremoteSocket.connections.addressRemoteConnection || mremoteSocket.connections.addressRemoteConnection.closed) {
+            mremoteSocket.connections.addressRemoteConnection = await connect({ hostname: address, port });
         }
-        connection = remoteSocket.connections.addressRemoteConnection;
+        connection = mremoteSocket.connections.addressRemoteConnection;
     }
     await writeToRemote(connection, rawClientData);
     return connection;
