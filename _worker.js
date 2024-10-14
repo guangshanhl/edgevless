@@ -88,47 +88,27 @@ const writeToRemote = async(socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const tcpConnectionPool = new Map(); // 连接池，用于存储 TCP 连接
-const MAX_CONNECTIONS = 20; // 最大连接数限制
-const CONNECTION_TIMEOUT = 5 * 60 * 1000; // 连接超时时间（5分钟）
-
+const connections = new Map();
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    const key = `${address}:${port}`; // 生成连接的唯一键
-
-    // 如果连接池中已存在该连接，直接使用
-    if (tcpConnectionPool.has(key)) {
-        remoteSocket.value = tcpConnectionPool.get(key);
-    } else {
-        // 如果连接池已满，抛出错误或处理逻辑
-        if (tcpConnectionPool.size >= MAX_CONNECTIONS) {
-            throw new Error('Maximum connections reached');
-        }
-
-        // 建立新连接
-        remoteSocket.value = await connect({
-            hostname: address,
-            port
-        });
-
-        // 将连接存入池中，并设置超时处理
-        tcpConnectionPool.set(key, remoteSocket.value);
-
-        // 设置超时处理
-        setTimeout(() => {
-            if (remoteSocket.value && !remoteSocket.value.closed) {
-                remoteSocket.value.close(); // 关闭连接
-                tcpConnectionPool.delete(key); // 从池中删除
-                console.log(`Connection to ${key} has timed out and has been closed.`);
-            }
-        }, CONNECTION_TIMEOUT);
+    const key = `${address}:${port}`;
+    let socket = connections.get(key);
+    if (!socket) {
+        socket = await connect({ hostname: address, port });
+        connections.set(key, socket);
+        setupConnectionClose(socket, key);
     }
-
-    await writeToRemote(remoteSocket.value, rawClientData);
-    return remoteSocket.value;
+    remoteSocket.value = socket;
+    await writeToRemote(socket, rawClientData);
+    return socket;
 };
-
-// 其他代码不变
-
+const setupConnectionClose = (socket, key) => {
+    setTimeout(() => {
+        if (socket && !socket.closed) {
+            socket.close();
+            connections.delete(key);
+        }
+    }, CONNECTION_TIMEOUT);
+};
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     try {
         const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
