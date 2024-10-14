@@ -41,7 +41,11 @@ const handleWsRequest = async(request, userID, proxyIP) => {
     const protocols = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, protocols);
     let remoteSocket = {
-        value: null
+    value: null, // 用于存储 WebSocket 连接
+    connections: {
+        addressRemoteConnection: null, // 存储地址远程连接
+        proxyConnection: null            // 存储代理连接
+        }
     };
     let udpStreamWrite = null;
     let isDns = false;
@@ -88,29 +92,30 @@ const writeToRemote = async(socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const mremoteSocket = {
-    connections: {
-        addressRemoteConnection: null,
-        proxyConnection: null
-    }
-};
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    let connectionKey = `${address}:${port}`;
+const connectAndWrite = async (address, port, rawClientData) => {
+    const connectionKey = `${address}:${port}`;
     let connection;
-    if (address === 'proxyIP') {
-        if (!mremoteSocket.connections.proxyConnection || mremoteSocket.connections.proxyConnection.closed) {
-            mremoteSocket.connections.proxyConnection = await connect({ hostname: address, port });
+
+    // 使用 proxyConnection
+    if (address === proxyIP) {
+        // 检查并建立代理连接
+        if (!remoteSocket.connections.proxyConnection || remoteSocket.connections.proxyConnection.closed) {
+            remoteSocket.connections.proxyConnection = await connect({ hostname: address, port });
         }
-        connection = mremoteSocket.connections.proxyConnection;
+        connection = remoteSocket.connections.proxyConnection;
     } else {
-        if (!mremoteSocket.connections.addressRemoteConnection || mremoteSocket.connections.addressRemoteConnection.closed) {
-            mremoteSocket.connections.addressRemoteConnection = await connect({ hostname: address, port });
+        // 检查并建立地址远程连接
+        if (!remoteSocket.connections.addressRemoteConnection || remoteSocket.connections.addressRemoteConnection.closed) {
+            remoteSocket.connections.addressRemoteConnection = await connect({ hostname: address, port });
         }
-        connection = mremoteSocket.connections.addressRemoteConnection;
+        connection = remoteSocket.connections.addressRemoteConnection;
     }
+
+    // 将数据写入连接
     await writeToRemote(connection, rawClientData);
     return connection;
 };
+
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     try {
         const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
