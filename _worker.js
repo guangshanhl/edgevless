@@ -202,20 +202,16 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-let reusableBuffer;
-const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) => {
+const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return;
     }
     let hasData = false;
-    const chunk_size = 256 * 1024;
-    const buffer_size = 256 * 1024;
-    const requiredBufferSize = responseHeader ? (responseHeader.length + chunk_size) : chunk_size;
-    if (!reusableBuffer || reusableBuffer.byteLength < requiredBufferSize) {
-        const newBufferSize = reusableBuffer ? reusableBuffer.byteLength * 2 : buffer_size;
-        reusableBuffer = new Uint8Array(Math.max(newBufferSize, requiredBufferSize));
-    }    
+    const CHUNK_SIZE = 512 * 1024;
+    let reusableBuffer = responseHeader
+         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
+         : new Uint8Array(CHUNK_SIZE);
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
@@ -229,8 +225,8 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) 
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += chunk_size) {
-                const end = Math.min(offset + chunk_size, dataToSend.byteLength);
+            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
+                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
                 serverSocket.send(dataToSend.slice(offset, end));
             }
         }
@@ -244,14 +240,12 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader, retry) 
         retry();
     }
 };
+const BASE64_REPLACE_REGEX = /[-_]/g;
+const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
     try {
-        const formattedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-        const binaryStr = atob(formattedStr);
-        const buffer = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-            buffer[i] = binaryStr.charCodeAt(i);
-        }
+        const binaryStr = atob(replaceBase64Chars(base64Str));
+        const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
         return {
             earlyData: buffer.buffer,
             error: null
@@ -272,15 +266,9 @@ const byteToHex = Array.from({
 }, (_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
     const segments = [4, 2, 2, 2, 6];
-    let result = '';
-    segments.forEach((len, index) => {
-        if (index > 0)
-            result += '-';
-        for (let i = 0; i < len; i++) {
-            result += byteToHex[arr[offset++]];
-        }
-    });
-    return result.toLowerCase();
+    return segments.map(len => Array.from({
+            length: len
+        }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
