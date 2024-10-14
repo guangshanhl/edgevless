@@ -83,41 +83,38 @@ const handleWsRequest = async(request, userID, proxyIP) => {
         webSocket: clientSocket,
     });
 };
-const connectionManager = {
-  connections: new Map(),
-  async getConnection(address, port) {
-    const key = `${address}:${port}`;
-    if (!this.connections.has(key) || this.connections.get(key).closed) {
-      this.connections.set(key, await connect({ hostname: address, port }));
-    }
-    return this.connections.get(key);
-  }
+const writeToRemote = async(socket, chunk) => {
+    const writer = socket.writable.getWriter();
+    await writer.write(chunk);
+    writer.releaseLock();
 };
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  const socket = await connectionManager.getConnection(address, port);
-  await writeToRemote(socket, rawClientData);
-  remoteSocket.value = socket;
-  return socket;
+const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
+    if (!remoteSocket.value || remoteSocket.value.closed) {
+        remoteSocket.value = await connect({
+            hostname: address,
+            port
+        });
+    }
+    await writeToRemote(remoteSocket.value, rawClientData);
+    return remoteSocket.value;
 };
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const connectAndForward = async(address, port) => {
-        try {
-            const tcpSocket = await connectAndWrite(address, port, rawClientData);
-            const hasData = await forwardToData(tcpSocket, serverSocket, responseHeader);
-            return hasData;
-        } catch (error) {
+    let isConnected = false;
+    const connectAndForward = (address, port) => {
+        return connectAndWrite(address, port, rawClientData)
+        .then(tcpSocket => {
+            return forwardToData(tcpSocket, serverSocket, responseHeader);
+        })
+        .catch(error => {
             return false;
-        }
+        });
     };
-    try {
-        const mainConnection = await connectAndForward(addressRemote, portRemote);
-        if (!mainConnection) {
-            const fallbackConnection = await connectAndForward(proxyIP, portRemote);
-            if (!fallbackConnection) {
-                closeWebSocket(serverSocket);
-            }
-        }
-    } catch (error) {
+    isConnected = await connectAndForward(addressRemote, portRemote);
+    if (isConnected) {
+        return;
+    }
+    isConnected = await connectAndForward(proxyIP, portRemote);
+    if (!isConnected) {
         closeWebSocket(serverSocket);
     }
 };
