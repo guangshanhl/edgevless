@@ -241,8 +241,8 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
         retry();
     }
 };
-const BASE64_REPLACE_REGEX = /[-_]/g;
-const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
+const base64_replace_regex = /[-_]/g;
+const replaceBase64Chars = (str) => str.replace(base64_replace_regex, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
     try {
         const binaryStr = atob(replaceBase64Chars(base64Str));
