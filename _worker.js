@@ -88,40 +88,26 @@ const writeToRemote = async(socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const connections = new Map();
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    const key = `${address}:${port}`;
-    let socket = connections.get(key);
-    if (!socket) {
-        socket = await connect({ hostname: address, port });
-        connections.set(key, socket);
-        setupConnectionClose(socket, key);
+const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
+    if (!remoteSocket.value || remoteSocket.value.closed) {
+        remoteSocket.value = await connect({
+            hostname: address,
+            port
+        });
     }
-    remoteSocket.value = socket;
-    await writeToRemote(socket, rawClientData);
-    return socket;
-};
-const setupConnectionClose = (socket, key) => {
-    setTimeout(() => {
-        if (socket && !socket.closed) {
-            socket.close();
-            connections.delete(key);
-        }
-    }, CONNECTION_TIMEOUT);
+    await writeToRemote(remoteSocket.value, rawClientData);
+    return remoteSocket.value;
 };
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     try {
         const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, rawClientData);
         await forwardToData(tcpSocket, serverSocket, responseHeader, async() => {
-            try {
-                const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
-                await forwardToData(fallbackSocket, serverSocket, responseHeader);
-            } catch (fallbackError) {
-                closeWebSocket(serverSocket)
-            }
+            const fallbackSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, rawClientData);
+            fallbackSocket.closed.catch(() => {}).finally(() => closeWebSocket(serverSocket));
+            await forwardToData(fallbackSocket, serverSocket, responseHeader);
         });
-    } catch (error) {
-        closeWebSocket(serverSocket)
+    } catch {
+        closeWebSocket(serverSocket);
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
@@ -223,10 +209,10 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
         return;
     }
     let hasData = false;
-    const CHUNK_SIZE = 512 * 1024;
+    const chunk_size = 512 * 1024;
     let reusableBuffer = responseHeader
-         ? new Uint8Array(responseHeader.length + CHUNK_SIZE)
-         : new Uint8Array(CHUNK_SIZE);
+         ? new Uint8Array(responseHeader.length +chunk_size)
+         : new Uint8Array(chunk_size);
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
@@ -240,8 +226,8 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader, retry) =
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
+            for (let offset = 0; offset < dataToSend.byteLength; offset += chunk_size) {
+                const end = Math.min(offset + chunk_size, dataToSend.byteLength);
                 serverSocket.send(dataToSend.slice(offset, end));
             }
         }
