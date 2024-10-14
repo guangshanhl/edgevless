@@ -68,28 +68,29 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, rawClientData,
     closeWebSocket(webSocket);
   }
 };
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, rawClientData);
-    return remoteSocket.value;
-  }
-    const remoteSocket.value = await connect({ hostname: address, port });
+const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
+    if (!remoteSocket.value || remoteSocket.value.closed) {
+        remoteSocket.value = await connect({
+            hostname: address,
+            port
+        });
+    }
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
 const createWstream = (webSocket, earlyDataHeader) => {
-  let cancelled = false;
+  let iscancelled = false;
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocket.addEventListener('message', event => !cancelled && controller.enqueue(event.data));
+      webSocket.addEventListener('message', event => !iscancelled && controller.enqueue(event.data));
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', err => controller.error(err));
     },
     cancel() {
-      cancelled = true;
+      iscancelled = true;
       closeWebSocket(webSocket);
     }
   });
