@@ -98,27 +98,27 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  const tryConnectAndForward = async (address, port) => {
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    const connectAndForward = async(address, port) => {
+        try {
+            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+            const hasData = await forwardToData(tcpSocket, serverSocket, responseHeader);
+            return hasData;
+        } catch (error) {
+            return false;
+        }
+    };
     try {
-      const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-      const hasData = await forwardToData(tcpSocket, serverSocket, responseHeader);
-      return hasData;
+        const mainConnection = await connectAndForward(addressRemote, portRemote);
+        if (!mainConnection) {
+            const fallbackConnection = await connectAndForward(proxyIP, portRemote);
+            if (!fallbackConnection) {
+                closeWebSocket(serverSocket);
+            }
+        }
     } catch (error) {
-      return false;
-    }
-  };
-  try {
-    const mainConnectionSuccess = await tryConnectAndForward(addressRemote, portRemote);
-    if (!mainConnectionSuccess) {
-      const fallbackConnectionSuccess = await tryConnectAndForward(proxyIP, portRemote);
-      if (!fallbackConnectionSuccess) {
         closeWebSocket(serverSocket);
-      }
     }
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     const eventListeners = new Set();
@@ -213,40 +213,41 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  if (serverSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(serverSocket);
-    return false;
-  }
-  let hasData = false;
-  const CHUNK_SIZE = 256 * 1024;
-  let reusableBuffer = responseHeader ? new Uint8Array(responseHeader.length + CHUNK_SIZE) : new Uint8Array(CHUNK_SIZE);
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      hasData = true;
-      let dataToSend;
-      const chunkLength = chunk.byteLength;
-      if (responseHeader) {
-        reusableBuffer.set(responseHeader);
-        reusableBuffer.set(chunk, responseHeader.length);
-        dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
-        responseHeader = null;
-      } else {
-        dataToSend = chunk;
-      }
-      for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-        const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
-        serverSocket.send(dataToSend.subarray(offset, end).buffer);
-      }
+const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
+    if (serverSocket.readyState !== WebSocket.OPEN) {
+        closeWebSocket(serverSocket);
+        return;
     }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(serverSocket);
-    return false;
-  }
-  return hasData;
+    let hasData = false;
+    const chunk_size = 256 * 1024;
+    let reusableBuffer = responseHeader
+         ? new Uint8Array(responseHeader.length + chunk_size)
+         : new Uint8Array(chunk_size);
+    const writableStream = new WritableStream({
+        async write(chunk) {
+            hasData = true;
+            let dataToSend;
+            const chunkLength = chunk.byteLength;
+            if (responseHeader) {
+                reusableBuffer.set(responseHeader);
+                reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
+                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
+                responseHeader = null;
+            } else {
+                dataToSend = chunk;
+            }
+            for (let offset = 0; offset < dataToSend.byteLength; offset += chunk_size) {
+                const end = Math.min(offset + chunk_size, dataToSend.byteLength);
+                serverSocket.send(dataToSend.slice(offset, end));
+            }
+        }
+    });
+    try {
+        await remoteSocket.readable.pipeTo(writableStream);
+    } catch (error) {
+        closeWebSocket(serverSocket);
+    }
+    return hasData;
 };
 const base64_replace_regex = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(base64_replace_regex, match => (match === '-' ? '+' : '/'));
