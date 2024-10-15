@@ -111,7 +111,7 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     if (!main) {
         const fallback = await connectAndForward(proxyIP, portRemote);
         if (!fallback) {
-            return;
+            closeWebSocket(serverSocket); ;
         }
     }
 };
@@ -208,7 +208,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
+const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return false;
@@ -238,8 +238,8 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     }
     return hasData;
 };
-const sendToWebSocket = async (serverSocket, data) => {
-    const chunkSize = 512 * 1024;
+const sendToWebSocket = async(serverSocket, data) => {
+    const chunkSize = 256 * 1024;
     let offset = 0;
     while (offset < data.byteLength) {
         const end = Math.min(offset + chunkSize, data.byteLength);
@@ -280,7 +280,7 @@ const stringify = (arr, offset = 0) => {
 const handleUdpRequest = async(serverSocket, responseHeader, rawClientData) => {
     const dnsCache = new Map();
     const batch_size = 5;
-    const cache_time = 5 * 60 * 60 * 1000;
+    const cache_time = 5 * 60 * 1000;
     let index = 0;
     let batch = [];
     if (!rawClientData || rawClientData.byteLength === 0) {
