@@ -34,9 +34,7 @@ const handleHttpRequest = (request, userID) => {
     });
 };
 const handleWsRequest = async(request, userID, proxyIP) => {
-    const webSocketPair = new WebSocketPair();
-    const clientSocket = webSocketPair[0];
-    const serverSocket = webSocketPair[1];
+    const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
     const protocols = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, protocols);
