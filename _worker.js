@@ -239,7 +239,7 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     return hasData;
 };
 const sendToWebSocket = async(serverSocket, data) => {
-    const chunkSize = 256 * 1024;
+    const chunkSize = 1024 * 1024;
     let offset = 0;
     while (offset < data.byteLength) {
         const end = Math.min(offset + chunkSize, data.byteLength);
