@@ -208,33 +208,26 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
+const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
         return false;
     }
     let hasData = false;
-    const chunk_size = 512 * 1024;
-    let reusableBuffer = responseHeader
-         ? new Uint8Array(responseHeader.length + chunk_size)
-         : new Uint8Array(chunk_size);
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
             let dataToSend;
-            const chunkLength = chunk.byteLength;
             if (responseHeader) {
-                reusableBuffer.set(responseHeader);
-                reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
-                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
+                const combinedBuffer = new Uint8Array(responseHeader.length + chunk.byteLength);
+                combinedBuffer.set(responseHeader);
+                combinedBuffer.set(new Uint8Array(chunk), responseHeader.length);
+                dataToSend = combinedBuffer;
                 responseHeader = null;
             } else {
                 dataToSend = chunk;
             }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += chunk_size) {
-                const end = Math.min(offset + chunk_size, dataToSend.byteLength);
-                serverSocket.send(dataToSend.slice(offset, end));
-            }
+            await sendToWebSocket(serverSocket, dataToSend);
         }
     });
     try {
@@ -244,6 +237,15 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
         return false;
     }
     return hasData;
+};
+const sendToWebSocket = async (serverSocket, data) => {
+    const chunkSize = 512 * 1024;
+    let offset = 0;
+    while (offset < data.byteLength) {
+        const end = Math.min(offset + chunkSize, data.byteLength);
+        serverSocket.send(data.slice(offset, end));
+        offset = end;
+    }
 };
 const base64_replace_regex = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(base64_replace_regex, match => (match === '-' ? '+' : '/'));
