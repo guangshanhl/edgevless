@@ -99,23 +99,20 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     return remoteSocket.value;
 };
 const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    let isConnected = false;
-    const connectAndForward = (address, port) => {
-        return connectAndWrite(address, port, rawClientData)
-        .then(tcpSocket => {
-            return forwardToData(tcpSocket, serverSocket, responseHeader);
-        })
-        .catch(error => {
+    const connectAndForward = async(address, port) => {
+        try {
+            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+            return await forwardToData(tcpSocket, serverSocket, responseHeader);
+        } catch (error) {
             return false;
-        });
+        }
     };
-    isConnected = await connectAndForward(addressRemote, portRemote);
-    if (isConnected) {
-        return;
-    }
-    isConnected = await connectAndForward(proxyIP, portRemote);
-    if (!isConnected) {
-        closeWebSocket(serverSocket);
+    const main = await connectAndForward(addressRemote, portRemote);
+    if (!main) {
+        const fallback = await connectAndForward(proxyIP, portRemote);
+        if (!fallback) {
+            closeWebSocket(serverSocket);
+        }
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
@@ -214,10 +211,10 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
         closeWebSocket(serverSocket);
-        return;
+        return false;
     }
     let hasData = false;
-    const chunk_size = 256 * 1024;
+    const chunk_size = 512 * 1024;
     let reusableBuffer = responseHeader
          ? new Uint8Array(responseHeader.length + chunk_size)
          : new Uint8Array(chunk_size);
@@ -244,6 +241,7 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
         closeWebSocket(serverSocket);
+        return false;
     }
     return hasData;
 };
