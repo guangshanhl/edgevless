@@ -111,7 +111,7 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     if (!main) {
         const fallback = await connectAndForward(proxyIP, portRemote);
         if (!fallback) {
-            closeWebSocket(serverSocket);
+            return;
         }
     }
 };
