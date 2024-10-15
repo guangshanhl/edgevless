@@ -114,19 +114,24 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-  return new ReadableStream({
-    start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) return controller.error(error);
-      if (earlyData) controller.enqueue(earlyData);
-      serverSocket.addEventListener('message', event => controller.enqueue(event.data));
-      serverSocket.addEventListener('close', () => controller.close());
-      serverSocket.addEventListener('error', err => controller.error(err));
-    },
-    cancel() {
-      closeWebSocket(serverSocket);
-    }
-  });
+    return new ReadableStream({
+        start(controller) {
+            const {
+                earlyData,
+                error
+            } = base64ToBuffer(earlyDataHeader);
+            if (error)
+                return controller.error(error);
+            if (earlyData)
+                controller.enqueue(earlyData);
+            serverSocket.addEventListener('message', event => controller.enqueue(event.data));
+            serverSocket.addEventListener('close', () => controller.close());
+            serverSocket.addEventListener('error', err => controller.error(err));
+        },
+        cancel() {
+            closeWebSocket(serverSocket);
+        }
+    });
 };
 const processWebSocketHeader = (buffer, userID) => {
     const view = new DataView(buffer);
@@ -237,32 +242,34 @@ const stringify = (arr, offset = 0) => {
             length: len
         }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
-const handleUdpRequest = async (serverSocket, ResponseHeader, rawClientData) => {
-  const dnsFetch = async (chunk) => {
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
-      method: 'POST',
-      headers: { 'content-type': 'application/dns-message' },
-      body: chunk
-    });
-    return response.arrayBuffer();
-  };
-  const transformStream = new TransformStream({
-    async transform(chunk, controller) {
-      let index = 0;
-      while (index < chunk.byteLength) {
-        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-        const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
-        const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-        if (serverSocket.readyState === WebSocket.OPEN) {
-          serverSocket.send(new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+const handleUdpRequest = async(serverSocket, ResponseHeader, rawClientData) => {
+    const dnsFetch = async(chunk) => {
+        const response = await fetch('https://cloudflare-dns.com/dns-query', {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/dns-message'
+            },
+            body: chunk
+        });
+        return response.arrayBuffer();
+    };
+    const transformStream = new TransformStream({
+        async transform(chunk, controller) {
+            let index = 0;
+            while (index < chunk.byteLength) {
+                const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+                const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
+                const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+                if (serverSocket.readyState === WebSocket.OPEN) {
+                    serverSocket.send(new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
+                }
+                index += 2 + udpPacketLength;
+            }
         }
-        index += 2 + udpPacketLength;
-      }
-    }
-  });
-  const writer = transformStream.writable.getWriter();
-  await writer.write(rawClientData);
-  writer.close();
+    });
+    const writer = transformStream.writable.getWriter();
+    await writer.write(rawClientData);
+    writer.close();
 };
 const getConfig = (userID, hostName) => `
 vless://${userID}@${hostName}:8443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
