@@ -105,16 +105,13 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
           case 'error':
             eventHandlers.delete(webSocket);
             controller[event.type === 'close' ? 'close' : 'error'](event);
-            webSocket.removeEventListener('message', handleEvent);
-            webSocket.removeEventListener('close', handleEvent);
-            webSocket.removeEventListener('error', handleEvent);
             break;
         }
       };
       eventHandlers.set(webSocket, handleEvent);
-      webSocket.addEventListener('message', handleEvent);
-      webSocket.addEventListener('close', handleEvent);
-      webSocket.addEventListener('error', handleEvent);
+      webSocket.addEventListener('message', handleEvent, { once: true });
+      webSocket.addEventListener('close', handleEvent, { once: true });
+      webSocket.addEventListener('error', handleEvent, { once: true });
     },
     cancel() {
       const handleEvent = eventHandlers.get(webSocket);
