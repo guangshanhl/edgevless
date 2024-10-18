@@ -14,7 +14,9 @@ export default {
 };
 const handleHttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
-  if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
+  if (path === "/") {
+    return new Response(JSON.stringify(request.cf, null, 4));
+  }
   if (path === `/${userID}`) {
     return new Response(getConfig(userID, request.headers.get("Host")), {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
@@ -67,22 +69,22 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
-const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-    const connectAndForward = async(address, port) => {
-        try {
-            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-            return await forwardToData(tcpSocket, webSocket, responseHeader);
-        } catch (error) {
-            return false;
-        }
-    };
-    const main = await connectAndForward(addressRemote, portRemote);
-    if (!main) {
-        const fallback = await connectAndForward(proxyIP, portRemote);
-        if (!fallback) {
-            closeWebSocket(webSocket); ;
-        }
+const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+  const connectAndForward = async (address, port) => {
+    try {
+      const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+      return await forwardToData(tcpSocket, webSocket, responseHeader);
+    } catch (error) {
+      return false;
     }
+  };
+  const main = await connectAndForward(addressRemote, portRemote);
+  if (!main) {
+    const fallback = await connectAndForward(proxyIP, portRemote);
+    if (!fallback) {
+      closeWebSocket(webSocket);
+    }
+  }
 };
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
@@ -128,7 +130,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
+  const receivedID = stringify(new Uint8Array(buffer.slice(1, 17))); 
   if (receivedID !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
@@ -141,7 +143,7 @@ const processWebSocketHeader = (buffer, userID) => {
 const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
   const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
-  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
+  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);  
   const addressValue = addressType === 1
     ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
     : addressType === 2
@@ -158,8 +160,8 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      const dataToSend = responseHeader 
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+      const dataToSend = responseHeader
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer
         : chunk;
       webSocket.send(dataToSend);
       responseHeader = null;
@@ -192,7 +194,7 @@ const stringify = (arr, offset = 0) => {
   return segments.map(len => Array.from({ length: len }, () => byteToHex[arr[offset++]]).join('')).join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, responseHeader, rawClientData) => {
-  const batchSize = 5;
+  const batchSize = 3;
   let index = 0;
   const udpPackets = new Uint8Array(new DataView(rawClientData.buffer).getUint16(0));
   const dnsFetch = async (chunks) => {
