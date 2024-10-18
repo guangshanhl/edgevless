@@ -28,13 +28,13 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
   const readableStream = createWebSocketStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
-  let remoteSocket = { value: null };
+  let remoteSocket = null;
   let udpStreamWrite = null;
   let isDns = false;
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
-      if (remoteSocket.value && !isDns) {
-        await writeToRemote(remoteSocket.value, chunk);
+      if (remoteSocket && !isDns) {
+        await writeToRemote(remoteSocket, chunk);
         return;
       }
       if (isDns && udpStreamWrite) {
@@ -49,7 +49,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       if (isDns) {
         udpStreamWrite = await handleUdpRequest(webSocket, responseHeader, rawClientData);
       } else {
-        remoteSocket.value = await handleTcpRequest(addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
+        remoteSocket = await handleTcpRequest(addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP);
       }
     }
   }));
@@ -61,13 +61,11 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  let socket = remoteSocket.value;
-  if (!socket || socket.closed) {
-    socket = await connect({ hostname: address, port });
-    remoteSocket.value = socket;
+  if (!remoteSocket || remoteSocket.closed) {
+    remoteSocket = await connect({ hostname: address, port });
   }
-  await writeToRemote(socket, rawClientData);
-  return socket;
+  await writeToRemote(remoteSocket, rawClientData);
+  return remoteSocket;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
   const connectAndForward = async (address, port) => {
