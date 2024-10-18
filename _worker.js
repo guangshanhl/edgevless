@@ -86,40 +86,45 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
 };
 const eventHandlers = new WeakMap();
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
-  const readableStream = new ReadableStream({
+  return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) return controller.error(error);
-      if (earlyData) controller.enqueue(earlyData);    
-      const handleMessage = event => controller.enqueue(event.data);
-      const handleClose = () => {
-        controller.close();
-        removeWebSocketListeners(webSocket);
+      if (error) {
+        controller.error(error);
+        return;
+      }
+      if (earlyData) controller.enqueue(earlyData);
+      const handleEvent = (event) => {
+        switch (event.type) {
+          case 'message':
+            controller.enqueue(event.data);
+            break;
+          case 'close':
+          case 'error':
+            eventHandlers.delete(webSocket);
+            controller[event.type === 'close' ? 'close' : 'error'](event);
+            webSocket.removeEventListener('message', handleEvent);
+            webSocket.removeEventListener('close', handleEvent);
+            webSocket.removeEventListener('error', handleEvent);
+            break;
+        }
       };
-      const handleError = err => {
-        controller.error(err);
-        removeWebSocketListeners(webSocket);
-      };
-      eventHandlers.set(webSocket, { handleMessage, handleClose, handleError });
-      webSocket.addEventListener('message', handleMessage);
-      webSocket.addEventListener('close', handleClose);
-      webSocket.addEventListener('error', handleError);
+      eventHandlers.set(webSocket, handleEvent);
+      webSocket.addEventListener('message', handleEvent);
+      webSocket.addEventListener('close', handleEvent);
+      webSocket.addEventListener('error', handleEvent);
     },
     cancel() {
-      removeWebSocketListeners(webSocket);
+      const handleEvent = eventHandlers.get(webSocket);
+      if (handleEvent) {
+        eventHandlers.delete(webSocket);
+        webSocket.removeEventListener('message', handleEvent);
+        webSocket.removeEventListener('close', handleEvent);
+        webSocket.removeEventListener('error', handleEvent);
+      }
       closeWebSocket(webSocket);
     }
   });
-  return readableStream;
-};
-const removeWebSocketListeners = (webSocket) => {
-  const handlers = eventHandlers.get(webSocket);
-  if (handlers) {
-    webSocket.removeEventListener('message', handlers.handleMessage);
-    webSocket.removeEventListener('close', handlers.handleClose);
-    webSocket.removeEventListener('error', handlers.handleError);
-    eventHandlers.delete(webSocket);
-  }
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
