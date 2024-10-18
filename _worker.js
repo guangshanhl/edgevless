@@ -109,28 +109,22 @@ const processWebSocketHeader = (buffer, userID) => {
   if (receivedID !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
-  const version = view.getUint8(0);
+  const version = new Uint8Array(buffer.slice(0, 1));
   const isUDP = command === 2;
-  const portRemote = view.getUint16(18 + optLength + 1);  
-  const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3); 
-  return { hasError: false, addressRemote, portRemote, rawDataIndex, vlessVersion: new Uint8Array([version]), isUDP };
+  const portRemote = view.getUint16(18 + optLength + 1);
+  const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3);
+  return { hasError: false, addressRemote, portRemote, rawDataIndex, vlessVersion: version, isUDP };
 };
 const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
-  let addressValue;
-  let addressLength;
-  if (addressType === 1) {
-    addressLength = 4;
-    addressValue = Array.from({ length: 4 }, (_, i) => view.getUint8(startIndex + 1 + i)).join('.');
-  } else if (addressType === 2) {
-    addressLength = view.getUint8(startIndex + 1);
-    addressValue = new TextDecoder().decode(new Uint8Array(buffer, startIndex + 2, addressLength));
-  } else if (addressType === 3) {
-    addressLength = 16;
-    const addressBytes = Array.from({ length: 16 }, (_, i) => view.getUint8(startIndex + 1 + i));
-    addressValue = addressBytes.map(b => b.toString(16).padStart(2, '0')).join(':');
-  }
-  return { addressRemote: addressValue, rawDataIndex: startIndex + 1 + addressLength };
+  const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
+  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);  
+  const addressValue = addressType === 1
+    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
+    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+  return { addressRemote: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
@@ -141,19 +135,13 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      let dataToSend;    
-      if (responseHeader) {
-        const combinedData = new Uint8Array(responseHeader.length + chunk.byteLength);
-        combinedData.set(responseHeader, 0);
-        combinedData.set(new Uint8Array(chunk), responseHeader.length);
-        dataToSend = combinedData.buffer;
-      } else {
-        dataToSend = chunk;
-      }      
+      const dataToSend = responseHeader
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer
+        : chunk;
       webSocket.send(dataToSend);
       responseHeader = null;
     }
-  });  
+  });
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
