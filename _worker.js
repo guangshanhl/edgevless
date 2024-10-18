@@ -127,7 +127,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  const receivedID = stringify(new Uint8Array(buffer.slice(1, 17))); 
+  const receivedID = stringify(buffer.slice(1, 17)); // Pre-allocate a Uint8Array if necessary
   if (receivedID !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
@@ -140,13 +140,17 @@ const processWebSocketHeader = (buffer, userID) => {
 const getAddressInfo = (view, buffer, startIndex) => {
   const addressType = view.getUint8(startIndex);
   const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
-  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);  
-  const addressValue = addressType === 1
-    ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-    : addressType === 2
-    ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-    : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
-  return { addressRemote: addressValue, rawDataIndex: addressValueIndex + addressLength };
+  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
+  switch (addressType) {
+    case 1:
+      return { addressRemote: view.getUint32(addressValueIndex).toString(), rawDataIndex: addressValueIndex + 4 };
+    case 2:
+      return { addressRemote: new TextDecoder().decode(buffer.slice(addressValueIndex, addressValueIndex + addressLength)), rawDataIndex: addressValueIndex + addressLength };
+    case 3:
+      return { addressRemote: Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':'), rawDataIndex: addressValueIndex + 16 };
+    default:
+      return;
+  }
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
