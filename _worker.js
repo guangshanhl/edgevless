@@ -147,24 +147,17 @@ const getAddressInfo = (view, buffer, startIndex) => {
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     closeWebSocket(webSocket);
-    return false;
+    return;
   }
-  const headerBuffer = responseHeader ? new Uint8Array(responseHeader) : null;
   let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk) {
       hasData = true;
-      let dataToSend;
-      if (headerBuffer) {
-        const combinedBuffer = new Uint8Array(headerBuffer.length + chunk.byteLength);
-        combinedBuffer.set(headerBuffer);
-        combinedBuffer.set(new Uint8Array(chunk), headerBuffer.length);
-        dataToSend = combinedBuffer.buffer;
-        headerBuffer = null;
-      } else {
-        dataToSend = chunk;
-      }
+      const dataToSend = responseHeader 
+        ? new Uint8Array([...responseHeader, ...chunk]).buffer 
+        : chunk;
       webSocket.send(dataToSend);
+      responseHeader = null;
     }
   });
   try {
