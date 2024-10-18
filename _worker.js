@@ -67,21 +67,22 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   await writeToRemote(socket, rawClientData);
   return socket;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
-  const connectAndForward = async (address, port) => {
-    try {
-      const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-      return await forwardToData(tcpSocket, webSocket, responseHeader);
-    } catch {
-      return false;
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, proxyIP) => {
+    const connectAndForward = async(address, port) => {
+        try {
+            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+            return await forwardToData(tcpSocket, webSocket, responseHeader);
+        } catch (error) {
+            return false;
+        }
+    };
+    const main = await connectAndForward(addressRemote, portRemote);
+    if (!main) {
+        const fallback = await connectAndForward(proxyIP, portRemote);
+        if (!fallback) {
+            closeWebSocket(webSocket); ;
+        }
     }
-  };
-
-  if (!(await connectAndForward(addressRemote, portRemote)) && proxyIP) {
-    if (!(await connectAndForward(proxyIP, portRemote))) {
-      closeWebSocket(webSocket);
-    }
-  }
 };
 const createWebSocketStream = (webSocket, earlyDataHeader) => {
   const { earlyData, error } = base64ToBuffer(earlyDataHeader);
