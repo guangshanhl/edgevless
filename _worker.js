@@ -156,34 +156,48 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     closeWebSocket(webSocket);
     return;
   }
+  
   const dataBuffer = new Uint8Array(1024);
   let dataOffset = 0;
+
   const write = (chunk) => {
-    if (dataOffset + chunk.length > dataBuffer.length) {
-      return;
+    while (dataOffset + chunk.length > dataBuffer.length) {
+      // 当数据溢出时，先发送当前缓冲区数据
+      sendData(); // 发送缓冲区的数据
     }
+    
+    // 写入数据
     dataBuffer.set(chunk, dataOffset);
     dataOffset += chunk.length;
   };
+
   const sendData = () => {
     if (dataOffset > 0) {
       const dataToSend = responseHeader
         ? new Uint8Array([...responseHeader, ...dataBuffer.slice(0, dataOffset)]).buffer
         : dataBuffer.slice(0, dataOffset).buffer;
+      
+      // 发送数据
       webSocket.send(dataToSend);
       dataOffset = 0;
-      responseHeader =
+      
+      // 可选: 清理响应头
+      responseHeader = null; // 或者根据需要设定
     }
   };
+
   try {
     for await (const chunk of remoteSocket.readable) {
       write(chunk);
     }
+    // 在结束时发送剩余数据
     sendData();
   } catch (error) {
+    console.error('Error while reading from remoteSocket:', error);
     closeWebSocket(webSocket);
   }
 };
+
 const base64ToBuffer = (base64Str) => {
   try {
     const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
