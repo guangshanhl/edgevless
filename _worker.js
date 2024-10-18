@@ -156,23 +156,33 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
     closeWebSocket(webSocket);
     return;
   }
-  let hasData = false;
-  const writableStream = new WritableStream({
-    async write(chunk) {
-      hasData = true;
-      const dataToSend = responseHeader
-        ? new Uint8Array([...responseHeader, ...chunk]).buffer
-        : chunk;
-      webSocket.send(dataToSend);
-      responseHeader = null;
+  const dataBuffer = new Uint8Array(1024);
+  let dataOffset = 0;
+  const write = (chunk) => {
+    if (dataOffset + chunk.length > dataBuffer.length) {
+      return;
     }
-  });
+    dataBuffer.set(chunk, dataOffset);
+    dataOffset += chunk.length;
+  };
+  const sendData = () => {
+    if (dataOffset > 0) {
+      const dataToSend = responseHeader
+        ? new Uint8Array([...responseHeader, ...dataBuffer.slice(0, dataOffset)]).buffer
+        : dataBuffer.slice(0, dataOffset).buffer;
+      webSocket.send(dataToSend);
+      dataOffset = 0;
+      responseHeader =
+    }
+  };
   try {
-    await remoteSocket.readable.pipeTo(writableStream);
+    for await (const chunk of remoteSocket.readable) {
+      write(chunk);
+    }
+    sendData();
   } catch (error) {
     closeWebSocket(webSocket);
   }
-  return hasData;
 };
 const base64ToBuffer = (base64Str) => {
   try {
