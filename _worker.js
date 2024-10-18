@@ -105,11 +105,7 @@ const createWebSocketStream = (webSocket, earlyDataHeader) => {
 };
 const processWebSocketHeader = (buffer, userID) => {
   const view = new DataView(buffer);
-  let receivedID = '';
-  for (let i = 1; i <= 16; i++) {
-    receivedID += byteToHex[view.getUint8(i)];
-    if (i === 4 || i === 6 || i === 8 || i === 10) receivedID += '-';
-  }
+  const receivedID = stringify(new Uint8Array(buffer.slice(1, 17))); 
   if (receivedID !== userID) return { hasError: true };
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
