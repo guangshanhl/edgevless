@@ -31,7 +31,8 @@ const handleHttpRequest = (request, userID) => {
 const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
-    const readableStream = createWebSocketStream(serverSocket, request.headers.get('sec-websocket-protocol') || '');
+    const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
+    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let isDns = false;
     const responseHeader = new Uint8Array(2);
