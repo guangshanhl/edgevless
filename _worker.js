@@ -31,8 +31,7 @@ const handleHttpRequest = (request, userID) => {
 const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
-    const protocols = request.headers.get('sec-websocket-protocol') || '';
-    const readableStream = createWebSocketStream(serverSocket, protocols);
+    const readableStream = createWebSocketStream(serverSocket, request.headers.get('sec-websocket-protocol') || '');
     let remoteSocket = { value: null };
     let isDns = false;
     const responseHeader = new Uint8Array(2);
@@ -83,10 +82,10 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
             return false;
         }
     };
-    const main = await connectAndForward(addressRemote, portRemote);
-    if (!main) {
-        const fallback = await connectAndForward(proxyIP, portRemote);
-        if (!fallback) {
+    //const main = await connectAndForward(addressRemote, portRemote);
+    if (!await connectAndForward(addressRemote, portRemote)) {
+       // const fallback = await connectAndForward(proxyIP, portRemote);
+        if (!await connectAndForward(proxyIP, portRemote)) {
             closeWebSocket(serverSocket);
         }
     }
