@@ -38,6 +38,10 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
         async write(chunk) {
+            if (isDns) {
+                await handleUdpRequest(serverSocket, responseHeader, chunk);
+                return;
+            }
             if (remoteSocket.value) {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
@@ -50,12 +54,12 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             isDns = isUDP && portRemote === 53;
             if (isDns) {
                 await handleUdpRequest(serverSocket, responseHeader, rawClientData);
-            } else {
-                handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
+            }
+            handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
             }
         }
     });
-    readableStream.pipeTo(writableStream, { preventClose: true });
+    readableStream.pipeTo(writableStream);
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const writeToRemote = async (socket, chunk) => {
@@ -71,7 +75,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const connectAndForward = async (address, port) => {
+    const tryconnect = async (address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return await forwardToData(tcpSocket, serverSocket, responseHeader);
@@ -79,8 +83,8 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
             return false;
         }
     };
-    if (!await connectAndForward(addressRemote, portRemote)) {
-        if (!await connectAndForward(proxyIP, portRemote)) {
+    if (!await tryconnect(addressRemote, portRemote)) {
+        if (!await tryconnect(proxyIP, portRemote)) {
             closeWebSocket(serverSocket);
         }
     }
@@ -150,7 +154,7 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
         closeWebSocket(serverSocket);
         return;
     }
-    const CHUNK_SIZE = 1024 * 1024;
+    const CHUNK_SIZE = 512 * 1024;
     let hasData = false;
     const writableStream = new WritableStream({
         async write(chunk) {
