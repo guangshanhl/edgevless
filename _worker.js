@@ -218,7 +218,7 @@ const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => 
             return cachedEntry.data;
         }
         try {
-            const response = await fetch('https://cloudflare-dns.com/dns-query', {
+            const response = await fetch('https://dns.google/dns-query', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/dns-message' },
                 body: concatenateChunks(chunks),
