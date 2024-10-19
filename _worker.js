@@ -38,10 +38,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
         async write(chunk) {
-            if (isDns) {
-                await handleUdpRequest(serverSocket, responseHeader, chunk);
-                return;
-            }
             if (remoteSocket.value) {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
