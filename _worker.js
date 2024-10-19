@@ -82,9 +82,7 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
             return false;
         }
     };
-    //const main = await connectAndForward(addressRemote, portRemote);
     if (!await connectAndForward(addressRemote, portRemote)) {
-       // const fallback = await connectAndForward(proxyIP, portRemote);
         if (!await connectAndForward(proxyIP, portRemote)) {
             closeWebSocket(serverSocket);
         }
