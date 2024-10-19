@@ -28,7 +28,6 @@ const handleHttpRequest = (request, userID) => {
     }
     return new Response("Not found", { status: 404 });
 };
-
 const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
@@ -284,7 +283,6 @@ const concatenateChunks = (chunks) => {
 const processDnsResult = (dnsResult, udpPackets, index) => {
     const responseArray = new Uint8Array(dnsResult);
     let offset = 0;
-
     while (offset < responseArray.byteLength) {
         const responseLength = new DataView(responseArray.buffer, offset, 2).getUint16(0);
         udpPackets.set(responseArray.subarray(offset, offset + responseLength), index);
