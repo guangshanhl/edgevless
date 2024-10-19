@@ -60,7 +60,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             }
         }
     });
-    readableStream.pipeTo(writableStream);
+    readableStream.pipeTo(writableStream, { preventClose: true });
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const writeToRemote = async (socket, chunk) => {
@@ -158,20 +158,17 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
         return;
     }
     const CHUNK_SIZE = 1024 * 1024;
-    let reusableBuffer = responseHeader ? new Uint8Array(responseHeader.length + CHUNK_SIZE) : new Uint8Array(CHUNK_SIZE);
     let hasData = false;
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
-            let dataToSend;
-            const chunkLength = chunk.byteLength;
+            const dataToSend = responseHeader 
+                ? new Uint8Array(responseHeader.length + chunk.byteLength) 
+                : chunk;
             if (responseHeader) {
-                reusableBuffer.set(responseHeader);
-                reusableBuffer.set(new Uint8Array(chunk), responseHeader.length);
-                dataToSend = reusableBuffer.subarray(0, responseHeader.length + chunkLength);
+                dataToSend.set(responseHeader);
+                dataToSend.set(new Uint8Array(chunk), responseHeader.length);
                 responseHeader = null;
-            } else {
-                dataToSend = chunk;
             }
             for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
                 const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
@@ -184,7 +181,6 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     } catch (error) {
         closeWebSocket(serverSocket);
     }
-
     return hasData;
 };
 const BASE64_REPLACE_REGEX = /[-_]/g;
