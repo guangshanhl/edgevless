@@ -1,5 +1,3 @@
-// <!--GAMFC-->version base on commit 5a112a0a0994b8bb834427ac84133501407f6413, time is 2024-10-11 04:49:19 UTC<!--GAMFC-END-->.
-// @ts-ignore
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
@@ -7,12 +5,6 @@ if (!isValidUUID(userID)) {
 	throw new Error('uuid is not valid');
 }
 export default {
-	/**
-	 * @param {import("@cloudflare/workers-types").Request} request
-	 * @param {{UUID: string, PROXYIP: string}} env
-	 * @param {import("@cloudflare/workers-types").ExecutionContext} ctx
-	 * @returns {Promise<Response>}
-	 */
 	async fetch(request, env, ctx) {
 		try {
 			userID = env.UUID || userID;
@@ -39,18 +31,11 @@ export default {
 				return await vlessOverWSHandler(request);
 			}
 		} catch (err) {
-			/** @type {Error} */ let e = err;
-			return new Response(e.toString());
+			return new Response(err.toString());
 		}
 	},
 };
-/**
- * 
- * @param {import("@cloudflare/workers-types").Request} request
- */
 async function vlessOverWSHandler(request) {
-	/** @type {import("@cloudflare/workers-types").WebSocket[]} */
-	// @ts-ignore
 	const webSocketPair = new WebSocketPair();
 	const [client, webSocket] = Object.values(webSocketPair);
 	webSocket.accept();
@@ -61,7 +46,6 @@ async function vlessOverWSHandler(request) {
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
 	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-	/** @type {{ value: import("@cloudflare/workers-types").Socket | null}}*/
 	let remoteSocketWapper = {
 		value: null,
 	};
@@ -124,25 +108,11 @@ async function vlessOverWSHandler(request) {
 
 	return new Response(null, {
 		status: 101,
-		// @ts-ignore
 		webSocket: client,
 	});
 }
-/**
- * Handles outbound TCP connections.
- *
- * @param {any} remoteSocket 
- * @param {string} addressRemote The remote address to connect to.
- * @param {number} portRemote The remote port to connect to.
- * @param {Uint8Array} rawClientData The raw client data to write.
- * @param {import("@cloudflare/workers-types").WebSocket} webSocket The WebSocket to pass the remote socket to.
- * @param {Uint8Array} vlessResponseHeader The VLESS response header.
- * @param {function} log The logging function.
- * @returns {Promise<void>} The remote socket.
- */
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log,) {
 	async function connectAndWrite(address, port) {
-		/** @type {import("@cloudflare/workers-types").Socket} */
 		const tcpSocket = connect({
 			hostname: address,
 			port: port,
@@ -166,13 +136,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
 	remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
 }
-
-/**
- * 
- * @param {import("@cloudflare/workers-types").WebSocket} webSocketServer
- * @param {string} earlyDataHeader for ws 0rtt
- * @param {(info: string)=> void} log for ws 0rtt
- */
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
 	const stream = new ReadableStream({
@@ -217,12 +180,6 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	});
 	return stream;
 }
-/**
- * 
- * @param { ArrayBuffer} vlessBuffer 
- * @param {string} userID 
- * @returns 
- */
 function processVlessHeader(
 	vlessBuffer,
 	userID
@@ -318,30 +275,16 @@ function processVlessHeader(
 		isUDP,
 	};
 }
-/**
- * 
- * @param {import("@cloudflare/workers-types").Socket} remoteSocket 
- * @param {import("@cloudflare/workers-types").WebSocket} webSocket 
- * @param {ArrayBuffer} vlessResponseHeader 
- * @param {(() => Promise<void>) | null} retry
- * @param {*} log 
- */
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry, log) {
 	let remoteChunkCount = 0;
 	let chunks = [];
-	/** @type {ArrayBuffer | null} */
 	let vlessHeader = vlessResponseHeader;
-	let hasIncomingData = false; // check if remoteSocket has incoming data
+	let hasIncomingData = false;
 	await remoteSocket.readable
 		.pipeTo(
 			new WritableStream({
 				start() {
 				},
-				/**
-				 * 
-				 * @param {Uint8Array} chunk 
-				 * @param {*} controller 
-				 */
 				async write(chunk, controller) {
 					hasIncomingData = true;
 					if (webSocket.readyState !== WS_READY_STATE_OPEN) {
@@ -376,11 +319,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
 		retry();
 	}
 }
-/**
- * 
- * @param {string} base64Str 
- * @returns 
- */
 function base64ToArrayBuffer(base64Str) {
 	if (!base64Str) {
 		return { error: null };
@@ -394,20 +332,12 @@ function base64ToArrayBuffer(base64Str) {
 		return { error };
 	}
 }
-/**
- * This is not real UUID validation
- * @param {string} uuid 
- */
 function isValidUUID(uuid) {
 	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	return uuidRegex.test(uuid);
 }
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-/**
- * Normally, WebSocket will not has exceptions when close.
- * @param {import("@cloudflare/workers-types").WebSocket} socket
- */
 function safeCloseWebSocket(socket) {
 	try {
 		if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
@@ -431,12 +361,6 @@ function stringify(arr, offset = 0) {
 	}
 	return uuid;
 }
-/**
- * 
- * @param {import("@cloudflare/workers-types").WebSocket} webSocket 
- * @param {ArrayBuffer} vlessResponseHeader 
- * @param {(string)=> void} log 
- */
 async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 	let isVlessHeaderSent = false;
 	const transformStream = new TransformStream({
@@ -493,12 +417,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 		}
 	};
 }
-/**
- * 
- * @param {string} userID 
- * @param {string | null} hostName
- * @returns {string}
- */
 function getVLESSConfig(userID, hostName) {
 	const vlessMain = `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2048#${hostName}`
 	return `
