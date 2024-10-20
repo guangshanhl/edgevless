@@ -53,7 +53,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
-                udpStreamWrite = await handleUdpRequest(serverSocket, responseHeader, rawClientData);
+                await handleUdpRequest(serverSocket, responseHeader, rawClientData);
             } else {
                 handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
             }
