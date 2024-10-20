@@ -46,7 +46,7 @@ async function vlessOverWSHandler(request) {
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
 	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-	let remoteSocket = {
+	let remoteSocketWapper = {
 		value: null,
 	};
 	let udpStreamWrite = null;
@@ -56,8 +56,8 @@ async function vlessOverWSHandler(request) {
 			if (isDns && udpStreamWrite) {
 				return udpStreamWrite(chunk);
 			}
-			if (remoteSocket.value) {
-				const writer = remoteSocket.value.writable.getWriter()
+			if (remoteSocketWapper.value) {
+				const writer = remoteSocketWapper.value.writable.getWriter()
 				await writer.write(chunk);
 				writer.releaseLock();
 				return;
@@ -75,14 +75,12 @@ async function vlessOverWSHandler(request) {
 			portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp ' : 'tcp '
 				} `;
 			if (hasError) {
-				throw new Error(message);
 				return;
 			}
 			if (isUDP) {
 				if (portRemote === 53) {
 					isDns = true;
 				} else {
-					throw new Error('UDP proxy only enable for DNS which is port 53');
 					return;
 				}
 			}
@@ -113,17 +111,15 @@ async function vlessOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log,) {
 	async function connectAndWrite(address, port) {
-		if (!remoteSocket.value || remoteSocket.value.closed) {
-			remoteSocket.value = connect({
-				hostname: address,
-				port: port,
-			});
-		}	
-		//remoteSocket.value = tcpSocket;
-		const writer = remoteSocket.value.writable.getWriter();
+		const tcpSocket = connect({
+			hostname: address,
+			port: port,
+		});
+		remoteSocket.value = tcpSocket;
+		const writer = tcpSocket.writable.getWriter();
 		await writer.write(rawClientData);
 		writer.releaseLock();
-		return remoteSocket.value;
+		return tcpSocket;
 	}
 	async function retry() {
 		const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
@@ -383,7 +379,7 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 	});
 	transformStream.readable.pipeTo(new WritableStream({
 		async write(chunk) {
-			const resp = await fetch('https://1.1.1.1/dns-query',
+			const resp = await fetch('https://cloudflare-dns.com/dns-query',
 				{
 					method: 'POST',
 					headers: {
@@ -409,10 +405,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 	});
 	const writer = transformStream.writable.getWriter();
 	return {
-		/**
-		 * 
-		 * @param {Uint8Array} chunk 
-		 */
 		write(chunk) {
 			writer.write(chunk);
 		}
@@ -425,24 +417,6 @@ function getVLESSConfig(userID, hostName) {
 v2ray
 ---------------------------------------------------------------
 ${vlessMain}
----------------------------------------------------------------
-################################################################
-clash-meta
----------------------------------------------------------------
-- type: vless
-  name: ${hostName}
-  server: ${hostName}
-  port: 443
-  uuid: ${userID}
-  network: ws
-  tls: true
-  udp: false
-  sni: ${hostName}
-  client-fingerprint: chrome
-  ws-opts:
-    path: "/?ed=2048"
-    headers:
-      host: ${hostName}
 ---------------------------------------------------------------
 ################################################################
 `;
