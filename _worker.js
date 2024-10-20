@@ -110,10 +110,14 @@ async function vlessOverWSHandler(request) {
 	});
 }
 
+let remoteSocketWrapper = {
+    value: null,  // 保存复用的TCP连接
+};
+
 async function connectAndWrite(address, port, rawClientData, log) {
     try {
         // 如果已有活动连接且连接未关闭，直接复用
-        if (remoteSocketWrapper.value) {
+        if (remoteSocketWrapper.value && !remoteSocketWrapper.value.closed) {
             log(`Reusing existing connection to ${address}:${port}`);
             const writer = remoteSocketWrapper.value.writable.getWriter();
             await writer.write(rawClientData);  // 写入数据
@@ -153,6 +157,7 @@ async function connectAndWrite(address, port, rawClientData, log) {
         throw error;  // 抛出错误给调用者处理
     }
 }
+
 
 async function handleTCPOutBound(addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log) {
     async function retry() {
