@@ -109,30 +109,68 @@ async function vlessOverWSHandler(request) {
 		webSocket: client,
 	});
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log,) {
-	async function connectAndWrite(address, port) {
-		const tcpSocket = connect({
-			hostname: address,
-			port: port,
-		});
-		remoteSocket.value = tcpSocket;
-		const writer = tcpSocket.writable.getWriter();
-		await writer.write(rawClientData);
-		writer.releaseLock();
-		return tcpSocket;
-	}
-	async function retry() {
-		const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
-		tcpSocket.closed.catch(error => {
-			console.log('retry tcpSocket closed error', error);
-		}).finally(() => {
-			safeCloseWebSocket(webSocket);
-		})
-		remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
-	}
-	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+
+async function connectAndWrite(address, port, rawClientData, log) {
+    try {
+        // 如果已有活动连接且连接未关闭，直接复用
+        if (remoteSocketWrapper.value) {
+            log(`Reusing existing connection to ${address}:${port}`);
+            const writer = remoteSocketWrapper.value.writable.getWriter();
+            await writer.write(rawClientData);  // 写入数据
+            writer.releaseLock();  // 释放写锁
+            return remoteSocketWrapper.value;
+        }
+
+        // 如果没有现有连接，创建新连接
+        log(`Connecting to ${address}:${port}`);
+        const tcpSocket = await connect({ hostname: address, port: port });
+
+        // 存储新连接用于下次复用
+        remoteSocketWrapper.value = tcpSocket;
+        log(`Connected to ${address}:${port}`);
+
+        // 获取写入流并写入数据
+        const writer = tcpSocket.writable.getWriter();
+        await writer.write(rawClientData);  // 写入数据
+        writer.releaseLock();  // 释放写锁，允许连接保持
+
+        return tcpSocket;  // 返回已连接的 TCP 连接对象
+    } catch (error) {
+        // 捕获异常并进行错误处理
+        log(`Error connecting or writing to ${address}:${port}:`, error);
+
+        // 确保在连接出错时，释放资源
+        if (remoteSocketWrapper.value) {
+            try {
+                await remoteSocketWrapper.value.close();
+            } catch (closeError) {
+                log('Error closing socket after failure:', closeError);
+            } finally {
+                remoteSocketWrapper.value = null;  // 清空复用连接
+            }
+        }
+
+        throw error;  // 抛出错误给调用者处理
+    }
 }
+
+async function handleTCPOutBound(addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log) {
+    async function retry() {
+        const tcpSocket = await connectAndWrite(addressRemote, portRemote, rawClientData, log);
+
+        tcpSocket.closed.catch(error => {
+            log('tcpSocket closed with error', error);
+        }).finally(() => {
+            safeCloseWebSocket(webSocket);
+        });
+
+        remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+    }
+
+    const tcpSocket = await connectAndWrite(addressRemote, portRemote, rawClientData, log);
+    remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+}
+
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
 	const stream = new ReadableStream({
