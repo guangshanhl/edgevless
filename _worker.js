@@ -34,15 +34,15 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
-	let udpStreamWrite = null;
+    let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
         async write(chunk) {
-			if (isDns && udpStreamWrite) {
-                    await udpStreamWrite(chunk);
-                    return;
-                }
+	   if (isDns && udpStreamWrite) {
+                await udpStreamWrite(chunk);
+                return;
+            }
             if (remoteSocket.value) {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
@@ -57,7 +57,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                     udpStreamWrite = await handleUdpRequest(serverSocket, responseHeader, rawClientData);
                 } else {
                     handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
-			}
+	     }
         }
     });
     readableStream.pipeTo(writableStream);
