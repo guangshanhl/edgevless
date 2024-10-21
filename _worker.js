@@ -36,6 +36,7 @@ const handleHttpRequest = (request, userID) => {
 const handleWsRequest = async(request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
+    let address = '';
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = {
@@ -43,7 +44,6 @@ const handleWsRequest = async(request, userID, proxyIP) => {
     };
     let udpStreamWrite = null;
     let isDns = false;
-    const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
         async write(chunk) {
             if (isDns && udpStreamWrite) {
@@ -55,16 +55,16 @@ const handleWsRequest = async(request, userID, proxyIP) => {
             }
             const {
                 hasError,
-                addressRemote,
-                portRemote,
+                addressRemote = '',
+                portRemote = 443,
                 rawDataIndex,
-                vlessVersion,
+                vlessVersion = new Uint8Array([0, 0]),
                 isUDP
             } = processWebSocketHeader(chunk, userID);
+            address = addressRemote;
             if (hasError)
                 return;
-            responseHeader[0] = vlessVersion[0];
-            responseHeader[1] = 0;
+            const responseHeader = new Uint8Array([vlessVersion[0], 0]);
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
@@ -93,7 +93,7 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
         remoteSocket.value = await connect({
             hostname: address,
-            port
+            port: port,
         });
     }
     await writeToRemote(remoteSocket.value, rawClientData);
@@ -157,6 +157,11 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     return stream;
 };
 const processWebSocketHeader = (buffer, userID) => {
+    if (buffer.byteLength < 24) {
+		return {
+			hasError: true,
+		};
+	}
     const view = new DataView(buffer);
     const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
     if (receivedID !== userID)
