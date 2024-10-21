@@ -197,16 +197,14 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
+    if (serverSocket.readyState !== WebSocket.OPEN) {
+        return;
+    }
     const CHUNK_SIZE = 1024 * 1024;
     let hasData = false;
     const writableStream = new WritableStream({
         async write(chunk) {
             hasData = true;
-            if (serverSocket.readyState !== WebSocket.OPEN) {
-                controller.error(
-                    'serverSocket;.readyState is not open, maybe close');
-		return；
-            }
             const dataToSend = responseHeader
                  ? new Uint8Array(responseHeader.length + chunk.byteLength)
                  : chunk;
