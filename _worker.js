@@ -197,33 +197,6 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
-    let chunks = [];
-    let vlessHeader = responseHeader;
-    let hasData = false;
-    await remoteSocket.readable
-    .pipeTo(
-        new WritableStream({
-            start() {},
-            async write(chunk, controller) {
-                hasData = true;
-                if (serverSocket.readyState !== WebSocket.OPEN) {
-                    controller.error(
-                        'serverSocket;.readyState is not open, maybe close');
-                }
-                if (vlessHeader) {
-                    serverSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
-                    vlessHeader = null;
-                } else {
-                    serverSocket.send(chunk);
-                }
-            },
-        }))
-    .catch((error) => {
-        closeWebSocket(serverSocket);
-    });
-    return hasData;
-}
-const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     const CHUNK_SIZE = 1024 * 1024;
     let hasData = false;
     const writableStream = new WritableStream({
@@ -232,7 +205,7 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
             if (serverSocket.readyState !== WebSocket.OPEN) {
                 controller.error(
                     'serverSocket;.readyState is not open, maybe close');
-				return；
+		return；
             }
             const dataToSend = responseHeader
                  ? new Uint8Array(responseHeader.length + chunk.byteLength)
