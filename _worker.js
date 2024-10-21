@@ -206,7 +206,7 @@ const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
         closeWebSocket(serverSocket);
         return;
     }
-    const CHUNK_SIZE = 2048 * 1024;
+    const CHUNK_SIZE = 4096 * 1024;
     let hasData = false;
     const writableStream = new WritableStream({
         async write(chunk) {
