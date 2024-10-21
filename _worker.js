@@ -197,36 +197,32 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
-    if (serverSocket.readyState !== WebSocket.OPEN) {
-        closeWebSocket(serverSocket);
-        return;
-    }
-    const CHUNK_SIZE = 1024 * 1024;
+    let chunks = [];
+    let vlessHeader = responseHeader;
     let hasData = false;
-    const writableStream = new WritableStream({
-        async write(chunk) {
-            hasData = true;
-            const dataToSend = responseHeader
-                 ? new Uint8Array(responseHeader.length + chunk.byteLength)
-                 : chunk;
-            if (responseHeader) {
-                dataToSend.set(responseHeader);
-                dataToSend.set(new Uint8Array(chunk), responseHeader.length);
-                responseHeader = null;
-            }
-            for (let offset = 0; offset < dataToSend.byteLength; offset += CHUNK_SIZE) {
-                const end = Math.min(offset + CHUNK_SIZE, dataToSend.byteLength);
-                serverSocket.send(dataToSend.slice(offset, end));
-            }
-        }
-    });
-    try {
-        await remoteSocket.readable.pipeTo(writableStream);
-    } catch (error) {
+    await remoteSocket.readable
+    .pipeTo(
+        new WritableStream({
+            start() {},
+            async write(chunk, controller) {
+                hasData = true;
+                if (serverSocket.readyState !== WebSocket.OPEN) {
+                    controller.error(
+                        'serverSocket;.readyState is not open, maybe close');
+                }
+                if (vlessHeader) {
+                    serverSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+                    vlessHeader = null;
+                } else {
+                    serverSocket.send(chunk);
+                }
+            },
+        }))
+    .catch((error) => {
         closeWebSocket(serverSocket);
-    }
+    });
     return hasData;
-};
+}
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
