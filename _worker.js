@@ -205,7 +205,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
 };
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
-        closeWebSocket(serverSocket);
+        //closeWebSocket(serverSocket);
         return;
     }
     const CHUNK_SIZE = 1024 * 1024;
