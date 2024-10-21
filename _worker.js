@@ -111,44 +111,46 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-  let readableStreamCancel = false;
-  const stream = new ReadableStream({
-    start(controller) {
-      serverSocket.addEventListener("message", (event) => {
-        if (readableStreamCancel) {
-          return;
-        }
-        const message = event.data;
-        controller.enqueue(message);
-      });
-      serverSocket.addEventListener("close", () => {
-        closeWebSocket(serverSocket);
-        if (readableStreamCancel) {
-          return;
-        }
-        controller.close();
-      });
-      serverSocket.addEventListener("error", (err) => {
-        controller.error(err);
-      });
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) {
-        controller.error(error);
-      } else if (earlyData) {
-        controller.enqueue(earlyData);
-      }
-    },
-    pull(controller) {
-    },
-    cancel(reason) {
-      if (readableStreamCancel) {
-        return;
-      }
-      readableStreamCancel = true;
-     closeWebSocket(serverSocket);
-    },
-  });
-  return stream;
+    let readableStreamCancel = false;
+    const stream = new ReadableStream({
+        start(controller) {
+            serverSocket.addEventListener("message", (event) => {
+                if (readableStreamCancel) {
+                    return;
+                }
+                const message = event.data;
+                controller.enqueue(message);
+            });
+            serverSocket.addEventListener("close", () => {
+                closeWebSocket(serverSocket);
+                if (readableStreamCancel) {
+                    return;
+                }
+                controller.close();
+            });
+            serverSocket.addEventListener("error", (err) => {
+                controller.error(err);
+            });
+            const {
+                earlyData,
+                error
+            } = base64ToBuffer(earlyDataHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
+            }
+        },
+        pull(controller) {},
+        cancel(reason) {
+            if (readableStreamCancel) {
+                return;
+            }
+            readableStreamCancel = true;
+            closeWebSocket(serverSocket);
+        },
+    });
+    return stream;
 };
 const processWebSocketHeader = (buffer, userID) => {
     const view = new DataView(buffer);
