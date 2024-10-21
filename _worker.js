@@ -201,33 +201,29 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
-    let chunks = [];
-    let vlessHeader = responseHeader;
-    let hasData = false;
-    await remoteSocket.readable
-    .pipeTo(
-        new WritableStream({
-            start() {},
-            async write(chunk, controller) {
-                hasData = true;
-                if (serverSocket.readyState !== WebSocket.OPEN) {
-                    controller.error(
-                        'serverSocket;.readyState is not open, maybe close');
-                }
-                if (vlessHeader) {
-                    serverSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
-                    vlessHeader = null;
-                } else {
-                    serverSocket.send(chunk);
-                }
-            },
-        }))
-    .catch((error) => {
-        closeWebSocket(serverSocket);
-    });
-    return hasData;
-}
+const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
+  let hasData = false;
+  let headerBuffer = responseHeader ? await new Blob([responseHeader]).arrayBuffer() : null;
+  const writableStream = new WritableStream({
+    async write(chunk, controller) {
+      hasData = true;
+      if (serverSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const dataToSend = headerBuffer
+        ? new Uint8Array([...new Uint8Array(headerBuffer), ...new Uint8Array(chunk)]).buffer
+        : chunk;
+      serverSocket.send(dataToSend);
+      headerBuffer = null;
+    },
+  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(serverSocket);
+  }
+  return hasData;
+};
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
