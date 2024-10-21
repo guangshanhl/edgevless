@@ -20,18 +20,16 @@ export default {
 const handleHttpRequest = (request, userID) => {
     const url = new URL(request.url);
     const path = url.pathname;
-    if (path === "/")
-        return new Response(JSON.stringify(request.cf, null, 4));
-    if (path === `/${userID}`) {
-        return new Response(getConfig(userID, request.headers.get("Host")), {
-            headers: {
-                "Content-Type": "text/plain;charset=utf-8"
-            }
-        });
+    switch (path) {
+        case '/':
+            return new Response(JSON.stringify(request.cf, null, 4));
+        case `/${userID}`:
+            return new Response(getConfig(userID, request.headers.get("Host")), {
+                headers: { "Content-Type": "text/plain;charset=utf-8" }
+            });
+        default:
+            return new Response("Not found", { status: 404 });
     }
-    return new Response("Not found", {
-        status: 404
-    });
 };
 const handleWsRequest = async(request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
@@ -80,18 +78,10 @@ const handleWsRequest = async(request, userID, proxyIP) => {
         webSocket: clientSocket
     });
 };
-const writeToRemote = async (socket, chunk) => {
-    if (!socket || socket.closed) {
-        throw new Error('Socket is not available or already closed.');
-    }
+const writeToRemote = async(socket, chunk) => {
     const writer = socket.writable.getWriter();
-    try {
-        await writer.write(chunk);
-    } catch (error) {
-        throw error;
-    } finally {
-        writer.releaseLock();
-    }
+    await writer.write(chunk);
+    writer.releaseLock();
 };
 const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -103,8 +93,8 @@ const connectAndWrite = async(remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const tryConnect = async (address, port) => {
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    const tryconnect = async(address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return await forwardToData(tcpSocket, serverSocket, responseHeader);
@@ -112,70 +102,33 @@ const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClie
             return false;
         }
     };
-    try {
-        if (!await tryConnect(addressRemote, portRemote)) {
-            if (!await tryConnect(proxyIP, portRemote)) {
-                closeWebSocket(serverSocket);
-            }
-        }
-    } catch (error) {
-        closeWebSocket(serverSocket);
-        if (remoteSocket.value) {
-            remoteSocket.value.close();
+    if (!await tryconnect(addressRemote, portRemote)) {
+        if (!await tryconnect(proxyIP, portRemote)) {
+            closeWebSocket(serverSocket);
         }
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-    const eventListeners = new Set();
+    const earlyData = earlyDataHeader ? base64ToBuffer(earlyDataHeader).earlyData : null;
     const readableStream = new ReadableStream({
         start(controller) {
-            const {
-                earlyData,
-                error
-            } = base64ToBuffer(earlyDataHeader);
-            if (error)
-                return controller.error(error);
-            if (earlyData)
-                controller.enqueue(earlyData);
-            const handleMessage = (event) => controller.enqueue(event.data);
-            const handleClose = () => {
-                controller.close();
-                removeWebSocketListeners(serverSocket);
-            };
-            const handleError = (err) => {
-                controller.error(err);
-                removeWebSocketListeners(serverSocket);
-            };
-            eventListeners.add({
-                event: 'message',
-                handler: handleMessage
+            if (earlyData) controller.enqueue(earlyData);
+            const messageHandler = (event) => controller.enqueue(event.data);
+            const closeHandler = () => controller.close();
+            const errorHandler = (err) => controller.error(err);
+            serverSocket.addEventListener('message', messageHandler);
+            serverSocket.addEventListener('close', closeHandler);
+            serverSocket.addEventListener('error', errorHandler);
+            controller.closed.finally(() => {
+                serverSocket.removeEventListener('message', messageHandler);
+                serverSocket.removeEventListener('close', closeHandler);
+                serverSocket.removeEventListener('error', errorHandler);
             });
-            eventListeners.add({
-                event: 'close',
-                handler: handleClose
-            });
-            eventListeners.add({
-                event: 'error',
-                handler: handleError
-            });
-            serverSocket.addEventListener('message', handleMessage);
-            serverSocket.addEventListener('close', handleClose);
-            serverSocket.addEventListener('error', handleError);
         },
         cancel() {
-            removeWebSocketListeners(serverSocket);
             closeWebSocket(serverSocket);
         }
     });
-    const removeWebSocketListeners = (socket) => {
-        eventListeners.forEach(({
-                event,
-                handler
-            }) => {
-            socket.removeEventListener(event, handler);
-        });
-        eventListeners.clear();
-    };
     return readableStream;
 };
 const processWebSocketHeader = (buffer, userID) => {
@@ -225,6 +178,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
 };
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     if (serverSocket.readyState !== WebSocket.OPEN) {
+        closeWebSocket(serverSocket);
         return;
     }
     const CHUNK_SIZE = 1024 * 1024;
