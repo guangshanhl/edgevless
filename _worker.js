@@ -157,44 +157,38 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     return stream;
 };
 const processWebSocketHeader = (buffer, userID) => {
-    const view = new DataView(buffer);
-    const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
-    if (receivedID !== userID)
-        return {
-            hasError: true
-        };
-    const optLength = view.getUint8(17);
-    const startIndex = 18 + optLength;
-    const command = view.getUint8(startIndex);
-    const isUDP = command === 2;
-    const portRemote = view.getUint16(startIndex + 1);
-    const version = new Uint8Array(buffer.slice(0, 1));
-    const {
-        addressRemote,
-        rawDataIndex
-    } = getAddressInfo(view, buffer, 18 + optLength + 3);
-    return {
-        hasError: false,
-        addressRemote,
-        portRemote,
-        rawDataIndex,
-        vlessVersion: version,
-        isUDP
-    };
+  const view = new DataView(buffer);
+  const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
+  if (receivedID !== userID) return { hasError: true };
+  const optLength = view.getUint8(17);
+  const startIndex = 18 + optLength;
+  const command = view.getUint8(startIndex);
+  const isUDP = command === 2;
+  const portRemote = view.getUint16(startIndex + 1);
+  const version = new Uint8Array(buffer.slice(0, 1));
+  const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, startIndex + 3);
+  return {
+    hasError: false,
+    addressRemote,
+    portRemote,
+    rawDataIndex,
+    vlessVersion: version,
+    isUDP
+  };
 };
 const getAddressInfo = (view, buffer, startIndex) => {
-    const addressType = view.getUint8(startIndex);
-    const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
-    const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-    const addressValue = addressType === 1
-         ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-         : addressType === 2
-         ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-         : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
-    return {
-        addressRemote: addressValue,
-        rawDataIndex: addressValueIndex + addressLength
-    };
+  const addressType = view.getUint8(startIndex);
+  const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
+  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
+  const addressRemote = addressType === 1
+    ? Array.from(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + 4))).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + addressLength)))
+    : Array.from(new Uint8Array(buffer.subarray(addressValueIndex, addressValueIndex + 16))).map(b => b.toString(16).padStart(2, '0')).join(':');
+  return {
+    addressRemote,
+    rawDataIndex: addressValueIndex + addressLength
+  };
 };
 const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
     let chunks = [];
