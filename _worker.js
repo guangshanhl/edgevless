@@ -201,11 +201,9 @@ const getAddressInfo = (view, buffer, startIndex) => {
         rawDataIndex: addressValueIndex + addressLength
     };
 };
-async function forwardToData(remoteSocket, serverSocket, responseHeader) {
-  let hasData = false;
+const forwardToData = async(remoteSocket, serverSocket, responseHeader) => {
   const writableStream = new WritableStream({
     async write(chunk) {
-	  hasData = true;
       if (serverSocket.readyState === WebSocket.OPEN) {
         const buffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
         buffer.set(responseHeader);
@@ -216,10 +214,11 @@ async function forwardToData(remoteSocket, serverSocket, responseHeader) {
     },
   });
   remoteSocket.readable.pipeTo(writableStream).catch((error) => {
-    closeWebSocket(serverSocket);
+    closeWebSocket(serverSocket);	  
   });
-  return hasData;
-}
+
+  return true;
+};
 const BASE64_REPLACE_REGEX = /[-_]/g;
 const replaceBase64Chars = (str) => str.replace(BASE64_REPLACE_REGEX, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
