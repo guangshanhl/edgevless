@@ -45,7 +45,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
             }
-            const { hasError, addressRemote, portRemote, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
+            const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
@@ -57,7 +57,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                 udpStreamWrite(rawClientData);
                 return;
             }
-            handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
+            handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
@@ -78,7 +78,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const tryconnect = async(address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
@@ -87,8 +87,8 @@ const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClien
             return false;
         }
     };
-    if (!await tryconnect(addressRemote, portRemote)) {
-        if (!await tryconnect(proxyIP, portRemote)) {
+    if (!await tryconnect(address, port)) {
+        if (!await tryconnect(proxyIP, port)) {
             closeWebSocket(serverSocket);
         }
     }
@@ -139,8 +139,8 @@ const processWebSocketHeader = (buffer, userID) => {
     const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3);
     return {
         hasError: false,
-        addressRemote,
-        portRemote,
+        address,
+        port,
         rawDataIndex,
         passVersion: version,
         isUDP
