@@ -65,8 +65,11 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 };
 const writeToRemote = async (socket, chunk) => {
     const writer = socket.writable.getWriter();
-    await writer.write(chunk);
-    writer.releaseLock();
+    try {
+        await writer.write(chunk);
+    } finally {
+        writer.releaseLock();
+    }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -75,17 +78,19 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
+const connectAndForward = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader) => {
+    try {
+        const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+        return await forwardToData(tcpSocket, serverSocket, responseHeader);
+    } catch (error) {
+        return false;
+    }
+};
 const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const tryconnect = async (address, port) => {
-        try {
-            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-            return await forwardToData(tcpSocket, serverSocket, responseHeader);
-        } catch (error) {
-            return false;
-        }
-    };
-    if (!await tryconnect(addressRemote, portRemote)) {
-        if (!await tryconnect(proxyIP, portRemote)) {
+    const success = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader);
+    if (!success) {
+        const proxySuccess = await tryConnectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, serverSocket, responseHeader);
+        if (!proxySuccess) {
             closeWebSocket(serverSocket);
         }
     }
@@ -161,14 +166,14 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
-    const isServerSocketOpen = () => serverSocket.readyState === WebSocket.OPEN;
+    const serverSocketOpen = () => serverSocket.readyState === WebSocket.OPEN;
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
                 start() {},
                 async write(chunk, controller) {
                     hasData = true;
-                    if (!isServerSocketOpen()) {
+                    if (!serverSocketOpen()) {
                         controller.error('serverSocket is closed');
                         return;
                     }
@@ -214,28 +219,39 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
     let headerSent = false;
     const transformStream = new TransformStream({
         start(controller) {},
-        transform(chunk, controller) {
-            for (let index = 0; index < chunk.byteLength; ) {
+        async transform(chunk, controller) {
+            let index = 0;
+            const tasks = [];
+            while (index < chunk.byteLength) {
                 const lengthBuffer = chunk.slice(index, index + 2);
-                const udpPakcetLength = new DataView(lengthBuffer).getUint16(0);
-                const udpData = new Uint8Array(chunk.slice(index + 2, index + 2 + udpPakcetLength));
-                index = index + 2 + udpPakcetLength;
-                handleDNSRequest(udpData).then(response => {
-                    const length = response.byteLength;
-                    const udpBuffer = new Uint8Array(2 + length);
-                    udpBuffer.set(new Uint8Array([length >> 8, length & 0xff]));
-                    udpBuffer.set(new Uint8Array(response), 2);
-                    if (!headerSent) {
-                        headerSent = true;
-                        serverSocket.send(new Blob([responseHeader, udpBuffer]).arrayBuffer());
-                    } else {
-                        serverSocket.send(udpBuffer);
-                    }
-                });
+                const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
+                const udpData = new Uint8Array(chunk.slice(index + 2, index + 2 + udpPacketLength));
+                index += 2 + udpPacketLength;
+                tasks.push(
+                    handleDNSRequest(udpData).then(response => {
+                        const length = response.byteLength;
+                        const udpBuffer = new Uint8Array(2 + length);
+                        udpBuffer[0] = length >> 8;
+                        udpBuffer[1] = length & 0xff;
+                        udpBuffer.set(new Uint8Array(response), 2);
+                        if (!headerSent) {
+                            headerSent = true;
+                            const combinedBuffer = new Uint8Array(responseHeader.byteLength + udpBuffer.byteLength);
+                            combinedBuffer.set(new Uint8Array(responseHeader), 0);
+                            combinedBuffer.set(udpBuffer, responseHeader.byteLength);
+                            serverSocket.send(combinedBuffer);
+                        } else {
+                            serverSocket.send(udpBuffer);
+                        }
+                    })
+                );
             }
+            await Promise.all(tasks);
         },
     });
-    return { write: (chunk) => transformStream.writable.getWriter().write(chunk) };
+    return {
+        write: (chunk) => transformStream.writable.getWriter().write(chunk)
+    };
 };
 const handleDNSRequest = async (queryPacket) => {
     const dnsResponse = await fetch("https://1.1.1.1/dns-query", {
@@ -246,8 +262,7 @@ const handleDNSRequest = async (queryPacket) => {
         },
         body: queryPacket,
     });
-    const arrayBuffer = await dnsResponse.arrayBuffer();
-    return arrayBuffer;
+    return dnsResponse.arrayBuffer();
 };
 const getConfig = (userID, host) => {
     return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F#vless+cfworker`;
