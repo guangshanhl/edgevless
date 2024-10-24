@@ -163,7 +163,7 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-    const maxBufferSize = 1024 * 64;
+    const maxBufferSize = 1024 * 1024;
     let buffer = new Uint8Array(maxBufferSize);
     let bufferLength = 0;
     let hasData = false;
