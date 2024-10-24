@@ -45,7 +45,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
             }
-            const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
+            const { hasError, addressRemote, portRemote, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
@@ -57,7 +57,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                 udpStreamWrite(rawClientData);
                 return;
             }
-            handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
+            handleTcpRequest(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
@@ -78,7 +78,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const tryconnect = async(address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
@@ -87,8 +87,8 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
             return false;
         }
     };
-    if (!await tryconnect(address, port)) {
-        if (!await tryconnect(proxyIP, port)) {
+    if (!await tryconnect(addressRemote, portRemote)) {
+        if (!await tryconnect(proxyIP, portRemote)) {
             closeWebSocket(serverSocket);
         }
     }
@@ -138,8 +138,8 @@ const processWebSocketHeader = (buffer, userID) => {
     const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3);
     return {
         hasError: false,
-        address,
-        port,
+        addressRemote,
+        portRemote,
         rawDataIndex,
         passVersion: version,
         isUDP
@@ -160,13 +160,14 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
+    let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
     const serverSocketOpen = () => serverSocket.readyState === WebSocket.OPEN;
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
-                async write(chunk) {
+                async write(chunk, controller) {
                     hasData = true;
                     if (!serverSocketOpen()) {
                         controller.error('serverSocket is closed');
@@ -213,6 +214,7 @@ const stringify = (arr, offset = 0) => {
 const handleUdpRequest = async (serverSocket, responseHeader) => {
     let headerSent = false;
     const transformStream = new TransformStream({
+        start(controller) {},
         async transform(chunk, controller) {
             let index = 0;
             const tasks = [];
