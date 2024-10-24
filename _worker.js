@@ -133,9 +133,9 @@ const processWebSocketHeader = (buffer, userID) => {
     const startIndex = 18 + optLength;
     const command = view.getUint8(startIndex);
     const isUDP = command === 2;
-    const portRemote = view.getUint16(startIndex + 1);
+    const port = view.getUint16(startIndex + 1);
     const version = new Uint8Array(buffer.slice(0, 1));
-    const { addressRemote, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3);
+    const { address, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3);
     return {
         hasError: false,
         address,
