@@ -50,7 +50,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 			address = addressRemote;
 			port = portRemote;
             if (hasError) return;
-            responseHeader = new Uint8Array([vlessVersion[0], 0]);
+            responseHeader = new Uint8Array([passVersion[0], 0]);
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
