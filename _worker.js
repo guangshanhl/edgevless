@@ -32,7 +32,8 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
-    let remoteSocket = { value: null };
+    let oneSocket = { value: null };
+    let twoSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
@@ -41,8 +42,12 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
             }
-            if (remoteSocket.value) {
-                await writeToRemote(remoteSocket.value, chunk);
+            if (oneSocket.value) {
+                await writeToRemote(oneSocket.value, chunk);
+                return;
+            }
+            if (twoSocket.value) {
+                await writeToRemote(twoSocket.value, chunk);
                 return;
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
@@ -57,7 +62,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                 udpStreamWrite(rawClientData);
                 return;
             }
-            handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
+            handleTcpRequest(oneSocket, twoSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
@@ -78,19 +83,41 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const tryconnect = async(address, port) => {
+const handleTcpRequest = async (oneSocket, twoSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    // 创建两个 Promise，同时尝试连接 address 和 proxyIP
+    const tryConnectAddress = async () => {
         try {
-            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-            return await forwardToData(tcpSocket, serverSocket, responseHeader);
+            return await connectAndWrite(oneSocket, address, port, rawClientData);
         } catch (error) {
             return false;
         }
     };
-    if (!await tryconnect(address, port)) {
-        if (!await tryconnect(proxyIP, port)) {
-            closeWebSocket(serverSocket);
+    
+    const tryConnectProxy = async () => {
+        try {
+            return await connectAndWrite(twoSocket, proxyIP, port, rawClientData);
+        } catch (error) {
+            return false;
         }
+    };
+
+    // 并行尝试连接 address 和 proxyIP
+    const [addressResult, proxyResult] = await Promise.all([tryConnectAddress(), tryConnectProxy()]);
+
+    // 如果 address 连接成功
+    if (addressResult) {
+        // 继续数据转发，优先使用 address 连接
+        await forwardToData(oneSocket, serverSocket, responseHeader);
+    } 
+    // 如果 address 连接失败但 proxyIP 成功
+    else if (proxyResult) {
+        // 继续数据转发，使用 proxyIP 连接
+        await forwardToData(twoSocket, serverSocket, responseHeader);
+    } 
+    // 如果两个连接都失败
+    else {
+        // 关闭 WebSocket 连接
+        closeWebSocket(serverSocket);
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
