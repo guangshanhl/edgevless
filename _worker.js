@@ -78,19 +78,17 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const connectAndForward = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader) => {
-    try {
-        const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-        return await forwardToData(tcpSocket, serverSocket, responseHeader);
-    } catch (error) {
-        return false;
-    }
-};
-const handleTcpRequest = async (remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const success = await connectAndForward(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader);
-    if (!success) {
-        const proxySuccess = await tryConnectAndForward(remoteSocket, proxyIP, portRemote, rawClientData, serverSocket, responseHeader);
-        if (!proxySuccess) {
+const handleTcpRequest = async(remoteSocket, addressRemote, portRemote, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    const tryconnect = async(address, port) => {
+        try {
+            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
+            return await forwardToData(tcpSocket, serverSocket, responseHeader);
+        } catch (error) {
+            return false;
+        }
+    };
+    if (!await tryconnect(addressRemote, portRemote)) {
+        if (!await tryconnect(proxyIP, portRemote)) {
             closeWebSocket(serverSocket);
         }
     }
