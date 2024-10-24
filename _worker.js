@@ -36,7 +36,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
-    const readableStream = new WritableStream({
+    const writableStream = new WritableStream({
         async write(chunk) {
             if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
@@ -49,15 +49,15 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             if (hasError) return;
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
-            const clientData = chunk.slice(rawDataIndex);
+            const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
                 udpStreamWrite = write;
-                udpStreamWrite(clientData);
+                udpStreamWrite(rawClientData);
                 return;
             }
-            handleTcpRequest(remoteSocket, address, port, clientData, serverSocket, responseHeader, proxyIP);
+            handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
@@ -71,17 +71,17 @@ const writeToRemote = async (socket, chunk) => {
         writer.releaseLock();
     }
 };
-const connectAndWrite = async (remoteSocket, address, port, clientData) => {
+const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
         remoteSocket.value = await connect({ hostname: address, port });
     }
-    await writeToRemote(remoteSocket.value, clientData);
+    await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async(remoteSocket, address, port, clientData, serverSocket, responseHeader, proxyIP) => {
+const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const tryconnect = async(address, port) => {
         try {
-            const tcpSocket = await connectAndWrite(remoteSocket, address, port, clientData);
+            const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return await forwardToData(tcpSocket, serverSocket, responseHeader);
         } catch (error) {
             return false;
