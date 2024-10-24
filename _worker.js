@@ -30,13 +30,12 @@ const handleHttpRequest = (request, userID) => {
 const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
-	let address = '';
-	let port = '';
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
+    const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
         async write(chunk) {
             if (isDns && udpStreamWrite) {
@@ -47,10 +46,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
                 return;
             }
             const { hasError, addressRemote, portRemote, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
-			address = addressRemote;
-			port = portRemote;
             if (hasError) return;
-            responseHeader = new Uint8Array([passVersion[0], 0]);
+            responseHeader[0] = passVersion[0];
+            responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
@@ -75,7 +73,7 @@ const writeToRemote = async (socket, chunk) => {
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
-        remoteSocket.value = await connect({ hostname: address, port: port });
+        remoteSocket.value = await connect({ hostname: address, port });
     }
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
@@ -170,7 +168,6 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
-                start() {},
                 async write(chunk, controller) {
                     hasData = true;
                     if (!serverSocketOpen()) {
@@ -218,7 +215,6 @@ const stringify = (arr, offset = 0) => {
 const handleUdpRequest = async (serverSocket, responseHeader) => {
     let headerSent = false;
     const transformStream = new TransformStream({
-        start(controller) {},
         async transform(chunk, controller) {
             let index = 0;
             const tasks = [];
