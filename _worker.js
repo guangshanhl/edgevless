@@ -35,10 +35,11 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
+	let isDns = false;
     const responseHeader = new Uint8Array(2);
-    const readableStream = new WritableStream({
+    const writableStream = new WritableStream({
         async write(chunk) {
-            if (udpStreamWrite) {
+            if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
             }
             if (remoteSocket.value) {
@@ -50,8 +51,10 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
-            if (isUDP && port === 53) {
-                udpStreamWrite = await handleUdpRequest(serverSocket, responseHeader);
+            isDns = isUDP && portRemote === 53;
+            if (isDns) {
+                const { write } = await handleUdpRequest(serverSocket, responseHeader);
+                udpStreamWrite = write;
                 udpStreamWrite(rawClientData);
                 return;
             }
@@ -135,14 +138,14 @@ class WebSocketHeader {
 const processWebSocketHeader = (buffer, userID) => {
     const bytes = new Uint8Array(buffer);
     const receivedID = stringify(bytes.slice(1, 17));
-    if (receivedID !== userID) return new WebSocketHeader(true);
+    if (receivedID !== userID) return new WebSocketHeader(hasError);
     const optLength = bytes[17];
     const commandStartIndex = 18 + optLength;
     const command = bytes[commandStartIndex];
     const isUDP = command === 2;
     const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
     const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-    return new WebSocketHeader(false, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
+    return new WebSocketHeader(hasError, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
     const addressType = bytes[startIndex];
