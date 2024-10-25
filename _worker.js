@@ -15,9 +15,10 @@ export default {
     }
 };
 const handleHttpRequest = (request, userID) => {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
+    const path = new URL(request.url).pathname;
+    if (path === "/") {
+        return new Response(JSON.stringify(request.cf, null, 4));
+    }
     if (path === `/${userID}`) {
         return new Response(getConfig(userID, request.headers.get("Host")), {
             headers: {
