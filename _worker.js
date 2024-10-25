@@ -65,11 +65,8 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 };
 const writeToRemote = async (socket, chunk) => {
     const writer = socket.writable.getWriter();
-    try {
-        await writer.write(chunk);
-    } finally {
-        writer.releaseLock();
-    }
+    await writer.write(chunk);
+    writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -88,7 +85,7 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
         }
     };
     if (!await tryconnect(address, port)) {
-        if (await tryconnect(proxyIP, port)) {
+        if (!await tryconnect(proxyIP, port)) {
             closeWebSocket(serverSocket);
         }
     }
@@ -160,7 +157,6 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-    let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
     const serverSocketOpen = () => serverSocket.readyState === WebSocket.OPEN;
