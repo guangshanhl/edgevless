@@ -149,23 +149,25 @@ const processWebSocketHeader = (buffer, userID) => {
     return new WebSocketHeader(false, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
-  const addressType = bytes[startIndex];
-  let addressLength;
-  if (addressType === 2) {
-    addressLength = bytes[startIndex + 1];
-  } else if (addressType === 1) {
-    addressLength = 4;
-  } else {
-    addressLength = 16;
-  }
-  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-  const addressBuffer = new ArrayBuffer(addressLength * 2 + 1);
-  const addressView = new Uint8Array(addressBuffer);
-  const addressString = String.fromCharCode(...addressView);
-  return {
-    address: addressString,
-    rawDataIndex: addressValueIndex + addressLength,
-  };
+    const addressType = bytes[startIndex];
+    let addressLength;
+    if (addressType === 2) {
+        addressLength = bytes[startIndex + 1];
+    } else if (addressType === 1) {
+        addressLength = 4;
+    } else {
+        addressLength = 16;
+    }
+    const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
+    const addressValue = (addressType === 1)
+        ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
+        : (addressType === 2)
+            ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
+            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    return {
+        address: addressValue,
+        rawDataIndex: addressValueIndex + addressLength,
+    };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     let chunks = [];
