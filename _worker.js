@@ -33,37 +33,48 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
-    let remoteSocket = { value: null };
-    let udpStreamWrite = null;
-    let isDns = false;
-    const responseHeader = new Uint8Array(2);
+    
+    const remoteSocket = { value: null }; // 用于存储远程 socket
+    let udpStreamWrite = null; // 用于 UDP 流写入
+    const responseHeader = new Uint8Array(2); // 响应头
+
     const writableStream = new WritableStream({
         async write(chunk) {
-            if (isDns && udpStreamWrite) {
-                return udpStreamWrite(chunk);
-            }
-            if (remoteSocket.value) {
-                await writeToRemote(remoteSocket.value, chunk);
-                return;
-            }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
-            if (hasError) return;
+            if (hasError) return; // 如果有错误则返回
+
             responseHeader[0] = passVersion[0];
-            responseHeader[1] = 0;
-            const rawClientData = chunk.slice(rawDataIndex);
-            isDns = isUDP && portRemote === 53;
-            if (isDns) {
-                const { write } = await handleUdpRequest(serverSocket, responseHeader);
-                udpStreamWrite = write;
-                udpStreamWrite(rawClientData);
+            responseHeader[1] = 0; // 默认设置
+
+            const rawClientData = chunk.slice(rawDataIndex); // 获取有效数据
+
+            // 如果是 DNS 请求
+            if (isUDP && port === 53) {
+                if (!udpStreamWrite) {
+                    const { write } = await handleUdpRequest(serverSocket, responseHeader);
+                    udpStreamWrite = write;
+                }
+                await udpStreamWrite(rawClientData); // 写入 UDP 流
                 return;
             }
-            handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
+
+            // 如果存在远程 socket，写入数据
+            if (remoteSocket.value) {
+                await writeToRemote(remoteSocket.value, rawClientData);
+                return;
+            }
+
+            // 尝试连接远程 TCP
+            await handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
+
+    // 管道连接 readableStream 和 writableStream
     readableStream.pipeTo(writableStream);
-    return new Response(null, { status: 101, webSocket: clientSocket });
+
+    return new Response(null, { status: 101, webSocket: clientSocket }); // 返回 WebSocket 连接
 };
+
 const writeToRemote = async (socket, chunk) => {
     const writer = socket.writable.getWriter();
     await writer.write(chunk);
