@@ -170,8 +170,6 @@ const getAddressInfo = (bytes, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-    let chunks = [];
-    let vlessHeader = responseHeader;
     let hasData = false;
     try {
         await remoteSocket.readable.pipeTo(
@@ -182,15 +180,11 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
                         controller.error('serverSocket is closed');
                         return;
                     }
-                    if (vlessHeader) {
-                        const combined = new Uint8Array(vlessHeader.length + chunk.length);
-                        combined.set(vlessHeader, 0);
-                        combined.set(new Uint8Array(chunk), vlessHeader.length);
-                        serverSocket.send(combined);
-                        vlessHeader = null;
-                    } else {
-                        serverSocket.send(chunk);
-                    }
+                    const combined = new Uint8Array(responseHeader.length + chunk.length);
+                    combined.set(vlessHeader, 0);
+                    combined.set(chunk, responseHeader.length);
+                    serverSocket.send(combined);
+                    vlessHeader = null;
                 }
             })
         );
