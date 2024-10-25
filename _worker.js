@@ -157,15 +157,15 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
+    let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
-    const serverSocketOpen = () => serverSocket.readyState === WebSocket.OPEN;
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
                 async write(chunk, controller) {
                     hasData = true;
-                    if (!serverSocketOpen()) {
+                    if (serverSocket.readyState !== WebSocket.OPEN) {
                         controller.error('serverSocket is closed');
                         return;
                     }
