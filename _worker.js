@@ -125,42 +125,40 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     });
     return stream;
 };
-class WebSocketHeader {
-    constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
-        this.hasError = hasError;
-        this.address = address;
-        this.port = port;
-        this.rawDataIndex = rawDataIndex;
-        this.passVersion = passVersion;
-        this.isUDP = isUDP;
-    }
-}
 const processWebSocketHeader = (buffer, userID) => {
+    const dataView = new DataView(buffer);
     const bytes = new Uint8Array(buffer);
     const receivedID = stringify(bytes.slice(1, 17));
-    if (receivedID !== userID) return new WebSocketHeader(hasError);
-    const optLength = bytes[17];
+    if (receivedID !== userID) return { hasError: true };
+    const optLength = bytes[17]; // 获取选项长度
     const commandStartIndex = 18 + optLength;
     const command = bytes[commandStartIndex];
-    const isUDP = command === 2;
+    const isUDP = (command === 2);
     const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
     const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-    return new WebSocketHeader(hasError, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
+    return {
+        hasError: false,
+        address,
+        port,
+        rawDataIndex,
+        passVersion: bytes.slice(0, 1),
+        isUDP,
+    };
 };
 const getAddressInfo = (bytes, startIndex) => {
     const addressType = bytes[startIndex];
     let addressLength;
-    if (addressType === 1) {
-        addressLength = 4;
-    } else if (addressType === 2) {
+    if (addressType === 2) { 
         addressLength = bytes[startIndex + 1];
-    } else {
+    } else if (addressType === 1) { 
+        addressLength = 4;
+    } else { 
         addressLength = 16;
-    }
+    }   
     const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-    const addressValue = (addressType === 1)
+    const addressValue = (addressType === 1) 
         ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
-        : (addressType === 2)
+        : (addressType === 2) 
             ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
             : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
     return {
