@@ -184,7 +184,7 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
                     combined.set(vlessHeader, 0);
                     combined.set(chunk, responseHeader.length);
                     serverSocket.send(combined);
-                    vlessHeader = null;
+                    responseHeader = null;
                 }
             })
         );
