@@ -86,7 +86,9 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
     };
     if (!await tryconnect(address, port)) {
         if (!await tryconnect(proxyIP, port)) {
-            closeWebSocket(serverSocket);
+            if (serverSocket.readyState === WebSocket.OPEN) {
+                closeWebSocket(serverSocket);
+            }
         }
     }
 };
@@ -157,18 +159,17 @@ const getAddressInfo = (view, buffer, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-    let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
-                async write(chunk, controller) {
-                    hasData = true;
+                async write(chunk, controller) { 
                     if (serverSocket.readyState !== WebSocket.OPEN) {
                         controller.error('serverSocket is closed');
                         return;
                     }
+                    hasData = true;
                     if (vlessHeader) {
                         const combined = new Uint8Array(vlessHeader.length + chunk.length);
                         combined.set(vlessHeader, 0);
@@ -182,7 +183,9 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
             })
         );
     } catch (error) {
-        closeWebSocket(serverSocket);
+        if (serverSocket.readyState === WebSocket.OPEN) {
+            closeWebSocket(serverSocket);
+        }
     }
     return hasData;
 };
