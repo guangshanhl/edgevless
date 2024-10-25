@@ -269,5 +269,5 @@ const handleDNSRequest = async (queryPacket) => {
     return dnsResponse.arrayBuffer();
 };
 const getConfig = (userID, host) => {
-    return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F#vless+cfworker`;
+    return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
 };
