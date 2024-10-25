@@ -15,9 +15,10 @@ export default {
     }
 };
 const handleHttpRequest = (request, userID) => {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    if (path === "/") return new Response(JSON.stringify(request.cf, null, 4));
+    const path = new URL(request.url).pathname;
+    if (path === "/") {
+        return new Response(JSON.stringify(request.cf, null, 4));
+    }
     if (path === `/${userID}`) {
         return new Response(getConfig(userID, request.headers.get("Host")), {
             headers: {
@@ -124,38 +125,47 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     });
     return stream;
 };
+class WebSocketHeader {
+    constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
+        this.hasError = hasError;
+        this.address = address;
+        this.port = port;
+        this.rawDataIndex = rawDataIndex;
+        this.passVersion = passVersion;
+        this.isUDP = isUDP;
+    }
+}
 const processWebSocketHeader = (buffer, userID) => {
-    const view = new DataView(buffer);
-    const receivedID = stringify(new Uint8Array(buffer.slice(1, 17)));
-    if (receivedID !== userID) return { hasError: true };
-    const optLength = view.getUint8(17);
-    const startIndex = 18 + optLength;
-    const command = view.getUint8(startIndex);
+    const bytes = new Uint8Array(buffer);
+    const receivedID = stringify(bytes.slice(1, 17));
+    if (receivedID !== userID) return new WebSocketHeader(true);
+    const optLength = bytes[17];
+    const commandStartIndex = 18 + optLength;
+    const command = bytes[commandStartIndex];
     const isUDP = command === 2;
-    const port = view.getUint16(startIndex + 1);
-    const version = new Uint8Array(buffer.slice(0, 1));
-    const { address, rawDataIndex } = getAddressInfo(view, buffer, 18 + optLength + 3);
-    return {
-        hasError: false,
-        address,
-        port,
-        rawDataIndex,
-        passVersion: version,
-        isUDP
-    };
+    const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
+    const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
+    return new WebSocketHeader(false, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
 };
-const getAddressInfo = (view, buffer, startIndex) => {
-    const addressType = view.getUint8(startIndex);
-    const addressLength = addressType === 2 ? view.getUint8(startIndex + 1) : (addressType === 1 ? 4 : 16);
+const getAddressInfo = (bytes, startIndex) => {
+    const addressType = bytes[startIndex];
+    let addressLength;
+    if (addressType === 1) {
+        addressLength = 4;
+    } else if (addressType === 2) {
+        addressLength = bytes[startIndex + 1];
+    } else {
+        addressLength = 16;
+    }
     const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-    const addressValue = addressType === 1
-        ? Array.from(new Uint8Array(buffer, addressValueIndex, 4)).join('.')
-        : addressType === 2
-        ? new TextDecoder().decode(new Uint8Array(buffer, addressValueIndex, addressLength))
-        : Array.from(new Uint8Array(buffer, addressValueIndex, 16)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    const addressValue = (addressType === 1)
+        ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
+        : (addressType === 2)
+            ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
+            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
     return {
         address: addressValue,
-        rawDataIndex: addressValueIndex + addressLength
+        rawDataIndex: addressValueIndex + addressLength,
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
@@ -258,6 +268,6 @@ const handleDNSRequest = async (queryPacket) => {
     });
     return dnsResponse.arrayBuffer();
 };
-const getConfig = (userID, host) => {
-    return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F#vless+cfworker`;
-};
+const getConfig = (userID, hostName) => `
+vless://${userID}@${hostName}:8443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
+`;
