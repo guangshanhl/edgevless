@@ -138,14 +138,14 @@ class WebSocketHeader {
 const processWebSocketHeader = (buffer, userID) => {
     const bytes = new Uint8Array(buffer);
     const receivedID = stringify(bytes.slice(1, 17));
-    if (receivedID !== userID) return new WebSocketHeader(true);
+    if (receivedID !== userID) return new WebSocketHeader(hasError);
     const optLength = bytes[17];
     const commandStartIndex = 18 + optLength;
     const command = bytes[commandStartIndex];
     const isUDP = command === 2;
     const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
     const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-    return new WebSocketHeader(false, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
+    return new WebSocketHeader(hasError, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
     const addressType = bytes[startIndex];
