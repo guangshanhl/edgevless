@@ -37,11 +37,8 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
     wsCache.set(userID, { clientSocket, serverSocket });
-    serverSocket.addEventListener("close", () => {
-        wsCache.delete(userID);
-    });
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
+    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader, userID);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
@@ -57,9 +54,11 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
+
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
+
             isDns = isUDP && portRemote === 53;
             if (isDns) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
@@ -100,7 +99,7 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
         }
     }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => {
+const createWebSocketStream = (serverSocket, earlyDataHeader, userID) => {
     const stream = new ReadableStream({
         start(controller) {
             serverSocket.addEventListener("message", (event) => {
@@ -110,6 +109,7 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
             serverSocket.addEventListener("close", () => {
                 closeWebSocket(serverSocket);
                 controller.close();
+                wsCache.delete(userID);
             });
             serverSocket.addEventListener("error", (err) => {
                 controller.error(err);
@@ -171,7 +171,7 @@ const getAddressInfo = (bytes, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-    let chunks = [];
+	let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
     try {
