@@ -28,7 +28,7 @@ const handleHttpRequest = (request, userID) => {
     }
     return new Response("Not found", { status: 404 });
 };
-const handleWsRequest = async (request, userID) => {
+const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
