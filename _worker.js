@@ -71,7 +71,7 @@ const writeToRemote = async (socket, chunk) => {
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
-        remoteSocket.value = await connect({ hostname: address, port });
+        remoteSocket.value = connect({ hostname: address, port });
     }
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
@@ -80,7 +80,7 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
     const tryconnect = async(address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
-            return await forwardToData(tcpSocket, serverSocket, responseHeader);
+            return forwardToData(tcpSocket, serverSocket, responseHeader);
         } catch (error) {
             return false;
         }
