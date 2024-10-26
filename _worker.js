@@ -42,12 +42,12 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
             }
-			if (remoteSocket.value) {
-				const writer = remoteSocket.value.writable.getWriter()
-				await writer.write(chunk);
-				writer.releaseLock();
-				return;
-			}
+            if (remoteSocket.value) {
+                const writer = remoteSocket.value.writable.getWriter();
+                await writer.write(chunk);
+                writer.releaseLock();
+                return;
+            }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
             responseHeader[0] = passVersion[0];
@@ -70,13 +70,13 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
         remoteSocket.value = connect({ hostname: address, port });
     }
-const writer = remoteSocket.value.writable.getWriter();
-	await writer.write(rawClientData);
-	writer.releaseLock();
+    const writer = remoteSocket.value.writable.getWriter();
+    await writer.write(rawClientData);
+    writer.releaseLock();
     return remoteSocket.value;
 };
-const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const tryconnect = async(address, port) => {
+const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    const tryconnect = async (address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return forwardToData(tcpSocket, serverSocket, responseHeader);
@@ -161,7 +161,7 @@ const getAddressInfo = (bytes, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-	let chunks = [];
+    let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
     try {
@@ -212,16 +212,16 @@ const closeWebSocket = (serverSocket) => {
 };
 const byteToHexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
-  const segments = [4, 2, 2, 2, 6];
-  const result = [];
-  for (const len of segments) {
-    let str = '';
-    for (let i = 0; i < len; i++) {
-      str += byteToHexTable[arr[offset++]];
+    const segments = [4, 2, 2, 2, 6];
+    const result = [];
+    for (const len of segments) {
+        let str = '';
+        for (let i = 0; i < len; i++) {
+            str += byteToHexTable[arr[offset++]];
+        }
+        result.push(str);
     }
-    result.push(str);
-  }
-  return result.join('-').toLowerCase();
+    return result.join('-').toLowerCase();
 };
 const handleUdpRequest = async (serverSocket, responseHeader) => {
     let headerSent = false;
