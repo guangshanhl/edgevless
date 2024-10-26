@@ -85,8 +85,8 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
             return false;
         }
     };
-    if (!await tryconnect(address, port)) {
-        if (!await tryconnect(proxyIP, port)) {
+    if (!tryconnect(address, port)) {
+        if (!tryconnect(proxyIP, port)) {
             closeWebSocket(serverSocket);
         }
     }
