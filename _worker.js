@@ -32,7 +32,7 @@ const handleWsRequest = async (request, userID) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader, userID);
+    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
@@ -84,7 +84,6 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return await forwardToData(tcpSocket, serverSocket, responseHeader);
         } catch (error) {
-            console.error("TCP connection error:", error);
             return false;
         }
     };
@@ -182,12 +181,6 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
                         sendToWebSocket(serverSocket, chunk);
                     }
                 },
-                close() {
-                    closeWebSocket(serverSocket);
-                },
-                abort(err) {
-                    closeWebSocket(serverSocket);
-                }
             })
         );
     } catch (error) {
@@ -226,9 +219,7 @@ const stringify = (arr, offset = 0) => {
 const sendToWebSocket = (serverSocket, data) => {
     if (serverSocket.readyState === WebSocket.OPEN) {
         serverSocket.send(data);
-    } else {
-        controller.error('serverSocket is closed');
-    }
+    } 
 };
 const closeWebSocket = (serverSocket) => {
     serverSocket.close();
