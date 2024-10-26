@@ -28,15 +28,37 @@ const handleHttpRequest = (request, userID) => {
     }
     return new Response("Not found", { status: 404 });
 };
+const wsCache = new Map();
+
 const handleWsRequest = async (request, userID, proxyIP) => {
+    // 检查缓存中是否有已存在的 WebSocket 连接
+    let cachedSocket = wsCache.get(userID);
+    if (cachedSocket && cachedSocket.readyState === WebSocket.OPEN) {
+        // 如果有未关闭的 WebSocket 连接，直接复用该连接
+        return new Response(null, { status: 101, webSocket: cachedSocket.clientSocket });
+    }
+
+    // 如果没有缓存的连接或连接已关闭，创建新的 WebSocket 连接
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
+
+    // 将新连接存入缓存
+    wsCache.set(userID, { clientSocket, serverSocket });
+
+    // 监听 WebSocket 的 close 事件，移除已关闭的连接
+    serverSocket.addEventListener("close", () => {
+        wsCache.delete(userID);
+    });
+
+    // 创建可读流和写入流用于处理 WebSocket 数据
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
+
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
+
     const writableStream = new WritableStream({
         async write(chunk) {
             if (isDns && udpStreamWrite) {
@@ -48,9 +70,11 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
+
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
+
             isDns = isUDP && portRemote === 53;
             if (isDns) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
@@ -61,9 +85,14 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
+
+    // 将可读流与写入流连接
     readableStream.pipeTo(writableStream);
+
+    // 返回新的 WebSocket 连接
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
+
 const writeToRemote = async (socket, chunk) => {
     const writer = socket.writable.getWriter();
     try {
@@ -198,12 +227,16 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     }
     return hasData;
 };
-const base64_regex = /[-_]/g;
-const replaceBase64Chars = (str) => str.replace(base64_regex, match => (match === '-' ? '+' : '/'));
 const base64ToBuffer = (base64Str) => {
     try {
-        const binaryStr = atob(replaceBase64Chars(base64Str));
-        const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
+        if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
+            return { earlyData: base64Str, error: null };
+        }
+        const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
+        const buffer = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+            buffer[i] = binaryStr.charCodeAt(i);
+        }
         return { earlyData: buffer.buffer, error: null };
     } catch (error) {
         return { error };
