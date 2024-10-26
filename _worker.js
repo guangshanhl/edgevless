@@ -232,7 +232,6 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
             const dataToSend = !headerSent
               ? new Uint8Array([...responseHeader, ...udpBuffer])
               : udpBuffer;
-
             serverSocket.send(dataToSend);
             headerSent = true;
           })
@@ -255,7 +254,6 @@ const handleDNSRequest = async (queryPacket) => {
     },
     body: queryPacket,
   });
-
   return response.arrayBuffer();
 };
 const getConfig = (userID, host) => {
