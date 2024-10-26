@@ -29,36 +29,23 @@ const handleHttpRequest = (request, userID) => {
     return new Response("Not found", { status: 404 });
 };
 const wsCache = new Map();
-
 const handleWsRequest = async (request, userID, proxyIP) => {
-    // 检查缓存中是否有已存在的 WebSocket 连接
     let cachedSocket = wsCache.get(userID);
     if (cachedSocket && cachedSocket.readyState === WebSocket.OPEN) {
-        // 如果有未关闭的 WebSocket 连接，直接复用该连接
         return new Response(null, { status: 101, webSocket: cachedSocket.clientSocket });
     }
-
-    // 如果没有缓存的连接或连接已关闭，创建新的 WebSocket 连接
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
-
-    // 将新连接存入缓存
     wsCache.set(userID, { clientSocket, serverSocket });
-
-    // 监听 WebSocket 的 close 事件，移除已关闭的连接
     serverSocket.addEventListener("close", () => {
         wsCache.delete(userID);
     });
-
-    // 创建可读流和写入流用于处理 WebSocket 数据
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
-
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
-
     const writableStream = new WritableStream({
         async write(chunk) {
             if (isDns && udpStreamWrite) {
@@ -70,11 +57,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
-
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
-
             isDns = isUDP && portRemote === 53;
             if (isDns) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
@@ -85,29 +70,42 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
-
-    // 将可读流与写入流连接
     readableStream.pipeTo(writableStream);
-
-    // 返回新的 WebSocket 连接
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
-
 const writeToRemote = async (socket, chunk) => {
-    const writer = socket.writable.getWriter();
+    // 如果未缓存 writer，则获取并缓存之
+    if (!socket.writer) {
+        socket.writer = socket.writable.getWriter();
+    }
+
     try {
-        await writer.write(chunk);
-    } finally {
-        writer.releaseLock();
+        // 直接使用缓存的 writer 写入数据
+        await socket.writer.write(chunk);
+    } catch (error) {
+        console.error("Write error:", error);
+        // 如果出现写入错误，释放 writer 锁并删除缓存的 writer
+        socket.writer.releaseLock();
+        socket.writer = null;
     }
 };
+
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
         remoteSocket.value = await connect({ hostname: address, port });
+        
+        // 当连接关闭时释放 writer
+        remoteSocket.value.closedPromise.then(() => {
+            if (remoteSocket.writer) {
+                remoteSocket.writer.releaseLock();
+                remoteSocket.writer = null;
+            }
+        });
     }
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
+
 const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const tryconnect = async(address, port) => {
         try {
