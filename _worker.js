@@ -84,10 +84,10 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
             return false;
         }
     };
-    if (!await tryConnect(address, port))
-		if (!await tryConnect(proxyIP, port))
-			closeWebSocket(serverSocket);
-		}
+    if (!await tryConnect(address, port)) {
+	if (!await tryConnect(proxyIP, port)) {
+		closeWebSocket(serverSocket);
+	}
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
