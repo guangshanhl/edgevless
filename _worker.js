@@ -47,13 +47,11 @@ const handleWsRequest = async (request, userID) => {
                 return;
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
-            if (hasError) {
-                return;
-            }
+            if (hasError) return;
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
-            isDns = isUDP && port === 53;
+            isDns = isUDP && portRemote === 53;
             if (isDns) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
                 udpStreamWrite = write;
@@ -78,8 +76,8 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const tryConnect = async (address, port) => {
+const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
+    const tryconnect = async(address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return await forwardToData(tcpSocket, serverSocket, responseHeader);
@@ -87,8 +85,8 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
             return false;
         }
     };
-    if (!await tryConnect(address, port)) {
-        if (!await tryConnect(proxyIP, port)) {
+    if (!await tryconnect(address, port)) {
+        if (!await tryconnect(proxyIP, port)) {
             closeWebSocket(serverSocket);
         }
     }
@@ -164,6 +162,7 @@ const getAddressInfo = (bytes, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
+	let chunks = [];
     let vlessHeader = responseHeader;
     let hasData = false;
     try {
@@ -171,16 +170,20 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
             new WritableStream({
                 async write(chunk, controller) {
                     hasData = true;
+                    if (serverSocket.readyState !== WebSocket.OPEN) {
+                        controller.error('serverSocket is closed');
+                        return;
+                    }
                     if (vlessHeader) {
                         const combined = new Uint8Array(vlessHeader.length + chunk.length);
                         combined.set(vlessHeader, 0);
                         combined.set(new Uint8Array(chunk), vlessHeader.length);
-                        sendToWebSocket(serverSocket, combined);
+                        serverSocket.send(combined);
                         vlessHeader = null;
                     } else {
-                        sendToWebSocket(serverSocket, chunk);
+                        serverSocket.send(chunk);
                     }
-                },
+                }
             })
         );
     } catch (error) {
@@ -203,6 +206,11 @@ const base64ToBuffer = (base64Str) => {
         return { error };
     }
 };
+const closeWebSocket = (serverSocket) => {
+    if (serverSocket.readyState === WebSocket.OPEN || serverSocket.readyState === WebSocket.CLOSING) {
+        serverSocket.close();
+    }
+};
 const byteToHexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
@@ -216,39 +224,32 @@ const stringify = (arr, offset = 0) => {
   }
   return result.join('-').toLowerCase();
 };
-const sendToWebSocket = (serverSocket, data) => {
-    if (serverSocket.readyState === WebSocket.OPEN) {
-        serverSocket.send(data);
-    } 
-};
-const closeWebSocket = (serverSocket) => {
-    serverSocket.close();
-};
 const handleUdpRequest = async (serverSocket, responseHeader) => {
     let headerSent = false;
     const transformStream = new TransformStream({
         async transform(chunk, controller) {
-            const tasks = [];
             let index = 0;
+            const tasks = [];
             while (index < chunk.byteLength) {
                 const lengthBuffer = chunk.slice(index, index + 2);
                 const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
-                const udpData = chunk.slice(index + 2, index + 2 + udpPacketLength);
+                const udpData = new Uint8Array(chunk.slice(index + 2, index + 2 + udpPacketLength));
                 index += 2 + udpPacketLength;
                 tasks.push(
                     handleDNSRequest(udpData).then(response => {
-                        const udpBuffer = new Uint8Array(2 + response.byteLength);
-                        udpBuffer[0] = response.byteLength >> 8;
-                        udpBuffer[1] = response.byteLength & 0xff;
+                        const length = response.byteLength;
+                        const udpBuffer = new Uint8Array(2 + length);
+                        udpBuffer[0] = length >> 8;
+                        udpBuffer[1] = length & 0xff;
                         udpBuffer.set(new Uint8Array(response), 2);
                         if (!headerSent) {
                             headerSent = true;
                             const combinedBuffer = new Uint8Array(responseHeader.byteLength + udpBuffer.byteLength);
-                            combinedBuffer.set(responseHeader, 0);
+                            combinedBuffer.set(new Uint8Array(responseHeader), 0);
                             combinedBuffer.set(udpBuffer, responseHeader.byteLength);
-                            sendToWebSocket(serverSocket, combinedBuffer);
+                            serverSocket.send(combinedBuffer);
                         } else {
-                            sendToWebSocket(serverSocket, udpBuffer);
+                            serverSocket.send(udpBuffer);
                         }
                     })
                 );
