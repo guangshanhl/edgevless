@@ -31,12 +31,13 @@ const handleHttpRequest = (request, userID) => {
 const wsCache = new Map();
 const handleWsRequest = async (request, userID, proxyIP) => {
     let cachedSocket = wsCache.get(userID);
-    if (cachedSocket && serverSocket.readyState === WebSocket.OPEN) {
+    if (cachedSocket && cachedSocket.readyState === WebSocket.OPEN) {
         return new Response(null, { status: 101, webSocket: cachedSocket.clientSocket });
     }
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
     wsCache.set(userID, { clientSocket, serverSocket });
+    console.log(cachedSocket);
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader, userID);
     let remoteSocket = { value: null };
