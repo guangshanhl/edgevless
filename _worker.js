@@ -34,14 +34,10 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
-    let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
         async write(chunk) {
-            if (isDns && udpStreamWrite) {
-                return udpStreamWrite(chunk);
-            }
             if (remoteSocket.value) {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
@@ -53,9 +49,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
-                const { write } = await handleUdpRequest(serverSocket, responseHeader);
-                udpStreamWrite = write;
-                udpStreamWrite(rawClientData);
+                await (await handleUdpRequest(serverSocket, responseHeader)).write(rawClientData);
                 return;
             }
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
@@ -77,7 +71,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     return remoteSocket.value;
 };
 const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-    const tryconnect = async(address, port) => {
+    const tryConnect = async(address, port) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
             return await forwardToData(tcpSocket, serverSocket, responseHeader);
@@ -85,7 +79,7 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
             return false;
         }
     };
-    if (!(await tryconnect(address, port) || await tryconnect(proxyIP, port))) {
+    if (!(await tryConnect(address, port) || await tryConnect(proxyIP, port))) {
         closeWebSocket(serverSocket);
     }
 };
@@ -164,13 +158,15 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
-                async write(chunk, controller) {
+                async write(chunk, controller) {             
                     if (serverSocket.readyState !== WebSocket.OPEN) {
                         controller.error('serverSocket is closed');
                         return;
                     }
                     if (responseHeader) {
-                        const combined = await new Blob([responseHeader, chunk]).arrayBuffer();
+                        const combined = new Uint8Array(responseHeader.length + chunk.length);
+                        combined.set(new Uint8Array(responseHeader), 0);
+                        combined.set(new Uint8Array(chunk), responseHeader.length);
                         serverSocket.send(combined);
                         responseHeader = null;
                     } else {
@@ -180,7 +176,7 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
                 }
             })
         );
-    } catch {
+    } catch (error) {
         closeWebSocket(serverSocket);
     }
     return hasData;
