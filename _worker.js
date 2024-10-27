@@ -62,7 +62,7 @@ const writeToRemote = async (socket, chunk) => {
     writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    remoteSocket.value = await connect({ hostname: address, port });
+    remoteSocket.value = connect({ hostname: address, port });
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
