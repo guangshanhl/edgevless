@@ -37,6 +37,10 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const responseHeader = new Uint8Array(2);    
     const writableStream = new WritableStream({
         async write(chunk) {
+            if (remoteSocket.value) {
+                await writeToRemote(remoteSocket.value, chunk);
+                return;
+            }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
             responseHeader[0] = passVersion[0];
@@ -58,9 +62,7 @@ const writeToRemote = async (socket, chunk) => {
     writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    if (!remoteSocket.value || remoteSocket.value.closed) {
-        remoteSocket.value = await connect({ hostname: address, port });
-    }
+    remoteSocket.value = connect({ hostname: address, port });
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
