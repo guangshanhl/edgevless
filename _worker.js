@@ -49,7 +49,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && portRemote === 53;
             if (isDns) {
-                await (await handleUdpRequest(serverSocket, responseHeader)).write(rawClientData);
+                await handleUdpRequest(serverSocket, responseHeader, rawClientData);
                 return;
             }
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
@@ -214,7 +214,7 @@ const stringify = (arr, offset = 0) => {
   }
   return result.join('-').toLowerCase();
 };
-const handleUdpRequest = async (serverSocket, responseHeader) => {
+const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => {
     let headerSent = false;
     const transformStream = new TransformStream({
         async transform(chunk, controller) {
