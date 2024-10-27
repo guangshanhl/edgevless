@@ -160,31 +160,27 @@ const getAddressInfo = (bytes, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-	let chunks = [];
-    let vlessHeader = responseHeader;
     let hasData = false;
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
                 async write(chunk, controller) {
-                    hasData = true;
                     if (serverSocket.readyState !== WebSocket.OPEN) {
                         controller.error('serverSocket is closed');
                         return;
                     }
-                    if (vlessHeader) {
-                        const combined = new Uint8Array(vlessHeader.length + chunk.length);
-                        combined.set(vlessHeader, 0);
-                        combined.set(new Uint8Array(chunk), vlessHeader.length);
+                    if (responseHeader) {
+                        const combined = await new Blob([responseHeader, chunk]).arrayBuffer();
                         serverSocket.send(combined);
-                        vlessHeader = null;
+                        responseHeader = null;
                     } else {
                         serverSocket.send(chunk);
                     }
+                    hasData = true;
                 }
             })
         );
-    } catch (error) {
+    } catch {
         closeWebSocket(serverSocket);
     }
     return hasData;
