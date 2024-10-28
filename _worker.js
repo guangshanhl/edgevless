@@ -34,9 +34,14 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
+    let udpStreamWrite = null;
+	let isDns = false;
     const responseHeader = new Uint8Array(2);    
     const writableStream = new WritableStream({
         async write(chunk) {
+            if (isDns && udpStreamWrite) {
+				return udpStreamWrite(chunk);
+			}
             if (remoteSocket.value) {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
@@ -46,10 +51,13 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             responseHeader[0] = passVersion[0];
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
-            if (isUDP && port === 53) {
-                await handleUdpRequest(serverSocket, responseHeader, rawClientData);
-                return;
-            }
+            isDns = isUDP && port === 53
+            if (isDns) {
+				const { write } = await handleUdpRequest(serverSocket, vlessResponseHeader);
+				udpStreamWrite = write;
+				udpStreamWrite(rawClientData);
+				return;
+			}
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });    
@@ -212,32 +220,50 @@ const stringify = (arr, offset = 0) => {
     }
     return result.join('-').toLowerCase();
 };
-const handleUdpRequest = async (serverSocket, responseHeader, rawClientData) => {
-    const dnsFetch = async (chunk) => {
-        const response = await fetch('https://cloudflare-dns.com/dns-query', {
-            method: 'POST',
-            headers: { 'content-type': 'application/dns-message' },
-            body: chunk
-        });
-        return response.arrayBuffer();
-    };  
-    const transformStream = new TransformStream({
-        async transform(chunk, controller) {
-            let index = 0;
-            while (index < chunk.byteLength) {
-                const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-                const dnsResult = await dnsFetch(chunk.slice(index + 2, index + 2 + udpPacketLength));
-                const udpSizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
-                if (serverSocket.readyState === WebSocket.OPEN) {
-                    serverSocket.send(new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsResult)]).buffer);
-                }
-                index += 2 + udpPacketLength;
-            }
-        }
-    }); 
-    const writer = transformStream.writable.getWriter();
-    await writer.write(rawClientData);
-    writer.close();
+const handleUdpRequest = async (serverSocket, responseHeader) => {
+    let headerSent = false;
+	const transformStream = new TransformStream({
+		transform(chunk, controller) {
+			for (let index = 0; index < chunk.byteLength;) {
+				const lengthBuffer = chunk.slice(index, index + 2);
+				const udpPakcetLength = new DataView(lengthBuffer).getUint16(0);
+				const udpData = new Uint8Array(
+					chunk.slice(index + 2, index + 2 + udpPakcetLength)
+				);
+				index = index + 2 + udpPakcetLength;
+				controller.enqueue(udpData);
+			}
+		},
+	});
+	transformStream.readable.pipeTo(new WritableStream({
+		async write(chunk) {
+			const resp = await fetch('https://1.1.1.1/dns-query',
+				{
+					method: 'POST',
+					headers: {
+						'content-type': 'application/dns-message',
+					},
+					body: chunk,
+				})
+			const dnsQueryResult = await resp.arrayBuffer();
+			const udpSize = dnsQueryResult.byteLength;
+			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+			if (serverSocket.readyState === WebSocket.OPEN) {
+				if (headerSent) {
+					serverSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+				} else {
+					serverSocket.send(await new Blob([responseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+					headerSent = true;
+				}
+			}
+		}
+	}));
+	const writer = transformStream.writable.getWriter();
+	return {
+		write(chunk) {
+			writer.write(chunk);
+		}
+	};
 };
 const getConfig = (userID, host) => {
     return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
