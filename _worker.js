@@ -33,10 +33,14 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
-    let remoteSocket = { value: null };
+    let remoteSocketWapper = { value: null };
     const responseHeader = new Uint8Array(2);    
     const writableStream = new WritableStream({
         async write(chunk) {
+            if (remoteSocketWapper.value) {
+                await writeToRemote(remoteSocketWapper.value, chunk);
+                return;
+            }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
             responseHeader[0] = passVersion[0];
