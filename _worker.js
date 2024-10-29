@@ -152,23 +152,27 @@ const getAddressInfo = (bytes, startIndex) => {
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   let hasData = false;
+  let headerSent = responseHeader !== null;
   const writableStream = new WritableStream({
     async write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
         controller.error('serverSocket is closed');
         return;
       }
-      if (responseHeader) {
+      let dataToSend;
+      if (headerSent) {
         const combinedBuffer = new Uint8Array(responseHeader.length + chunk.length);
         combinedBuffer.set(responseHeader);
         combinedBuffer.set(new Uint8Array(chunk), responseHeader.length);
-        serverSocket.send(combinedBuffer);
+        dataToSend = combinedBuffer;
         responseHeader = null;
+        headerSent = false;
       } else {
-        serverSocket.send(chunk);
+        dataToSend = chunk;
       }
+      serverSocket.send(dataToSend);
       hasData = true;
-    },
+    }
   });
   try {
     await remoteSocket.readable.pipeTo(writableStream);
