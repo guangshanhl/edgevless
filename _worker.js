@@ -122,47 +122,37 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   });
 };
 class WebSocketHeader {
-    constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
-        this.hasError = hasError;
-        this.address = address;
-        this.port = port;
-        this.rawDataIndex = rawDataIndex;
-        this.passVersion = passVersion;
-        this.isUDP = isUDP;
-    }
+  constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
+    this.hasError = hasError;
+    this.address = address;
+    this.port = port;
+    this.rawDataIndex = rawDataIndex;
+    this.passVersion = passVersion;
+    this.isUDP = isUDP;
+  }
 }
 const processWebSocketHeader = (buffer, userID) => {
-    const bytes = new Uint8Array(buffer);
-    const receivedID = stringify(bytes.slice(1, 17));
-    if (receivedID !== userID) return new WebSocketHeader(true);
-    const optLength = bytes[17];
-    const commandStartIndex = 18 + optLength;
-    const command = bytes[commandStartIndex];
-    const isUDP = command === 2;
-    const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
-    const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-    return new WebSocketHeader(false, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
+  const bytes = new Uint8Array(buffer);
+  const receivedID = stringify(bytes.subarray(1, 17));
+  if (receivedID !== userID) return new WebSocketHeader(true); 
+  const optLength = bytes[17];
+  const commandStartIndex = 18 + optLength;
+  const command = bytes[commandStartIndex];
+  const isUDP = command === 2;
+  const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
+  const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
+  return new WebSocketHeader(false, address, port, rawDataIndex, bytes.subarray(0, 1), isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
-    const addressType = bytes[startIndex];
-    let addressLength;
-    if (addressType === 2) {
-        addressLength = bytes[startIndex + 1];
-    } else if (addressType === 1) {
-        addressLength = 4;
-    } else {
-        addressLength = 16;
-    }
-    const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-    const addressValue = (addressType === 1)
-        ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
-        : (addressType === 2)
-            ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
-    return {
-        address: addressValue,
-        rawDataIndex: addressValueIndex + addressLength,
-    };
+  const addressType = bytes[startIndex];
+  const addressLength = addressType === 2 ? bytes[startIndex + 1] : (addressType === 1 ? 4 : 16);
+  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
+  const addressValue = addressType === 1
+    ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
+    : addressType === 2
+    ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
+    : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
+  return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   let hasData = false;
