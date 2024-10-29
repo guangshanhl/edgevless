@@ -33,7 +33,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
-    let remoteSocket = null;
+    let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
     const responseHeader = new Uint8Array(2);
@@ -42,8 +42,8 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
             }
-            if (remoteSocket) {
-                await writeToRemote(remoteSocket, chunk);
+            if (remoteSocket.value) {
+                await writeToRemote(remoteSocket.value, chunk);
                 return;
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
@@ -70,9 +70,11 @@ const writeToRemote = async (socket, chunk) => {
     writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-    remoteSocket = await connect({ hostname: address, port });
-    await writeToRemote(remoteSocket, rawClientData);
-    return remoteSocket;
+    if (!remoteSocket.value || remoteSocket.value.closed) {
+        remoteSocket.value = await connect({ hostname: address, port });
+    }
+    await writeToRemote(remoteSocket.value, rawClientData);
+    return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
     const tryConnect = async (address, port) => {
@@ -87,32 +89,29 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
         closeWebSocket(serverSocket);
     }
 };
+const serverSocketEventListeners = {
+  message: (event) => controller.enqueue(event.data),
+  close: () => { closeWebSocket(serverSocket); controller.close(); },
+  error: (err) => controller.error(err),
+};
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-    const stream = new ReadableStream({
-        start(controller) {
-            serverSocket.addEventListener("message", (event) => {
-                const message = event.data;
-                controller.enqueue(message);
-            });
-            serverSocket.addEventListener("close", () => {
-                closeWebSocket(serverSocket);
-                controller.close();
-            });
-            serverSocket.addEventListener("error", (err) => {
-                controller.error(err);
-            });
-            const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
-        },
-        cancel() {
-            closeWebSocket(serverSocket);
-        },
-    });
-    return stream;
+  const stream = new ReadableStream({
+    start(controller) {
+      Object.entries(serverSocketEventListeners).forEach(([event, handler]) => {
+        serverSocket.addEventListener(event, handler);
+      });     
+      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+      if (error) {
+        controller.error(error);
+      } else if (earlyData) {
+        controller.enqueue(earlyData);
+      }
+    },
+    cancel() {
+      closeWebSocket(serverSocket);
+    },
+  });
+  return stream;
 };
 class WebSocketHeader {
     constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
@@ -137,25 +136,24 @@ const processWebSocketHeader = (buffer, userID) => {
     return new WebSocketHeader(false, address, port, rawDataIndex, bytes.slice(0, 1), isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
-    const addressType = bytes[startIndex];
-    let addressLength;
-    if (addressType === 2) {
-        addressLength = bytes[startIndex + 1];
-    } else if (addressType === 1) {
-        addressLength = 4;
-    } else {
-        addressLength = 16;
-    }
-    const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-    const addressValue = (addressType === 1)
-        ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
-        : (addressType === 2)
-            ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
-    return {
-        address: addressValue,
-        rawDataIndex: addressValueIndex + addressLength,
-    };
+  const addressType = bytes[startIndex];
+  let addressValue;
+  switch (addressType) {
+    case 1:
+      addressValue = Array.from(bytes.subarray(startIndex + 1, startIndex + 5)).join('.');
+      break;
+    case 2:
+      const addressLength = bytes[startIndex + 1];
+      addressValue = new TextDecoder().decode(bytes.subarray(startIndex + 2, startIndex + 2 + addressLength));
+      break;
+    case 3:
+      addressValue = Array.from(bytes.subarray(startIndex + 1, startIndex + 17)).map(b => b.toString(16).padStart(2, '0')).join(':');
+      break;
+  }
+  return {
+    address: addressValue,
+    rawDataIndex: startIndex + (addressType === 2 ? 2 + addressLength : addressType + 1),
+  };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     let hasData = false;
