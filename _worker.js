@@ -73,6 +73,22 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     readableStream.pipeTo(writableStream);
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
+const addNoise = (data, noiseSize = 5) => {
+    const noise = new Uint8Array(noiseSize);
+    window.crypto.getRandomValues(noise);
+    const randomIndex = Math.floor(Math.random() * (data.length + 1));
+    const newData = new Uint8Array(data.length + noise.length);
+    newData.set(data.subarray(0, randomIndex), 0);
+    newData.set(noise, randomIndex);
+    newData.set(data.subarray(randomIndex), randomIndex + noise.length);
+    return newData;
+};
+const writeToRemote = async (socket, chunk) => {
+    const noisyChunk = addNoise(chunk);
+    const writer = socket.writable.getWriter();
+    await writer.write(noisyChunk);
+    writer.releaseLock();
+};
 const writeToRemote = async (socket, chunk) => {
     const writer = socket.writable.getWriter();
     await writer.write(chunk);
