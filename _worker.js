@@ -159,18 +159,15 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
         controller.error('serverSocket is closed');
         return;
       }
-      let dataToSend;
       if (headerSent) {
-        const combinedBuffer = new Uint8Array(responseHeader.length + chunk.length);
+        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
         combinedBuffer.set(responseHeader);
-        combinedBuffer.set(new Uint8Array(chunk), responseHeader.length);
-        dataToSend = combinedBuffer;
-        responseHeader = null;
+        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+        serverSocket.send(combinedBuffer);
         headerSent = false;
       } else {
-        dataToSend = chunk;
+        serverSocket.send(chunk);
       }
-      serverSocket.send(dataToSend);
       hasData = true;
     }
   });
