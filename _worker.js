@@ -90,32 +90,41 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     }
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-    const stream = new ReadableStream({
-        start(controller) {
-            serverSocket.addEventListener("message", (event) => {
-                const message = event.data;
-                controller.enqueue(message);
-            });
-            serverSocket.addEventListener("close", () => {
-                closeWebSocket(serverSocket);
-                controller.close();
-            });
-            serverSocket.addEventListener("error", (err) => {
-                controller.error(err);
-            });
-            const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
-        },
-        cancel() {
-            closeWebSocket(serverSocket);
-        },
-    });
-    return stream;
+  const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+
+  const handleEvent = (type, event, controller) => {
+    switch (type) {
+      case 'message':
+        controller.enqueue(event.data);
+        break;
+      case 'close':
+        closeWebSocket(serverSocket);
+        controller.close();
+        break;
+      case 'error':
+        controller.error(event);
+        break;
+    }
+  };
+
+  return new ReadableStream({
+    start(controller) {
+      if (error) {
+        controller.error(error);
+      } else if (earlyData) {
+        controller.enqueue(earlyData);
+      }
+
+      serverSocket.addEventListener('message', event => handleEvent('message', event, controller));
+      serverSocket.addEventListener('close', event => handleEvent('close', event, controller));
+      serverSocket.addEventListener('error', event => handleEvent('error', event, controller));
+    },
+    cancel() {
+      closeWebSocket(serverSocket);
+    }
+  });
 };
+
 class WebSocketHeader {
     constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
         this.hasError = hasError;
@@ -160,24 +169,32 @@ const getAddressInfo = (bytes, startIndex) => {
     };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  let hasData = false;
-  try {
-    const data = responseHeader ? combineData(responseHeader, await remoteSocket.read()) : await remoteSocket.read();
-    if (serverSocket.readyState !== WebSocket.OPEN) {
-      throw new Error('serverSocket is closed');
+    let hasData = false;
+    try {
+        await remoteSocket.readable.pipeTo(
+            new WritableStream({
+                async write(chunk, controller) {
+                    if (serverSocket.readyState !== WebSocket.OPEN) {
+                        controller.error('serverSocket is closed');
+                        return;
+                    }
+                    if (responseHeader) {
+                        const combined = new Uint8Array(responseHeader.length + chunk.length);
+                        combined.set(new Uint8Array(responseHeader), 0);
+                        combined.set(new Uint8Array(chunk), responseHeader.length);
+                        serverSocket.send(combined);
+                        responseHeader = null;
+                    } else {
+                        serverSocket.send(chunk);
+                    }
+                    hasData = true;
+                }
+            })
+        );
+    } catch (error) {
+        closeWebSocket(serverSocket);
     }
-    serverSocket.send(data);
-    hasData = true;
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
-  return hasData;
-};
-const combineData = async (header, data) => {
-  const combined = new Uint8Array(header.length + data.length);
-  combined.set(header, 0);
-  combined.set(data, header.length);
-  return combined;
+    return hasData;
 };
 const base64ToBuffer = (base64Str) => {
     try {
