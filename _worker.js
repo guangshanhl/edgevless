@@ -36,17 +36,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
-    const responseHeader = new Uint8Array(2);  
+    const responseHeader = new Uint8Array(2);
     const writableStream = new WritableStream({
-        writeQueue: [],
         async write(chunk) {
-            this.writeQueue.push(chunk);
-            while (this.writeQueue.length > 0) {
-                const chunkToWrite = this.writeQueue.shift();
-                await this.processChunk(chunkToWrite, remoteSocket, serverSocket, responseHeader, proxyIP);
-            }
-        },
-        async processChunk(chunk, remoteSocket, serverSocket, responseHeader, proxyIP) {
             if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
             }
@@ -60,40 +52,44 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             responseHeader[1] = 0;
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && port === 53;
-
             if (isDns) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
                 udpStreamWrite = write;
                 udpStreamWrite(rawClientData);
                 return;
             }
-            await handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
+            handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
+// 伪随机噪声生成函数
 const addNoise = (data, noiseSize = 5) => {
     const noise = new Uint8Array(noiseSize);
-    window.crypto.getRandomValues(noise);
+    window.crypto.getRandomValues(noise); // 使用 Web Crypto API 生成随机字节
+
+    // 将噪声插入到数据的随机位置
     const randomIndex = Math.floor(Math.random() * (data.length + 1));
     const newData = new Uint8Array(data.length + noise.length);
+    
+    // 将原始数据分成两部分，噪声插入其中
     newData.set(data.subarray(0, randomIndex), 0);
     newData.set(noise, randomIndex);
     newData.set(data.subarray(randomIndex), randomIndex + noise.length);
+
     return newData;
 };
+
+// 在原有写入数据的地方应用伪随机噪声
 const writeToRemote = async (socket, chunk) => {
-    const noisyChunk = addNoise(chunk);
+    const noisyChunk = addNoise(chunk); // 添加伪随机数据
     const writer = socket.writable.getWriter();
     await writer.write(noisyChunk);
     writer.releaseLock();
 };
-const writeToRemote = async (socket, chunk) => {
-    const writer = socket.writable.getWriter();
-    await writer.write(chunk);
-    writer.releaseLock();
-};
+
+
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
         remoteSocket.value = await connect({ hostname: address, port });
@@ -186,36 +182,27 @@ const getAddressInfo = (bytes, startIndex) => {
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
     let hasData = false;
-    const writeQueue = [];
-    const writePromises = [];
-    const handleWrite = async (chunk) => {
-        if (serverSocket.readyState !== WebSocket.OPEN) {
-            throw new Error('serverSocket is closed');
-        }
-        if (responseHeader) {
-            const combined = new Uint8Array(responseHeader.length + chunk.length);
-            combined.set(new Uint8Array(responseHeader), 0);
-            combined.set(new Uint8Array(chunk), responseHeader.length);
-            serverSocket.send(combined);
-            responseHeader = null;
-        } else {
-            serverSocket.send(chunk);
-        }
-        hasData = true;
-    };
     try {
         await remoteSocket.readable.pipeTo(
             new WritableStream({
-                async write(chunk) {
-                    writeQueue.push(chunk);
-                    while (writeQueue.length > 0) {
-                        const chunkToWrite = writeQueue.shift();
-                        writePromises.push(handleWrite(chunkToWrite));
+                async write(chunk, controller) {
+                    if (serverSocket.readyState !== WebSocket.OPEN) {
+                        controller.error('serverSocket is closed');
+                        return;
                     }
+                    if (responseHeader) {
+                        const combined = new Uint8Array(responseHeader.length + chunk.length);
+                        combined.set(new Uint8Array(responseHeader), 0);
+                        combined.set(new Uint8Array(chunk), responseHeader.length);
+                        serverSocket.send(combined);
+                        responseHeader = null;
+                    } else {
+                        serverSocket.send(chunk);
+                    }
+                    hasData = true;
                 }
             })
         );
-        await Promise.all(writePromises);
     } catch (error) {
         closeWebSocket(serverSocket);
     }
