@@ -85,8 +85,7 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-  const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
   const handleEvent = (event, controller) => {
     switch (event.type) {
       case 'message':
@@ -103,6 +102,7 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   };
   return new ReadableStream({
     start(controller) {
+      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) {
         controller.error(error);
       } else if (earlyData) {
