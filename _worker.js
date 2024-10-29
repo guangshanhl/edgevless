@@ -214,28 +214,37 @@ const stringify = (arr, offset = 0) => {
 const handleUdpRequest = async (serverSocket, responseHeader) => {
   let headerSent = false;
   const transformStream = new TransformStream({
-    transform(chunk, controller) {
+    async transform(chunk, controller) {
       let index = 0;
       while (index < chunk.byteLength) {
         const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
         const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
         index += 2 + udpPacketLength;
-        controller.enqueue(udpData);
+        const dnsQueryResult = await handleDNSRequest(udpData);
+        const udpSize = dnsQueryResult.byteLength;
+        const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+        let dataToSend;
+        if (!headerSent) {
+          dataToSend = new Uint8Array(responseHeader.byteLength + udpSizeBuffer.byteLength + udpSize);
+          dataToSend.set(responseHeader);
+          dataToSend.set(udpSizeBuffer, responseHeader.byteLength);
+          dataToSend.set(new Uint8Array(dnsQueryResult), responseHeader.byteLength + udpSizeBuffer.byteLength);
+          headerSent = true;
+        } else {
+          dataToSend = new Uint8Array(udpSizeBuffer.byteLength + udpSize);
+          dataToSend.set(udpSizeBuffer);
+          dataToSend.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+        }
+        if (serverSocket.readyState === WebSocket.OPEN) {
+          serverSocket.send(dataToSend);
+        }
       }
-    },
+      controller.terminate();
+    }
   });
   transformStream.readable.pipeTo(new WritableStream({
     async write(chunk) {
-      const dnsQueryResult = await handleDNSRequest(chunk);
-      const udpSize = dnsQueryResult.byteLength;
-      const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-      if (serverSocket.readyState === WebSocket.OPEN) {
-        const dataToSend = headerSent
-          ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-          : new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
-        serverSocket.send(dataToSend);
-        headerSent = true;
-      }
+      controller.enqueue(chunk);
     }
   }));
   const writer = transformStream.writable.getWriter();
