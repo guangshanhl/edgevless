@@ -87,8 +87,8 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-  const handleEvent = (type, event, controller) => {
-    switch (type) {
+  const handleEvent = (event, controller) => {
+    switch (event.type) {
       case 'message':
         controller.enqueue(event.data);
         break;
@@ -108,9 +108,9 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
       } else if (earlyData) {
         controller.enqueue(earlyData);
       }
-      serverSocket.addEventListener('message', event => handleEvent('message', event, controller));
-      serverSocket.addEventListener('close', event => handleEvent('close', event, controller));
-      serverSocket.addEventListener('error', event => handleEvent('error', event, controller));
+      ['message', 'close', 'error'].forEach(type => 
+        serverSocket.addEventListener(type, event => handleEvent(event, controller))
+      );
     },
     cancel() {
       closeWebSocket(serverSocket);
