@@ -60,10 +60,19 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
+let writer;
 const writeToRemote = async (socket, chunk) => {
-  const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  if (!writer) {
+    writer = socket.writable.getWriter();
+  }
+  try {
+    await writer.write(chunk);
+  } catch (error) {
+    if (writer) {
+      await writer.releaseLock();
+      writer = null;
+    }
+  }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (!remoteSocket.value || remoteSocket.value.closed) {
