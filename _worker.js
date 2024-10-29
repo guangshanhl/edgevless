@@ -221,48 +221,49 @@ const stringify = (arr, offset = 0) => {
     return result.join('-').toLowerCase();
 };
 const handleUdpRequest = async (serverSocket, responseHeader) => {
-    let headerSent = false;
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            for (let index = 0; index < chunk.byteLength;) {
-                const lengthBuffer = chunk.slice(index, index + 2);
-                const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
-                const udpData = new Uint8Array(
-                    chunk.slice(index + 2, index + 2 + udpPacketLength)
-                );
-                index = index + 2 + udpPacketLength;
-                controller.enqueue(udpData);
-            }
-        },
-    });
-    transformStream.readable.pipeTo(new WritableStream({
-        async write(chunk) {
-            const resp = await fetch('https://1.1.1.1/dns-query', {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/dns-message',
-                },
-                body: chunk,
-            });
-            const dnsQueryResult = await resp.arrayBuffer();
-            const udpSize = dnsQueryResult.byteLength;
-            const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-            if (serverSocket.readyState === WebSocket.OPEN) {
-                if (headerSent) {
-                    serverSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-                } else {
-                    serverSocket.send(await new Blob([responseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-                    headerSent = true;
-                }
-            }
-        }
-    }));
-    const writer = transformStream.writable.getWriter();
-    return {
-        write(chunk) {
-            writer.write(chunk);
-        }
-    };
+  let headerSent = false;
+  const transformStream = new TransformStream({
+    transform(chunk, controller) {
+      let index = 0;
+      while (index < chunk.byteLength) {
+        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+        const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
+        index += 2 + udpPacketLength;
+        controller.enqueue(udpData);
+      }
+    },
+  });
+  transformStream.readable.pipeTo(new WritableStream({
+    async write(chunk) {
+      const dnsQueryResult = await handleDNSRequest(chunk);
+      const udpSize = dnsQueryResult.byteLength;
+      const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+      if (serverSocket.readyState === WebSocket.OPEN) {
+        const dataToSend = headerSent
+          ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
+          : new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+        serverSocket.send(dataToSend);
+        headerSent = true;
+      }
+    }
+  }));
+  const writer = transformStream.writable.getWriter();
+  return {
+    write(chunk) {
+      writer.write(chunk);
+    }
+  };
+};
+const handleDNSRequest = async (queryPacket) => {
+  const response = await fetch("https://1.1.1.1/dns-query", {
+    method: "POST",
+    headers: {
+      accept: "application/dns-message",
+      "content-type": "application/dns-message",
+    },
+    body: queryPacket,
+  });
+  return response.arrayBuffer();
 };
 const getConfig = (userID, host) => {
     return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
