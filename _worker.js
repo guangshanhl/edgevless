@@ -73,7 +73,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
   } catch (error) {
-    return null;
+    return false;
   }
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
@@ -84,15 +84,14 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
         return await forwardToData(tcpSocket, serverSocket, responseHeader);
       }
     } catch (error) {
-      console.error('Error connecting:', error);
+      return false;
     }
-    return false;
   };
   if (!(await tryConnect(address, port) || await tryConnect(proxyIP, port))) {
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => {
+const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
   const handleEvent = (event, controller) => {
     switch (event.type) {
       case 'message':
@@ -104,11 +103,9 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
         break;
       case 'error':
         controller.error(event);
-        console.error('WebSocket error:', event);
         break;
     }
   };
-  const listeners = [];
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
@@ -117,13 +114,12 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
       } else if (earlyData) {
         controller.enqueue(earlyData);
       }
-      listeners.push(serverSocket.addEventListener('message', event => handleEvent(event, controller)));
-      listeners.push(serverSocket.addEventListener('close', event => handleEvent(event, controller)));
-      listeners.push(serverSocket.addEventListener('error', event => handleEvent(event, controller)));
+      ['message', 'close', 'error'].forEach(type => 
+        serverSocket.addEventListener(type, event => handleEvent(event, controller))
+      );
     },
     cancel() {
       closeWebSocket(serverSocket);
-      listeners.forEach(listener => serverSocket.removeEventListener(...listener));
     }
   });
 };
@@ -163,7 +159,6 @@ const getAddressInfo = (bytes, startIndex) => {
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   let hasData = false;
   let headerSent = responseHeader !== null;
-  const buffer = new Uint8Array(1024);
   const writableStream = new WritableStream({
     async write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
@@ -171,13 +166,10 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
         return;
       }
       if (headerSent) {
-        const combinedLength = responseHeader.byteLength + chunk.byteLength;
-        if (combinedLength > buffer.length) {
-          buffer.fill(0);
-        }
-        buffer.set(responseHeader);
-        buffer.set(new Uint8Array(chunk), responseHeader.byteLength);
-        serverSocket.send(buffer.subarray(0, combinedLength));
+        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
+        combinedBuffer.set(responseHeader);
+        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+        serverSocket.send(combinedBuffer);
         headerSent = false;
       } else {
         serverSocket.send(chunk);
@@ -188,7 +180,7 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
-    closeWebSocket(serverSocket)
+    closeWebSocket(serverSocket);
   }
   return hasData;
 };
