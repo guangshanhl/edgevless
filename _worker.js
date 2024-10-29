@@ -153,7 +153,6 @@ const getAddressInfo = (bytes, startIndex) => {
   return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  let headerSent = responseHeader !== null;
   let hasData = false;
   const writableStream = new WritableStream({
     async write(chunk, controller) {
@@ -161,24 +160,27 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
         controller.error('serverSocket is closed');
         return;
       }
-	  hasData = true;
-      const combinedBuffer = headerSent 
-        ? chunk 
-        : new Uint8Array(responseHeader.byteLength + chunk.byteLength);     
-      if (!headerSent) {
-        combinedBuffer.set(responseHeader);
-        headerSent = true;
-      }
-      combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
-      serverSocket.send(combinedBuffer);
-    }
+      if (headerSent) {
+		const headerLength = responseHeader.byteLength;
+		chunk.set(new Uint8Array(responseHeader), 0, headerLength);
+		serverSocket.send(chunk);
+	} else {
+		serverSocket.send(chunk);
+		}
+		headerSent = false;
+		hasData = true;
+	}
   });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
-  return hasData;
+  return new Promise((resolve, reject) => {
+    remoteSocket.readable.pipeTo(writableStream)
+      .then(() => {
+        resolve(hasData);
+      })
+      .catch(error => {
+        closeWebSocket(serverSocket);
+        reject(error);
+      });
+  });
 };
 const base64ToBuffer = (base64Str) => {
   try {
