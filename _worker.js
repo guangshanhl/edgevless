@@ -225,7 +225,6 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
                 dataToSend.set(responseHeader);
                 dataToSend.set(udpSizeBuffer, responseHeader.byteLength);
                 dataToSend.set(new Uint8Array(dnsQueryResult), responseHeader.byteLength + udpSizeBuffer.byteLength);
-
                 if (serverSocket.readyState === WebSocket.OPEN) {
                     serverSocket.send(dataToSend);
                 }
