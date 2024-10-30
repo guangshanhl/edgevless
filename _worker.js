@@ -69,20 +69,20 @@ const writeToRemote = async (socket, chunk) => {
   }
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  const addresses = [address, proxyIP];
-  for (const addr of addresses) {
+  const tryConnection = async (addr) => {
     try {
       if (!remoteSocket.value || remoteSocket.value.closed) {
-        remoteSocket.value = await connect({ hostname: address, port });
+        remoteSocket.value = await connect({ hostname: addr, port });
       }
       await writeToRemote(remoteSocket.value, rawClientData);
-      await forwardToData(remoteSocket.value, serverSocket, responseHeader);
-      return;
+      return await forwardToData(remoteSocket.value, serverSocket, responseHeader);
     } catch (error) {
-      remoteSocket.value = null;
+      return false;
     }
+  };
+  if (!(await tryConnection(address)) && !(await tryConnection(proxyIP))) {
+    closeWebSocket(serverSocket);
   }
-  closeWebSocket(serverSocket);
 };
 const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
     const handleEvent = (event, controller) => {
