@@ -157,7 +157,7 @@ const getAddressInfo = (bytes, startIndex) => {
 const forwardToData = (remoteSocket, serverSocket, responseHeader) => {
   let headerSent = responseHeader !== null;
   const writableStream = new WritableStream({
-    write(chunk, controller) {
+    async write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
         return controller.error('serverSocket is closed');
       }
