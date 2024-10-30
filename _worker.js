@@ -77,13 +77,13 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   }
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  const tryConnect = async (addr, p) => {
-    const tcpSocket = await connectAndWrite(remoteSocket, addr, p, rawClientData);
+  const tryConnect = async (address, port) => {
+    const tcpSocket = await connectAndWrite(remoteSocket, address, port, rawClientData);
     if (tcpSocket) {
-      await forwardToData(tcpSocket, serverSocket, responseHeader);
-      return true;
-    }
-    return false;
+      return await forwardToData(tcpSocket, serverSocket, responseHeader);
+    } else {
+	return false;
+	}
   };
   if (!(await tryConnect(address, port) || await tryConnect(proxyIP, port))) {
     closeWebSocket(serverSocket);
@@ -154,32 +154,33 @@ const getAddressInfo = (bytes, startIndex) => {
     : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
-const forwardToData = (remoteSocket, serverSocket, responseHeader) => {
+const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
+  let hasData = false;
   let headerSent = responseHeader !== null;
   const writableStream = new WritableStream({
     async write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
-        return controller.error('serverSocket is closed');
+        controller.error('serverSocket is closed');
+        return;
       }
       if (headerSent) {
         const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
-        combinedBuffer.set(new Uint8Array(responseHeader), 0);
+        combinedBuffer.set(responseHeader);
         combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
         serverSocket.send(combinedBuffer);
         headerSent = false;
       } else {
         serverSocket.send(chunk);
       }
+      hasData = true;
     }
   });
-  return new Promise((resolve, reject) => {
-    remoteSocket.readable.pipeTo(writableStream)
-      .then(() => resolve(true))
-      .catch(error => {
-        closeWebSocket(serverSocket);
-        reject(false);
-      });
-  });
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(serverSocket);
+  }
+  return hasData;
 };
 const base64ToBuffer = (base64Str) => {
     try {
