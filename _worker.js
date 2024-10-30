@@ -18,7 +18,9 @@ const handleHttpRequest = (request, userID) => {
   }
   if (path === `/${userID}`) {
     const vlessConfig = getConfig(userID, request.headers.get("Host"));
-    return new Response(vlessConfig, { headers: { "Content-Type": "text/plain;charset=utf-8" } });
+    return new Response(vlessConfig, {
+      headers: { "Content-Type": "text/plain;charset=utf-8" }
+    });
   }
   return new Response("Not found", { status: 404 });
 };
@@ -52,10 +54,10 @@ const handleWsRequest = async (request, userID, proxyIP) => {
         udpStreamWrite(rawClientData);
         return;
       }
-      await handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
+      handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
     }
   });
-  readableStream.pipeTo(writableStream).catch(() => closeWebSocket(serverSocket));
+  readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const writeToRemote = async (socket, chunk) => {
@@ -87,7 +89,7 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => {
+const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
   const handleEvent = (event, controller) => {
     switch (event.type) {
       case 'message':
@@ -110,7 +112,7 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
       } else if (earlyData) {
         controller.enqueue(earlyData);
       }
-      ['message', 'close', 'error'].forEach(type =>
+      ['message', 'close', 'error'].forEach(type => 
         serverSocket.addEventListener(type, event => handleEvent(event, controller))
       );
     },
@@ -132,7 +134,7 @@ class WebSocketHeader {
 const processWebSocketHeader = (buffer, userID) => {
   const bytes = new Uint8Array(buffer);
   const receivedID = stringify(bytes.subarray(1, 17));
-  if (receivedID !== userID) return new WebSocketHeader(true);
+  if (receivedID !== userID) return new WebSocketHeader(true); 
   const optLength = bytes[17];
   const commandStartIndex = 18 + optLength;
   const command = bytes[commandStartIndex];
@@ -144,79 +146,76 @@ const processWebSocketHeader = (buffer, userID) => {
 const getAddressInfo = (bytes, startIndex) => {
   const addressType = bytes[startIndex];
   const addressLength = addressType === 2 ? bytes[startIndex + 1] : (addressType === 1 ? 4 : 16);
-  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1); 
+  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
   const addressValue = addressType === 1
     ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
     : addressType === 2
-      ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-      : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
+    : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  let hasData = false;
+const forwardToData = (remoteSocket, serverSocket, responseHeader) => {
+  let headerSent = responseHeader !== null;
   const writableStream = new WritableStream({
-    async write(chunk, controller) {
+    write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
-        controller.error('serverSocket is closed');
-        return;
+        return controller.error('serverSocket is closed');
       }
       if (headerSent) {
-		const headerLength = responseHeader.byteLength;
-		chunk.set(new Uint8Array(responseHeader), 0, headerLength);
-		serverSocket.send(chunk);
-	} else {
-		serverSocket.send(chunk);
-		}
-		headerSent = false;
-		hasData = true;
-	}
+        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
+        combinedBuffer.set(new Uint8Array(responseHeader), 0);
+        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+        serverSocket.send(combinedBuffer);
+        headerSent = false;
+      } else {
+        serverSocket.send(chunk);
+      }
+    }
   });
   return new Promise((resolve, reject) => {
     remoteSocket.readable.pipeTo(writableStream)
-      .then(() => {
-        resolve(hasData);
-      })
+      .then(() => resolve(true))
       .catch(error => {
         closeWebSocket(serverSocket);
-        reject(error);
+        reject(false);
       });
   });
 };
 const base64ToBuffer = (base64Str) => {
-  try {
-    if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
-      return { earlyData: base64Str, error: null };
+    try {
+        if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
+            return { earlyData: base64Str, error: null };
+        }
+        const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
+        const buffer = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+            buffer[i] = binaryStr.charCodeAt(i);
+        }
+        return { earlyData: buffer.buffer, error: null };
+    } catch (error) {
+        return { error };
     }
-    const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
-    const buffer = new Uint8Array(binaryStr.length);   
-    for (let i = 0; i < binaryStr.length; i++) {
-      buffer[i] = binaryStr.charCodeAt(i);
-    }   
-    return { earlyData: buffer.buffer, error: null };
-  } catch (error) {
-    return { error };
-  }
 };
 const closeWebSocket = (serverSocket) => {
-  if (serverSocket.readyState === WebSocket.OPEN || serverSocket.readyState === WebSocket.CLOSING) {
-    serverSocket.close();
-  }
+    if (serverSocket.readyState === WebSocket.OPEN || serverSocket.readyState === WebSocket.CLOSING) {
+        serverSocket.close();
+    }
 };
 const byteToHexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
-  const segments = [4, 2, 2, 2, 6];
-  const result = [];
-  for (const len of segments) {
-    let str = '';
-    for (let i = 0; i < len; i++) {
-      str += byteToHexTable[arr[offset++]];
+    const segments = [4, 2, 2, 2, 6];
+    const result = [];
+    for (const len of segments) {
+        let str = '';
+        for (let i = 0; i < len; i++) {
+            str += byteToHexTable[arr[offset++]];
+        }
+        result.push(str);
     }
-    result.push(str);
-  }
-  return result.join('-').toLowerCase();
+    return result.join('-').toLowerCase();
 };
 const handleUdpRequest = async (serverSocket, responseHeader) => {
-  let headerSent = false; 
+  let headerSent = false;
   const transformStream = new TransformStream({
     async transform(chunk, controller) {
       let index = 0;
@@ -246,6 +245,11 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
       controller.terminate();
     }
   });
+  transformStream.readable.pipeTo(new WritableStream({
+    async write(chunk) {
+      controller.enqueue(chunk);
+    }
+  }));
   const writer = transformStream.writable.getWriter();
   return {
     write(chunk) {
@@ -261,12 +265,9 @@ const handleDNSRequest = async (queryPacket) => {
       "content-type": "application/dns-message",
     },
     body: queryPacket,
-  }); 
-  if (!response.ok) {
-    throw new Error(`DNS request failed`);
-  }
+  });
   return response.arrayBuffer();
 };
 const getConfig = (userID, host) => {
-  return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
+    return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
 };
