@@ -67,21 +67,30 @@ const writeToRemote = async (socket, chunk) => {
   }
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
-  const tryConnect = async (addr) => {
-    try {
-      if (!remoteSocket.value || remoteSocket.value.closed) {
-        remoteSocket.value = await connect({ hostname: addr, port });
-      }
-      await writeToRemote(remoteSocket.value, rawClientData);
-      return await forwardToData(remoteSocket.value, serverSocket, responseHeader);
-    } catch (error) {
-      return false;
+    const tryConnection = async (addr) => {
+        try {
+            if (!remoteSocket.value || remoteSocket.value.closed) {
+                remoteSocket.value = await connect({ hostname: addr, port });
+            }
+            await writeToRemote(remoteSocket.value, rawClientData);
+            return await forwardToData(remoteSocket.value, serverSocket, responseHeader);
+        } catch (error) {
+            return false;
+        }
+    };
+
+    // 并发尝试连接主地址和代理地址
+    const connections = await Promise.all([
+        tryConnection(address),
+        tryConnection(proxyIP),
+    ]);
+
+    // 如果两个连接都失败，关闭WebSocket
+    if (!connections.some(success => success)) {
+        closeWebSocket(serverSocket);
     }
-  };
-  if (!(await tryConnect(address)) && !(await tryConnect(proxyIP))) {
-    closeWebSocket(serverSocket);
-  }
 };
+
 const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
     const handleEvent = (event, controller) => {
         switch (event.type) {
@@ -148,33 +157,39 @@ const getAddressInfo = (bytes, startIndex) => {
     return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  let hasData = false;
-  const writableStream = new WritableStream({
-    async write(chunk, controller) {
-      if (serverSocket.readyState !== WebSocket.OPEN) {
-        controller.error('serverSocket is closed');
-        return;
-      }
-      const dataToSend = responseHeader
-        ? (() => {
-            const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
-            combinedBuffer.set(responseHeader);
-            combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
-            responseHeader = null;
-            return combinedBuffer;
-          })()
-        : chunk;
-      serverSocket.send(dataToSend);
-      hasData = true;
+    let hasData = false;
+    let headerSent = Boolean(responseHeader);
+    const writableStream = new WritableStream({
+        async write(chunk, controller) {
+            if (serverSocket.readyState !== WebSocket.OPEN) {
+                controller.error('serverSocket is closed');
+                return;
+            }
+            // 使用Promise.all处理多个写入操作
+            const writes = [];
+            if (headerSent) {
+                const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
+                combinedBuffer.set(responseHeader);
+                combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+                writes.push(serverSocket.send(combinedBuffer));
+            } else {
+                writes.push(serverSocket.send(chunk));
+                headerSent = true;
+            }
+            hasData = true;
+            // 等待所有写入完成
+            await Promise.all(writes);
+        }
+    });
+
+    try {
+        await remoteSocket.readable.pipeTo(writableStream);
+    } catch (error) {
+        closeWebSocket(serverSocket);
     }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
-  return hasData;
+    return hasData;
 };
+
 const base64ToBuffer = (base64Str) => {
     try {
         if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
