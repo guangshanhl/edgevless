@@ -180,11 +180,9 @@ const base64ToBuffer = (base64Str) => {
     if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
       return { earlyData: base64Str, error: null };
     }
-
     const formattedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
     const binaryStr = atob(formattedStr);
     const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
-
     return { earlyData: buffer.buffer, error: null };
   } catch (error) {
     return { error };
