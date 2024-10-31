@@ -33,7 +33,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
-    const writableStream = new WritableStream({
+    readableStream.pipeTo(new WritableStream({
         async write(chunk) {
             if (udpStreamWrite) {
                 return udpStreamWrite(chunk);
@@ -44,7 +44,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
-            const responseHeader = new Uint8Array([passVersion[0], 0]);
+            const vlessResponseHeader = new Uint8Array([passVersion[0], 0]);
             const rawClientData = chunk.slice(rawDataIndex);
             if (isUDP && port === 53) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
@@ -55,7 +55,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
-    readableStream.pipeTo(writableStream);
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const writeToRemote = async (socket, chunk) => {
@@ -82,24 +81,37 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => {
-  const eventHandlers = ['message', 'close', 'error'].map(type => event => controller[type === 'error' ? 'error' : 'enqueue'](event.data || event));
-  return new ReadableStream({
-    start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) {
-        controller.error(error);
-        return;
-      }
-      eventHandlers.forEach((handler, index) => serverSocket.addEventListener(eventTypes[index], handler));
-      controller.closed.then(() => {
-        eventHandlers.forEach((handler, index) => serverSocket.removeEventListener(eventTypes[index], handler));
-      });
-    },
-    cancel() {
-      closeWebSocket(serverSocket);
-    }
-  });
+const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
+    const handleEvent = (event, controller) => {
+        switch (event.type) {
+            case 'message':
+                controller.enqueue(event.data);
+                break;
+            case 'close':
+                closeWebSocket(serverSocket);
+                controller.close();
+                break;
+            case 'error':
+                controller.error(event);
+                break;
+        }
+    };
+    return new ReadableStream({
+        start(controller) {
+            const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
+            }
+            ['message', 'close', 'error'].forEach(type => 
+                serverSocket.addEventListener(type, event => handleEvent(event, controller))
+            );
+        },
+        cancel() {
+            closeWebSocket(serverSocket);
+        }
+    });
 };
 class WebSocketHeader {
     constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
