@@ -33,7 +33,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
-    readableStream.pipeTo(new WritableStream({
+    const writableStream = new WritableStream({
         async write(chunk) {
             if (udpStreamWrite) {
                 return udpStreamWrite(chunk);
@@ -44,7 +44,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
             if (hasError) return;
-            const vlessResponseHeader = new Uint8Array([passVersion[0], 0]);
+            const responseHeader = new Uint8Array([passVersion[0], 0]);
             const rawClientData = chunk.slice(rawDataIndex);
             if (isUDP && port === 53) {
                 const { write } = await handleUdpRequest(serverSocket, responseHeader);
@@ -55,6 +55,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
             handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
         }
     });
+    readableStream.pipeTo(writableStream);
     return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const writeToRemote = async (socket, chunk) => {
