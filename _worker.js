@@ -69,7 +69,6 @@ const writeToRemote = async (socket, chunk) => {
 const handleTcpRequest = async (remoteSocket, address, port, clientData, serverSocket, resHeader, proxyIP) => {
   const tryConnect = async (addr) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
-		closeWebSocket(remoteSocket.value);
       remoteSocket.value = await connect({ hostname: addr, port });
     }
     await writeToRemote(remoteSocket.value, clientData);
