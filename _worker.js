@@ -213,36 +213,76 @@ const extractIPv6 = (bytes, startIndex) => ({
     rawDataIndex: startIndex + 17
 });
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
+    const WEBSOCKET_STATES = {
+        OPEN: WebSocket.OPEN
+    };   
     let hasData = false;
     let hasSent = Boolean(resHeader);
     const writableStream = new WritableStream({
         async write(chunk, controller) {
-            if (webSocket.readyState !== WebSocket.OPEN) {
-                controller.error(new Error("WebSocket is closed."));
+            if (webSocket.readyState !== WEBSOCKET_STATES.OPEN) {
+                controller.error(new Error("WebSocket connection lost"));
+                return;
             }
             if (hasSent) {
-                const combinedBuffer = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                combinedBuffer.set(resHeader);
-                combinedBuffer.set(new Uint8Array(chunk), resHeader.byteLength);
-                webSocket.send(combinedBuffer);
+                sendWithHeader(webSocket, chunk, resHeader);
                 hasSent = false;
             } else {
                 webSocket.send(chunk);
             }
             hasData = true;
-        },
+        }
     });
     try {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
-        closeWebSocket(webSocket);
+        handleForwardError(webSocket, error);
     }
     return hasData;
 };
-const closeWebSocket = (webSocket) => {
-    if (webSocket.readyState === WebSocket.OPEN || webSocket.readyState === WebSocket.CLOSING) {
-        webSocket.close();
+const sendWithHeader = (webSocket, chunk, resHeader) => {
+    const combinedBuffer = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+    combinedBuffer.set(resHeader);
+    combinedBuffer.set(new Uint8Array(chunk), resHeader.byteLength);
+    webSocket.send(combinedBuffer);
+};
+const handleForwardError = (webSocket, error) => {
+    closeWebSocket(webSocket);
+};
+const WEBSOCKET_STATES = {
+    OPEN: WebSocket.OPEN,
+    CLOSING: WebSocket.CLOSING,
+    CLOSED: WebSocket.CLOSED
+};
+const closeWebSocket = (webSocket, code = 1000, reason = 'Normal closure') => {
+    if (!webSocket) return;
+    try {
+        if (isWebSocketActive(webSocket)) {
+            webSocket.close(code, reason);
+        }       
+        cleanupWebSocketResources(webSocket);
+    } catch (error) {
+        handleCloseError(error);
     }
+};
+const isWebSocketActive = (webSocket) => {
+    return webSocket.readyState === WEBSOCKET_STATES.OPEN || 
+           webSocket.readyState === WEBSOCKET_STATES.CLOSING;
+};
+const cleanupWebSocketResources = (webSocket) => {
+    webSocket.removeEventListener('message', null);
+    webSocket.removeEventListener('error', null);
+    webSocket.removeEventListener('close', null);
+    webSocket.onmessage = null;
+    webSocket.onerror = null;
+    webSocket.onclose = null;
+};
+const handleCloseError = (error) => {
+    console.error('WebSocket close error:', {
+        name: error.name,
+        message: error.message,
+        timestamp: new Date().toISOString()
+    });
 };
 const byteToHexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
