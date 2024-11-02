@@ -85,7 +85,6 @@ const createWSStream = (webSocket, earlyHeader) => {
         CLOSE: 'close',
         ERROR: 'error'
     };
-
     const eventHandlers = {
         [EVENT_TYPES.MESSAGE]: (event, controller) => {
             controller.enqueue(event.data);
@@ -98,36 +97,28 @@ const createWSStream = (webSocket, earlyHeader) => {
             controller.error(event);
         }
     };
-
     return new ReadableStream({
         start(controller) {
-            // Handle early data if present
             if (earlyHeader) {
-                const { earlyData, error } = base64ToBuffer(earlyHeader);
-                
+                const { earlyData, error } = base64ToBuffer(earlyHeader);               
                 if (error) {
                     controller.error(error);
                     return;
-                }
-                
+                }             
                 if (earlyData) {
                     controller.enqueue(earlyData);
                 }
             }
-
-            // Register event listeners
             Object.entries(eventHandlers).forEach(([type, handler]) => {
                 webSocket.addEventListener(type, event => handler(event, controller));
             });
         },
-
         cancel() {
             closeWebSocket(webSocket);
         }
     });
 };
 const base64ToBuffer = (input) => {
-    // Early return for ArrayBuffer or Uint8Array
     if (input instanceof ArrayBuffer || input instanceof Uint8Array) {
         return { earlyData: input, error: null };
     }
@@ -267,53 +258,64 @@ const stringify = (arr, offset = 0) => {
     return result.join('-').toLowerCase();
 };
 const handleUdpRequest = async (webSocket, resHeader) => {
+    const UDP_HEADER_SIZE = 2;
     let hasSent = false;
     const transformStream = new TransformStream({
         async transform(chunk, controller) {
-            let index = 0;
-            while (index < chunk.byteLength) {
-                const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-                const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
-                index += 2 + udpPacketLength;
+            const processUdpPacket = async (offset, length) => {
+                const udpData = chunk.subarray(offset + UDP_HEADER_SIZE, offset + UDP_HEADER_SIZE + length);
                 const dnsQueryResult = await handleDNSRequest(udpData);
-                const udpSize = dnsQueryResult.byteLength;
-                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-                const combinedLength = hasSent
-                    ? udpSizeBuffer.byteLength + udpSize
-                    : resHeader.byteLength + udpSizeBuffer.byteLength + udpSize;
-                const dataToSend = new Uint8Array(combinedLength);
-                if (!hasSent) {
-                    dataToSend.set(resHeader);
-                    dataToSend.set(udpSizeBuffer, resHeader.byteLength);
-                    dataToSend.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
-                    hasSent = true;
-                } else {
-                    dataToSend.set(udpSizeBuffer);
-                    dataToSend.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
-                }
+                return createResponsePacket(dnsQueryResult, hasSent);
+            };
+            let offset = 0;
+            while (offset < chunk.byteLength) {
+                const packetLength = new DataView(chunk.buffer, offset, UDP_HEADER_SIZE).getUint16(0);
+                const responsePacket = await processUdpPacket(offset, packetLength);            
                 if (webSocket.readyState === WebSocket.OPEN) {
-                    webSocket.send(dataToSend);
+                    webSocket.send(responsePacket);
                 }
+                hasSent = true;
+                offset += UDP_HEADER_SIZE + packetLength;
             }
             controller.terminate();
         }
     });
+    setupPipeline(transformStream);
+    return createWriter(transformStream);
+};
+const createResponsePacket = (dnsQueryResult, hasSent) => {
+    const udpSize = dnsQueryResult.byteLength;
+    const sizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);   
+    if (!hasSent) {
+        const fullPacket = new Uint8Array(resHeader.byteLength + sizeBuffer.byteLength + udpSize);
+        fullPacket.set(resHeader);
+        fullPacket.set(sizeBuffer, resHeader.byteLength);
+        fullPacket.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + sizeBuffer.byteLength);
+        return fullPacket;
+    }
+    const packet = new Uint8Array(sizeBuffer.byteLength + udpSize);
+    packet.set(sizeBuffer);
+    packet.set(new Uint8Array(dnsQueryResult), sizeBuffer.byteLength);
+    return packet;
+};
+const setupPipeline = (transformStream) => {
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
             const writer = transformStream.writable.getWriter();
-            writer.write(chunk);
+            await writer.write(chunk);
             writer.releaseLock();
         }
     }));
+};
+const createWriter = (transformStream) => {
     const writer = transformStream.writable.getWriter();
     return {
-        write(chunk) {
-            writer.write(chunk);
-        }
+        write: (chunk) => writer.write(chunk)
     };
 };
 const handleDNSRequest = async (queryPacket) => {
-    const response = await fetch("https://1.1.1.1/dns-query", {
+    const DNS_ENDPOINT = "https://1.1.1.1/dns-query";
+    const response = await fetch(DNS_ENDPOINT, {
         method: "POST",
         headers: {
             accept: "application/dns-message",
