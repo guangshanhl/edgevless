@@ -30,55 +30,41 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const PROTOCOLS = {
         WEBSOCKET: 'sec-websocket-protocol'
     };
-
-    // Create WebSocket pair and initialize connection
     const { client, server } = initializeWebSocket();
-    
-    // Setup streams and socket handlers
     const { readableStream, writableStream } = await setupStreams(
         server, 
         request.headers.get(PROTOCOLS.WEBSOCKET) || '',
         userID,
         proxyIP
     );
-
-    // Start data flow
     readableStream.pipeTo(writableStream);
-
     return createWebSocketResponse(client);
 };
-
 const initializeWebSocket = () => {
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     server.accept();
     return { client, server };
 };
-
 const setupStreams = async (webSocket, earlyHeader, userID, proxyIP) => {
     const socketState = {
         remoteSocket: { value: null },
         udpWrite: null
     };
-
     const readableStream = createWSStream(webSocket, earlyHeader);
     const writableStream = createWritableStream(webSocket, socketState, userID, proxyIP);
-
     return { readableStream, writableStream };
 };
-
 const createWritableStream = (webSocket, socketState, userID, proxyIP) => {
     return new WritableStream({
         async write(chunk, controller) {
             if (socketState.udpWrite) {
                 return socketState.udpWrite(chunk);
             }
-
             if (socketState.remoteSocket.value) {
                 await writeToRemote(socketState.remoteSocket.value, chunk);
                 return;
             }
-
             await handleNewConnection(chunk, socketState, webSocket, userID, proxyIP);
         }
     });
