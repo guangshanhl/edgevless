@@ -67,11 +67,11 @@ const writeToRemote = async (socket, chunk) => {
 const handleTcpRequest = async (remoteSocket, address, port, clientData, webSocket, resHeader, proxyIP) => {
     const tryConnect = async (addr) => {
         if (!remoteSocket.value || remoteSocket.value.closed) {
-			const remoteSocket.value = await connect({ 
-				hostname: addr, 
-				port,
-				timeout: 5000
-			});
+		const remoteSocket.value = connect({ 
+			hostname: addr, 
+			port,
+			timeout: 5000
+		});
         }
         await writeToRemote(remoteSocket.value, clientData);
         return await forwardToData(remoteSocket.value, webSocket, resHeader);
