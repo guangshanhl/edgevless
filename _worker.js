@@ -89,25 +89,97 @@ const createWebSocketResponse = (client) => {
         webSocket: client
     });
 };
-const writeToRemote = async (socket, chunk) => {
+const writeToRemote = async (socket, chunk, options = {}) => {
+    const {
+        timeout = 5000,
+        retryCount = 1,
+        chunkSize = 16384
+    } = options;
     const writer = socket.writable.getWriter();
     try {
-        await writer.write(chunk);
+        if (chunk.byteLength > chunkSize) {
+            await writeInChunks(writer, chunk, chunkSize);
+        } else {
+            await writeWithTimeout(writer, chunk, timeout);
+        }
     } finally {
         writer.releaseLock();
     }
 };
-const handleTcpRequest = async (remoteSocket, address, port, clientData, webSocket, resHeader, proxyIP) => {
-    const tryConnect = async (addr) => {
-        if (!remoteSocket.value || remoteSocket.value.closed) {
-            remoteSocket.value = await connect({ hostname: addr, port });
-        }
-        await writeToRemote(remoteSocket.value, clientData);
-        return await forwardToData(remoteSocket.value, webSocket, resHeader);
-    };
-    if (!(await tryConnect(address)) && !(await tryConnect(proxyIP))) {
-        closeWebSocket(webSocket);
+const writeInChunks = async (writer, chunk, chunkSize) => {
+    const data = new Uint8Array(chunk);
+    let offset = 0;
+    while (offset < data.length) {
+        const slice = data.subarray(offset, offset + chunkSize);
+        await writer.write(slice);
+        offset += chunkSize;
     }
+};
+const writeWithTimeout = async (writer, chunk, timeout) => {
+    const writePromise = writer.write(chunk);    
+    if (!timeout) {
+        return await writePromise;
+    }
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Write timeout')), timeout);
+    });
+    return Promise.race([writePromise, timeoutPromise]);
+};
+const handleTcpRequest = async (remoteSocket, address, port, clientData, webSocket, resHeader, proxyIP) => {
+    const CONNECTION_CONFIG = {
+        retryDelay: 1000,
+        timeout: 5000
+    };
+    const connectionManager = new ConnectionManager(remoteSocket, webSocket);
+    try {
+        const primarySuccess = await connectionManager.tryConnect(address, port, clientData);
+        if (primarySuccess) return;
+        if (proxyIP) {
+            const fallbackSuccess = await connectionManager.tryConnect(proxyIP, port, clientData);
+            if (fallbackSuccess) return;
+        }
+        closeWebSocket(webSocket);
+    } catch (error) {
+        handleConnectionError(error, webSocket);
+    }
+};
+class ConnectionManager {
+    constructor(remoteSocket, webSocket) {
+        this.remoteSocket = remoteSocket;
+        this.webSocket = webSocket;
+    }
+    async tryConnect(hostname, port, clientData) {
+        if (!this.isSocketValid()) {
+            this.remoteSocket.value = await this.createConnection(hostname, port);
+        }
+        if (!this.remoteSocket.value) return false;
+        await writeToRemote(this.remoteSocket.value, clientData);
+        return await forwardToData(this.remoteSocket.value, this.webSocket, resHeader);
+    }
+    async createConnection(hostname, port) {
+        try {
+            return await connect({ 
+                hostname, 
+                port,
+                allowHalfOpen: false,
+                noDelay: true
+            });
+        } catch (error) {
+            console.error(`Connection failed to ${hostname}:${port}`, error);
+            return null;
+        }
+    }
+    isSocketValid() {
+        return this.remoteSocket.value && !this.remoteSocket.value.closed;
+    }
+}
+const handleConnectionError = (error, webSocket) => {
+    console.error('TCP connection error:', {
+        message: error.message,
+        code: error.code,
+        timestamp: new Date().toISOString()
+    });
+    closeWebSocket(webSocket);
 };
 const createWSStream = (webSocket, earlyHeader) => {
     const EVENT_TYPES = {
