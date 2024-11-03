@@ -96,7 +96,7 @@ class VLESSHandler {
         const connect = async (addr) => {
             try {
                 if (!remoteSocket.value || remoteSocket.value.closed) {
-                    remoteSocket.value = await connect({
+                    remoteSocket.value = connect({
                         hostname: addr,
                         port: port
                     });
@@ -118,7 +118,7 @@ class VLESSHandler {
             await remoteSocket.readable.pipeTo(new WritableStream({
                 write: (chunk) => {
                     if (webSocket.readyState !== WebSocket.OPEN) {
-                        throw new Error("WebSocket closed");
+                        controller.error("WebSocket closed");
                     }
                     if (needHeader) {
                         const combined = new Uint8Array(responseHeader.length + chunk.byteLength);
