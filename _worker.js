@@ -93,7 +93,7 @@ const writeToRemote = async (socket, chunk, options = {}) => {
     const {
         timeout = 5000,
         retryCount = 1,
-        chunkSize = 64 * 1024
+        chunkSize = 128 * 1024
     } = options;
     const writer = socket.writable.getWriter();
     try {
@@ -140,7 +140,7 @@ const handleTcpRequest = async (remoteSocket, address, port, clientData, webSock
         }
         closeWebSocket(webSocket);
     } catch (error) {
-        handleConnectionError(error, webSocket);
+        closeWebSocket(webSocket);
     }
 };
 class ConnectionManager {
@@ -165,7 +165,6 @@ class ConnectionManager {
                 noDelay: true
             });
         } catch (error) {
-            console.error(`Connection failed to ${hostname}:${port}`, error);
             return null;
         }
     }
@@ -173,14 +172,6 @@ class ConnectionManager {
         return this.remoteSocket.value && !this.remoteSocket.value.closed;
     }
 }
-const handleConnectionError = (error, webSocket) => {
-    console.error('TCP connection error:', {
-        message: error.message,
-        code: error.code,
-        timestamp: new Date().toISOString()
-    });
-    closeWebSocket(webSocket);
-};
 const createWSStream = (webSocket, earlyHeader) => {
     const EVENT_TYPES = {
         MESSAGE: 'message',
@@ -338,7 +329,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
     try {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
-        handleForwardError(webSocket, error);
+        closeWebSocket(webSocket);
     }
     return hasData;
 };
@@ -347,9 +338,6 @@ const sendWithHeader = (webSocket, chunk, resHeader) => {
     combinedBuffer.set(resHeader);
     combinedBuffer.set(new Uint8Array(chunk), resHeader.byteLength);
     webSocket.send(combinedBuffer);
-};
-const handleForwardError = (webSocket, error) => {
-    closeWebSocket(webSocket);
 };
 const closeWebSocket = (webSocket) => {
     if (webSocket.readyState === WebSocket.OPEN || webSocket.readyState === WebSocket.CLOSING) {
