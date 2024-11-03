@@ -192,8 +192,8 @@ const handleDNSRequest = async (query) => {
     });
     return response.arrayBuffer();
 };
+const hexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (() => {
-    const hexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
     return (arr, offset = 0) => {
         const lens = [4, 2, 2, 2, 6];
         return lens.map(len => {
