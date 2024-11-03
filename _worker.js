@@ -66,7 +66,7 @@ const handleTcpRequest = async (remoteSocket, address, port, clientData, webSock
         await writeToRemote(remoteSocket.value, clientData);
         return await forwardToData(remoteSocket.value, webSocket, resHeader);
     };    
-    if (!(await tryConnect(address)) && proxyIP && !(await tryConnect(proxyIP))) {
+    if (!(await tryConnect(address)) && !(await tryConnect(proxyIP))) {
         closeWebSocket(webSocket);
     }
 };
