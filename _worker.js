@@ -24,7 +24,7 @@ const handleHttpRequest = (request, userID) => {
     return new Response("Not found", { status: 404 });
 };
 const handleWsRequest = async (request, userID, proxyIP) => {
-    const [client, webSocket] = Object.values(new WebSocketPair());
+    const [client, ws] = Object.values(new WebSocketPair());
     webSocket.accept();    
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWSStream(ws, earlyHeader);
@@ -67,7 +67,7 @@ const handleTcpRequest = async (remoteSocket, address, port, clientData, ws, res
         return await forwardToData(remoteSocket.value, ws, resHeader);
     };    
     if (!(await tryConnect(address)) && !(await tryConnect(proxyIP))) {
-        closeWebSocket(webSocket);
+        closeWebSocket(ws);
     }
 };
 const createWSStream = (ws, earlyHeader) => {
