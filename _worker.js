@@ -216,8 +216,10 @@ const base64ToBuffer = (str) => {
         return { error };
     }
 };
-const closeWebSocket = (ws) => {
-    if (ws.readyState <= WebSocket.CLOSING) ws.close();
+const closeWebSocket = (webSocket) => {
+    if (webSocket.readyState === WebSocket.OPEN || webSocket.readyState === WebSocket.CLOSING) {
+        webSocket.close();
+    }
 };
 const getConfig = (userID, host) => 
     `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
