@@ -93,7 +93,7 @@ const writeToRemote = async (socket, chunk, options = {}) => {
     const {
         timeout = 5000,
         retryCount = 1,
-        chunkSize = 16384
+        chunkSize = 64 * 1024
     } = options;
     const writer = socket.writable.getWriter();
     try {
