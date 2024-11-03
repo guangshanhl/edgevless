@@ -24,7 +24,8 @@ const handleHttpRequest = (request, userID) => {
     return new Response("Not found", { status: 404 });
 };
 const handleWsRequest = async (request, userID, proxyIP) => {
-    const [client, webSocket] = Object.values(new WebSocketPair());
+    const webSocketPair = new WebSocketPair();
+	const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();    
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWSStream(webSocket, earlyHeader);
