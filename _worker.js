@@ -1,5 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-
 export default {
     async fetch(request, env, ctx) {
         const { UUID: userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4', PROXYIP: proxyIP = '' } = env;
@@ -11,7 +10,6 @@ export default {
         }
     },
 };
-
 function handleHTTP(request, userID) {
     const { pathname } = new URL(request.url);
     const host = request.headers.get('Host');
@@ -21,7 +19,6 @@ function handleHTTP(request, userID) {
         new Response(getVLESSConfig(userID, host), { status: 200, headers: { "Content-Type": "text/plain;charset=utf-8" } }) :
         new Response('Not found', { status: 404 });
 }
-
 async function vlessOverWSHandler(request, userID, proxyIP) {
     const { 0: client, 1: webSocket } = new WebSocketPair();
     webSocket.accept();
@@ -55,7 +52,6 @@ async function vlessOverWSHandler(request, userID, proxyIP) {
     readableWebSocketStream.pipeTo(writableStream).catch(() => {});
     return new Response(null, { status: 101, webSocket: client });
 }
-
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
     let readableStreamCancel = false;
     const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
@@ -80,7 +76,6 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
         }
     });
 }
-
 function processVlessHeader(vlessBuffer, userID) {
     if (vlessBuffer.byteLength < 24) return { hasError: true };
     const view = new DataView(vlessBuffer);
@@ -117,7 +112,6 @@ function processVlessHeader(vlessBuffer, userID) {
     }
     return { hasError: false, addressRemote: addressValue, portRemote, rawDataIndex: addressValueIndex + addressLength, vlessVersion: 0, isUDP };
 }
-
 async function handleUDPOutBound(webSocket, vlessResponseHeader) {
     let isVlessHeaderSent = false;
     const transformStream = new TransformStream({
@@ -153,7 +147,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
     })).catch(() => {});
     return { write: chunk => transformStream.writable.getWriter().write(chunk) };
 }
-
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, proxyIP) {
     const connectAndWrite = async (address, port) => {
         const tcpSocket = connect({ hostname: address, port });
@@ -171,7 +164,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
     const tcpSocket = await connectAndWrite(addressRemote, portRemote);
     remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry);
 }
-
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
     let hasIncomingData = false;
     let vlessHeader = vlessResponseHeader;
@@ -192,7 +184,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
     } catch {}
     if (!hasIncomingData && retry) retry();
 }
-
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) return { error: null };
     try {
@@ -208,18 +199,15 @@ function base64ToArrayBuffer(base64Str) {
         return { error };
     }
 }
-
 function safeCloseWebSocket(socket) {
     if ([WebSocket.OPEN, WebSocket.CLOSING].includes(socket.readyState)) {
         socket.close();
     }
 }
-
 function stringify(arr, offset = 0) {
     const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
     return `${byteToHex[arr[offset]]}${byteToHex[arr[offset + 1]]}${byteToHex[arr[offset + 2]]}${byteToHex[arr[offset + 3]]}-${byteToHex[arr[offset + 4]]}${byteToHex[arr[offset + 5]]}-${byteToHex[arr[offset + 6]]}${byteToHex[arr[offset + 7]]}-${byteToHex[arr[offset + 8]]}${byteToHex[arr[offset + 9]]}-${byteToHex[arr[offset + 10]]}${byteToHex[arr[offset + 11]]}${byteToHex[arr[offset + 12]]}${byteToHex[arr[offset + 13]]}${byteToHex[arr[offset + 14]]}${byteToHex[arr[offset + 15]]}`.toLowerCase();
 }
-
 function getVLESSConfig(userID, hostName) {
     return `
 ################################################################
