@@ -1,18 +1,13 @@
 import { connect } from 'cloudflare:sockets';
 export default {
     async fetch(request, env) {
-        const newRequest = new Request(request, {
-            cf: {
-                country: 'US'
-            }
-        });       
         const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
         const proxyIP = env.PROXYIP || '';
         try {
-            const isSocket = newRequest.headers.get('Upgrade') === 'websocket';
+            const isSocket = request.headers.get('Upgrade') === 'websocket';
             return isSocket
-                ? handleWsRequest(newRequest, userID, proxyIP)
-                : handleHttpRequest(newRequest, userID);
+                ? handleWsRequest(request, userID, proxyIP)
+                : handleHttpRequest(request, userID);
         } catch (err) {
             return new Response(err.toString());
         }
@@ -66,8 +61,11 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 };
 const writeToRemote = async (socket, chunk) => {
     const writer = socket.writable.getWriter();
-    await writer.write(chunk);
-    writer.releaseLock();
+    try {
+        await writer.write(chunk);
+    } finally {
+        writer.releaseLock();
+    }
 };
 const handleTcpRequest = async (remoteSocket, address, port, clientData, webSocket, resHeader, proxyIP) => {
     const tryConnect = async (addr) => {
@@ -113,37 +111,37 @@ const createWSStream = (webSocket, earlyHeader) => {
         }
     });
 };
-class WebSocketHeader {
-    constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
-        this.hasError = hasError;
-        this.address = address;
-        this.port = port;
-        this.rawDataIndex = rawDataIndex;
-        this.passVersion = passVersion;
-        this.isUDP = isUDP;
-    }
-}
 const processWebSocketHeader = (buffer, userID) => {
     const bytes = new Uint8Array(buffer);
     const receivedID = stringify(bytes.subarray(1, 17));
-    if (receivedID !== userID) return new WebSocketHeader(true);
+    if (receivedID !== userID) {
+        return { hasError: true };
+    }
     const optLength = bytes[17];
     const commandStartIndex = 18 + optLength;
     const command = bytes[commandStartIndex];
     const isUDP = command === 2;
-    const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
+    const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];   
     const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-    return new WebSocketHeader(false, address, port, rawDataIndex, bytes.subarray(0, 1), isUDP);
+    return {
+        hasError: false,
+        address: address,
+        port: port,
+        rawDataIndex: rawDataIndex,
+        passVersion: bytes.subarray(0, 1),
+        isUDP: isUDP
+    };
 };
 const getAddressInfo = (bytes, startIndex) => {
     const addressType = bytes[startIndex];
     const addressLength = addressType === 2 ? bytes[startIndex + 1] : (addressType === 1 ? 4 : 16);
-    const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
+    const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);    
     const addressValue = addressType === 1
         ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
         : addressType === 2
             ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
+            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
+                .map(b => b.toString(16).padStart(2, '0')).join(':');
     return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
