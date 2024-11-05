@@ -116,6 +116,7 @@ async function setupTcpProxy(address, port, data, server, responseHeader, proxyI
       const writer = socket.writable.getWriter();
       await writer.write(data);
       writer.releaseLock();
+	    let hasData = false; 
       socket.readable
         .pipeTo(new WritableStream({
           async write(chunk) {
@@ -129,15 +130,17 @@ async function setupTcpProxy(address, port, data, server, responseHeader, proxyI
             } else {
               server.send(chunk);
             }
+	      		hasData = true;
           }
         }))
         .catch(() => closeWs(server));
+  		return hasData;
       return socket;
     } catch {
-      return null;
+      return false;
     }
   };
-  return (await tryConnect(address)) || (await tryConnect(proxyIP)) || (closeWs(server), null);
+  return !(await tryConnect(address)) || !(await tryConnect(proxyIP)) || (closeWs(server), null);
 }
 async function setupUdpProxy(server, responseHeader, initialData) {
   let headerSent = false; 
