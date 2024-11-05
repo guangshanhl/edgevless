@@ -250,7 +250,7 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
     }
   });
   transformStream.readable.pipeTo(new WritableStream({
-    async write(chunk) {
+    async write(chunk, controller) {
       controller.enqueue(chunk);
     }
   }));
