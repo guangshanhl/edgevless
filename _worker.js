@@ -1,8 +1,11 @@
 import { connect } from 'cloudflare:sockets';
+const BUFFER_SIZE = 16384;
+const MAX_CHUNK_SIZE = 65536;
+const MIN_CHUNK_SIZE = 1024;
 export default {
   async fetch(request, env) {
     const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    const proxyIP = env.PROXYIP || '';
+    const proxyIP = env.PROXYIP || '';    
     try {
       const isWebSocket = request.headers.get('Upgrade') === 'websocket';
       return isWebSocket ? handleWsRequest(request, userID, proxyIP) : handleHttpRequest(request, userID);
@@ -28,42 +31,71 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   const [clientSocket, serverSocket] = new WebSocketPair();
   serverSocket.accept();
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
+  const readableStream = createOptimizedWebSocketStream(serverSocket, earlyDataHeader);  
   let remoteSocket = { value: null };
   let udpStreamWrite = null;
   let isDns = false;
   const responseHeader = new Uint8Array(2);
   const writableStream = new WritableStream({
     async write(chunk) {
-      if (isDns && udpStreamWrite) {
-        return udpStreamWrite(chunk);
+      const processedChunks = optimizeChunkSize(chunk);     
+      for (const optimizedChunk of processedChunks) {
+        if (isDns && udpStreamWrite) {
+          return udpStreamWrite(optimizedChunk);
+        }
+        if (remoteSocket.value) {
+          await writeToRemoteWithBuffer(remoteSocket.value, optimizedChunk);
+          return;
+        }
+        const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(optimizedChunk, userID);
+        if (hasError) return;
+        responseHeader[0] = passVersion[0];
+        responseHeader[1] = 0;
+        const rawClientData = optimizedChunk.slice(rawDataIndex);
+        isDns = isUDP && port === 53;
+        if (isDns) {
+          const { write } = await handleUdpRequest(serverSocket, responseHeader);
+          udpStreamWrite = write;
+          udpStreamWrite(rawClientData);
+          return;
+        }
+        handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
       }
-      if (remoteSocket.value) {
-        await writeToRemote(remoteSocket.value, chunk);
-        return;
-      }
-      const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
-      if (hasError) return;
-      responseHeader[0] = passVersion[0];
-      responseHeader[1] = 0;
-      const rawClientData = chunk.slice(rawDataIndex);
-      isDns = isUDP && port === 53;
-      if (isDns) {
-        const { write } = await handleUdpRequest(serverSocket, responseHeader);
-        udpStreamWrite = write;
-        udpStreamWrite(rawClientData);
-        return;
-      }
-      handleTcpRequest(remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP);
     }
   });
   readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
+const optimizeChunkSize = (chunk) => {
+  const chunks = [];  
+  if (chunk.byteLength > MAX_CHUNK_SIZE) {
+    for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
+      const size = Math.min(BUFFER_SIZE, chunk.byteLength - offset);
+      chunks.push(chunk.slice(offset, offset + size));
+    }
+  } else if (chunk.byteLength < MIN_CHUNK_SIZE) {
+    const buffer = new Uint8Array(MIN_CHUNK_SIZE);
+    buffer.set(new Uint8Array(chunk));
+    chunks.push(buffer.buffer);
+  } else {
+    chunks.push(chunk);
+  }  
+  return chunks;
+};
 const writeToRemote = async (socket, chunk) => {
-  const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  const writer = socket.writable.getWriter(); 
+  try {
+    if (chunk.byteLength > BUFFER_SIZE) {
+      for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
+        const size = Math.min(BUFFER_SIZE, chunk.byteLength - offset);
+        await writer.write(chunk.slice(offset, offset + size));
+      }
+    } else {
+      await writer.write(chunk);
+    }
+  } finally {
+    writer.releaseLock();
+  }
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
   if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -85,35 +117,38 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
-  const handleEvent = (event, controller) => {
-    switch (event.type) {
-      case 'message':
-        controller.enqueue(event.data);
-        break;
-      case 'close':
-        closeWebSocket(serverSocket);
-        controller.close();
-        break;
-      case 'error':
-        controller.error(event);
-        break;
-    }
-  };
+const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+      const { earlyData, error } = base64ToBuffer(earlyDataHeader);      
       if (error) {
         controller.error(error);
       } else if (earlyData) {
-        controller.enqueue(earlyData);
+        const chunks = optimizeChunkSize(earlyData);
+        chunks.forEach(chunk => controller.enqueue(chunk));
       }
-      ['message', 'close', 'error'].forEach(type => 
-        serverSocket.addEventListener(type, event => handleEvent(event, controller))
-      );
+
+      serverSocket.addEventListener('message', event => {
+        const chunks = optimizeChunkSize(event.data);
+        chunks.forEach(chunk => controller.enqueue(chunk));
+      });
+
+      serverSocket.addEventListener('close', () => {
+        closeWebSocket(serverSocket);
+        controller.close();
+      });
+
+      serverSocket.addEventListener('error', event => {
+        controller.error(event);
+      });
     },
     cancel() {
       closeWebSocket(serverSocket);
+    }
+  }, {
+    highWaterMark: BUFFER_SIZE,
+    size(chunk) {
+      return chunk.byteLength;
     }
   });
 };
