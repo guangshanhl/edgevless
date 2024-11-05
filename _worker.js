@@ -66,11 +66,22 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
-  if (!remoteSocket.value || remoteSocket.value.closed) {
-    remoteSocket.value = connect({ hostname: address, port });
-  }
-  await writeToRemote(remoteSocket.value, rawClientData);
-  return remoteSocket.value;
+    if (remoteSocket.value?.closed === false) {
+        const writer = remoteSocket.value.writable.getWriter();
+        await writer.write(rawClientData);
+        writer.releaseLock();
+        return remoteSocket.value;
+    }
+    remoteSocket.value = await connect({ 
+        hostname: address, 
+        port,
+        allowHalfOpen: false,
+        secureTransport: false
+    });
+    const writer = remoteSocket.value.writable.getWriter();
+    await writer.write(rawClientData);
+    writer.releaseLock();    
+    return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
   const tryConnect = async (address, port) => {
