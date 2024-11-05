@@ -40,9 +40,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       }
       if (remoteSocket.value) {
         const writer = remoteSocket.value.writable.getWriter()
-				await writer.write(chunk);
-				writer.releaseLock();
-				return;
+	await writer.write(chunk);
+	writer.releaseLock();
+	return;
       }
       const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
