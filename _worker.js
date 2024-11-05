@@ -96,98 +96,99 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
-  const handleEvent = (event, controller) => {
-    switch (event.type) {
-      case 'message':
-        controller.enqueue(event.data);
-        break;
-      case 'close':
-        closeWebSocket(serverSocket);
-        controller.close();
-        break;
-      case 'error':
-        controller.error(event);
-        break;
-    }
-  };
-  return new ReadableStream({
-    start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) {
-        controller.error(error);
-      } else if (earlyData) {
-        controller.enqueue(earlyData);
-      }
-      ['message', 'close', 'error'].forEach(type => 
-        serverSocket.addEventListener(type, event => handleEvent(event, controller))
-      );
-    },
-    cancel() {
-      closeWebSocket(serverSocket);
-    }
-  });
+const createWebSocketStream = (serverSocket, earlyHeader) => {
+    return new ReadableStream({
+        start(controller) {
+            if (earlyHeader) {
+                const { earlyData, error } = base64ToBuffer(earlyHeader);
+                if (error) {
+                    controller.error(error);
+                    return;
+                }
+                if (earlyData) controller.enqueue(earlyData);
+            }
+            serverSocket.addEventListener('message', ({ data }) => controller.enqueue(data));            
+            serverSocket.addEventListener('close', () => {
+                closeWebSocket(serverSocket);
+                controller.close();
+            });            
+            ws.addEventListener('error', e => controller.error(e));
+        },        
+        cancel() {
+            closeWebSocket(serverSocket);
+        }
+    });
 };
-class WebSocketHeader {
-  constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
-    this.hasError = hasError;
-    this.address = address;
-    this.port = port;
-    this.rawDataIndex = rawDataIndex;
-    this.passVersion = passVersion;
-    this.isUDP = isUDP;
-  }
-}
+const createHeader = (hasError = true, address = '', port = 0, rawDataIndex = 0, passVersion = null, isUDP = false) => ({
+    hasError, address, port, rawDataIndex, passVersion, isUDP
+});
 const processWebSocketHeader = (buffer, userID) => {
-  const bytes = new Uint8Array(buffer);
-  const receivedID = stringify(bytes.subarray(1, 17));
-  if (receivedID !== userID) return new WebSocketHeader(true); 
-  const optLength = bytes[17];
-  const commandStartIndex = 18 + optLength;
-  const command = bytes[commandStartIndex];
-  const isUDP = command === 2;
-  const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
-  const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-  return new WebSocketHeader(false, address, port, rawDataIndex, bytes.subarray(0, 1), isUDP);
-};
-const getAddressInfo = (bytes, startIndex) => {
-  const addressType = bytes[startIndex];
-  const addressLength = addressType === 2 ? bytes[startIndex + 1] : (addressType === 1 ? 4 : 16);
-  const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-  const addressValue = addressType === 1
-    ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
-    : addressType === 2
-    ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-    : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
-  return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
+    const bytes = new Uint8Array(buffer);
+    if (stringify(bytes.subarray(1, 17)) !== userID) {
+        return createHeader();
+    }   
+    const cmdStart = 18 + bytes[17];
+    const isUDP = bytes[cmdStart] === 2;
+    const port = (bytes[cmdStart + 1] << 8) | bytes[cmdStart + 2];
+    const addrStart = cmdStart + 3;
+    const addrType = bytes[addrStart];
+    const valueStart = addrStart + (addrType === 2 ? 2 : 1);
+    const addrLen = addrType === 2 ? bytes[addrStart + 1] : (addrType === 1 ? 4 : 16);   
+    let address;
+    if (addrType === 1) {
+        address = bytes.subarray(valueStart, valueStart + addrLen).join('.');
+    } else if (addrType === 2) {
+        address = new TextDecoder().decode(bytes.subarray(valueStart, valueStart + addrLen));
+    } else {
+        address = Array.from(bytes.subarray(valueStart, valueStart + addrLen))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join(':');
+    }
+    return createHeader(
+        false,
+        address,
+        port,
+        valueStart + addrLen,
+        bytes.subarray(0, 1),
+        isUDP
+    );
 };
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
-  let hasData = false;
-  let headerSent = responseHeader !== null;
-  const writableStream = new WritableStream({
-    async write(chunk, controller) {
-      if (serverSocket.readyState !== WebSocket.OPEN) {
-        controller.error('serverSocket is closed');
-      }
-      if (headerSent) {
-        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
-        combinedBuffer.set(responseHeader);
-        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
-        serverSocket.send(combinedBuffer);
-        headerSent = false;
-      } else {
-        serverSocket.send(chunk);
-      }
-      hasData = true;
+    // 使用更高效的标志位
+    let hasData = false;
+    const needHeader = Boolean(responseHeader);
+    
+    try {
+        await remoteSocket.readable.pipeTo(new WritableStream({
+            write(chunk) {
+                // 快速检查WebSocket状态
+                if (serverSocket.readyState !== WebSocket.OPEN) {
+                    throw new Error('WebSocket closed');
+                }
+
+                if (needHeader) {
+                    // 优化内存分配，只在第一次发送时合并header
+                    const combined = new Uint8Array(responseHeader.length + chunk.byteLength);
+                    combined.set(responseHeader);
+                    combined.set(new Uint8Array(chunk), responseHeader.length);
+                    serverSocket.send(combined);
+                    responseHeader.length = 0; // 清除header引用
+                } else {
+                    serverSocket.send(chunk);
+                }
+                
+                hasData = true;
+            }
+        }));
+    } catch {
+        if (serverSocket.readyState <= WebSocket.CLOSING) {
+            serverSocket.close();
+        }
     }
-  });
-  try {
-    await remoteSocket.readable.pipeTo(writableStream);
-  } catch (error) {
-    closeWebSocket(serverSocket);
-  }
-  return hasData;
+
+    return hasData;
 };
+
 const base64ToBuffer = (base64Str) => {
     try {
         if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
