@@ -91,7 +91,6 @@ const handleUdpRequest = async (server, responseHeader) => {
           dataToSend.set(udpSizeBuffer);
           dataToSend.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
         }
-
         if (server.readyState === WebSocket.OPEN) {
           server.send(dataToSend);
         }
@@ -138,7 +137,6 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
       return false;
     }
   };
-
   if (!(await tryConnect(address, port) || await tryConnect(proxyIP, port))) {
     closeWebSocket(server);
   }
@@ -251,7 +249,6 @@ const getAddressInfo = (bytes, startIndex) => {
     ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
     : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
         .map(b => b.toString(16).padStart(2, '0')).join(':');
-
   return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const closeWebSocket = (socket) => {
