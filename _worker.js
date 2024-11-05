@@ -1,7 +1,7 @@
 import { connect } from 'cloudflare:sockets';
-const BUFFER_SIZE = 16384;
-const MAX_CHUNK_SIZE = 65536;
-const MIN_CHUNK_SIZE = 1024;
+const BUFFER_SIZE = 8192;
+const MAX_CHUNK_SIZE = 32768;
+const MIN_CHUNK_SIZE = 512;
 export default {
   async fetch(request, env) {
     const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
