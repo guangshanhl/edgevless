@@ -127,17 +127,14 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
         const chunks = optimizeChunkSize(earlyData);
         chunks.forEach(chunk => controller.enqueue(chunk));
       }
-
       serverSocket.addEventListener('message', event => {
         const chunks = optimizeChunkSize(event.data);
         chunks.forEach(chunk => controller.enqueue(chunk));
       });
-
       serverSocket.addEventListener('close', () => {
         closeWebSocket(serverSocket);
         controller.close();
       });
-
       serverSocket.addEventListener('error', event => {
         controller.error(event);
       });
