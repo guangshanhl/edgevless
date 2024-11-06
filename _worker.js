@@ -97,7 +97,7 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
     closeWebSocket(serverSocket);
   }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader) => { 
+const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   const handleEvent = (event, controller) => {
     switch (event.type) {
       case 'message':
@@ -114,13 +114,15 @@ const createWebSocketStream = (serverSocket, earlyDataHeader) => {
   };
   return new ReadableStream({
     start(controller) {
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
-      if (error) {
-        controller.error(error);
-      } else if (earlyData) {
-        controller.enqueue(earlyData);
+      if (earlyDataHeader) {
+        const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+        if (error) {
+          controller.error(error);
+        } else if (earlyData) {
+          controller.enqueue(earlyData);
+        }
       }
-      ['message', 'close', 'error'].forEach(type => 
+      ['message', 'close', 'error'].forEach(type =>
         serverSocket.addEventListener(type, event => handleEvent(event, controller))
       );
     },
@@ -162,53 +164,32 @@ const getAddressInfo = (bytes, startIndex) => {
     : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
-const bufferPool = [];
-const defaultBufferSize = 4096;
-const getBuffer = (requiredSize) => {
-  let buffer;
-  for (let i = 0; i < bufferPool.length; i++) {
-    if (bufferPool[i].byteLength >= requiredSize) {
-      buffer = bufferPool.splice(i, 1)[0];
-      break;
-    }
-  }
-  if (!buffer) {
-    buffer = new Uint8Array(requiredSize);
-  }
-  return buffer;
-};
-const returnBuffer = (buffer) => {
-  bufferPool.push(buffer);
-};
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   let hasData = false;
   let headerSent = responseHeader !== null;
   const writableStream = new WritableStream({
     async write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
-        controller.error('serverSocket is closed');
+        console.error('WebSocket connection is closed');
+        return;
       }
-      const buffer = getBuffer();
-      if (headerSent) {
-        const combinedLength = responseHeader.byteLength + chunk.byteLength;
-        if (buffer.byteLength < combinedLength) {
-          returnBuffer(buffer); // Release buffer if insufficient size
-          buffer = new Uint8Array(combinedLength); // Allocate new buffer
-        }
-        buffer.set(responseHeader);
-        buffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+      if (!this.buffer) {
+        this.buffer = chunk;
       } else {
-        buffer.set(chunk);
+        this.buffer = Buffer.concat([this.buffer, chunk]);
       }
-      serverSocket.send(buffer);
-      headerSent = false;
-      hasData = true;
-      returnBuffer(buffer); // Return buffer to pool after use
+      if (this.buffer.length >= 2048 || headerSent) {
+        const dataToSend = headerSent ? this.buffer : Buffer.concat([responseHeader, this.buffer]);
+        serverSocket.send(dataToSend);
+        headerSent = true;
+        this.buffer = null;
+      }
     }
   });
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
+    console.error('Error forwarding data:', error);
     closeWebSocket(serverSocket);
   }
   return hasData;
@@ -257,15 +238,22 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
         index += 2 + udpPacketLength;
         const dnsQueryResult = await handleDNSRequest(udpData);
         const udpSize = dnsQueryResult.byteLength;
-        const combinedLength = responseHeader.byteLength + 2 + udpSize;
-        const buffer = getBuffer(combinedLength);
-        buffer.set(responseHeader);
-        const sizeBufferOffset = responseHeader.byteLength;
-        buffer.set([ (udpSize >> 8) & 0xff, udpSize & 0xff ], sizeBufferOffset);
-        buffer.set(new Uint8Array(dnsQueryResult), sizeBufferOffset + 2);
-        serverSocket.send(buffer);
-        headerSent = true;
-        returnBuffer(buffer);
+        const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+        let dataToSend;
+        if (!headerSent) {
+          dataToSend = new Uint8Array(responseHeader.byteLength + udpSizeBuffer.byteLength + udpSize);
+          dataToSend.set(responseHeader);
+          dataToSend.set(udpSizeBuffer, responseHeader.byteLength);
+          dataToSend.set(new Uint8Array(dnsQueryResult), responseHeader.byteLength + udpSizeBuffer.byteLength);
+          headerSent = true;
+        } else {
+          dataToSend = new Uint8Array(udpSizeBuffer.byteLength + udpSize);
+          dataToSend.set(udpSizeBuffer);
+          dataToSend.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+        }
+        if (serverSocket.readyState === WebSocket.OPEN) {
+          serverSocket.send(dataToSend);
+        }
       }
       controller.close();
     }
