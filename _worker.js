@@ -63,22 +63,30 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+  try {
     if (remoteSocket.value?.closed === false) {
-        const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(rawClientData);
-        writer.releaseLock();
-        return remoteSocket.value;
+      const writer = remoteSocket.value.writable.getWriter();
+      await writer.write(rawClientData);
+      writer.releaseLock();
+      return remoteSocket.value;
     }
-    remoteSocket.value = await connect({ 
-        hostname: address, 
+    const socket = await Promise.race([
+      connect({
+        hostname: address,
         port,
         allowHalfOpen: true,
         secureTransport: "on"
-    });
-    const writer = remoteSocket.value.writable.getWriter();
+      }),
+      new Promise((resolve, reject) => setTimeout(() => reject(new Error('Connection timed out')), 3000))
+    ]);
+    remoteSocket.value = socket;
+    const writer = socket.writable.getWriter();
     await writer.write(rawClientData);
-    writer.releaseLock();    
-    return remoteSocket.value;
+    writer.releaseLock();
+    return socket;
+  } catch (error) {
+    throw error;
+  }
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
   const tryConnect = async (address, port) => {
