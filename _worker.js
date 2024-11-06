@@ -259,11 +259,7 @@ const handleUdpRequest = async (serverSocket, responseHeader) => {
     }
   }));
   const writer = transformStream.writable.getWriter();
-  return {
-    write(chunk) {
-      writer.write(chunk);
-    }
-  };
+  return { write: (chunk) => writer.write(chunk) };
 };
 const handleDNSRequest = async (queryPacket) => {
   const response = await fetch("https://1.1.1.1/dns-query", {
