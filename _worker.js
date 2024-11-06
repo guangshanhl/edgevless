@@ -13,16 +13,20 @@ export default {
 };
 const handleHttpRequest = (request, userID) => {
   const path = new URL(request.url).pathname;
+
+  if (path !== "/" && path !== `/${userID}`) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  // If the path matches, continue with the original logic
   if (path === "/") {
     return new Response(JSON.stringify(request.cf, null, 4));
-  }
-  if (path === `/${userID}`) {
+  } else {
     const vlessConfig = getConfig(userID, request.headers.get("Host"));
     return new Response(vlessConfig, {
       headers: { "Content-Type": "text/plain;charset=utf-8" }
     });
   }
-  return new Response("Not found", { status: 404 });
 };
 const handleWsRequest = async (request, userID, proxyIP) => {
   const [clientSocket, serverSocket] = new WebSocketPair();
@@ -157,13 +161,37 @@ const getAddressInfo = (bytes, startIndex) => {
   const addressType = bytes[startIndex];
   const addressLength = addressType === 2 ? bytes[startIndex + 1] : (addressType === 1 ? 4 : 16);
   const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-  const addressValue = addressType === 1
-    ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
-    : addressType === 2
-    ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-    : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
-  return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
+
+  let address;
+  if (addressType === 1) {
+    // IPv4 address
+    address = Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength), byte => byte.toString(10)).join('.');
+  } else if (addressType === 2) {
+    // Domain name
+    address = new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength));
+  } else {
+    // IPv6 address
+    address = Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
+  }
+
+  return { address, rawDataIndex: addressValueIndex + addressLength };
 };
+const bufferPool = []; // Array to store pre-allocated buffers
+const bufferSize = 4096; // Adjust buffer size based on your needs
+
+function getBuffer() {
+  if (bufferPool.length > 0) {
+    return bufferPool.pop();
+  } else {
+    return new Uint8Array(bufferSize);
+  }
+}
+
+function returnBuffer(buffer) {
+  buffer.fill(0); // Clear buffer content
+  bufferPool.push(buffer);
+}
+
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   let hasData = false;
   let headerSent = responseHeader !== null;
@@ -172,16 +200,22 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
       if (serverSocket.readyState !== WebSocket.OPEN) {
         controller.error('serverSocket is closed');
       }
+      const buffer = getBuffer();
       if (headerSent) {
-        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
-        combinedBuffer.set(responseHeader);
-        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
-        serverSocket.send(combinedBuffer);
-        headerSent = false;
+        const combinedLength = responseHeader.byteLength + chunk.byteLength;
+        if (buffer.byteLength < combinedLength) {
+          returnBuffer(buffer); // Release buffer if insufficient size
+          buffer = new Uint8Array(combinedLength); // Allocate new buffer
+        }
+        buffer.set(responseHeader);
+        buffer.set(new Uint8Array(chunk), responseHeader.byteLength);
       } else {
-        serverSocket.send(chunk);
+        buffer.set(chunk);
       }
+      serverSocket.send(buffer);
+      headerSent = false;
       hasData = true;
+      returnBuffer(buffer); // Return buffer to pool after use
     }
   });
   try {
@@ -213,16 +247,15 @@ const closeWebSocket = (serverSocket) => {
 };
 const byteToHexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
-    const segments = [4, 2, 2, 2, 6];
-    const result = [];
-    for (const len of segments) {
-        let str = '';
-        for (let i = 0; i < len; i++) {
-            str += byteToHexTable[arr[offset++]];
-        }
-        result.push(str);
+  const result = new Uint8Array(36); // Pre-allocate a buffer
+  let i = 0;
+  for (const len of [4, 2, 2, 2, 6]) {
+    for (let j = 0; j < len; j++) {
+      result[i++] = (arr[offset++] + 256).toString(16).charCodeAt(1);
     }
-    return result.join('-').toLowerCase();
+    result[i++] = 45; // Hyphen
+  }
+  return new TextDecoder().decode(result);
 };
 const handleUdpRequest = async (serverSocket, responseHeader) => {
   let headerSent = false;
