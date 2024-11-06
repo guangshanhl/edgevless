@@ -176,22 +176,6 @@ const getAddressInfo = (bytes, startIndex) => {
 
   return { address, rawDataIndex: addressValueIndex + addressLength };
 };
-const bufferPool = []; // Array to store pre-allocated buffers
-const bufferSize = 4096; // Adjust buffer size based on your needs
-
-function getBuffer() {
-  if (bufferPool.length > 0) {
-    return bufferPool.pop();
-  } else {
-    return new Uint8Array(bufferSize);
-  }
-}
-
-function returnBuffer(buffer) {
-  buffer.fill(0); // Clear buffer content
-  bufferPool.push(buffer);
-}
-
 const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   let hasData = false;
   let headerSent = responseHeader !== null;
@@ -200,22 +184,16 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
       if (serverSocket.readyState !== WebSocket.OPEN) {
         controller.error('serverSocket is closed');
       }
-      const buffer = getBuffer();
       if (headerSent) {
-        const combinedLength = responseHeader.byteLength + chunk.byteLength;
-        if (buffer.byteLength < combinedLength) {
-          returnBuffer(buffer); // Release buffer if insufficient size
-          buffer = new Uint8Array(combinedLength); // Allocate new buffer
-        }
-        buffer.set(responseHeader);
-        buffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
+        combinedBuffer.set(responseHeader);
+        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+        serverSocket.send(combinedBuffer);
+        headerSent = false;
       } else {
-        buffer.set(chunk);
+        serverSocket.send(chunk);
       }
-      serverSocket.send(buffer);
-      headerSent = false;
       hasData = true;
-      returnBuffer(buffer); // Return buffer to pool after use
     }
   });
   try {
