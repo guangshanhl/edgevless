@@ -170,26 +170,23 @@ const forwardToData = async (remoteSocket, serverSocket, responseHeader) => {
   const writableStream = new WritableStream({
     async write(chunk, controller) {
       if (serverSocket.readyState !== WebSocket.OPEN) {
-        console.error('WebSocket connection is closed');
-        return;
+        controller.error('serverSocket is closed');
       }
-      if (!this.buffer) {
-        this.buffer = chunk;
+      if (headerSent) {
+        const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
+        combinedBuffer.set(responseHeader);
+        combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+        serverSocket.send(combinedBuffer);
+        headerSent = false;
       } else {
-        this.buffer = Buffer.concat([this.buffer, chunk]);
+        serverSocket.send(chunk);
       }
-      if (this.buffer.length >= 2048 || headerSent) {
-        const dataToSend = headerSent ? this.buffer : Buffer.concat([responseHeader, this.buffer]);
-        serverSocket.send(dataToSend);
-        headerSent = true;
-        this.buffer = null;
-      }
+      hasData = true;
     }
   });
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
-    console.error('Error forwarding data:', error);
     closeWebSocket(serverSocket);
   }
   return hasData;
