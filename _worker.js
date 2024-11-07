@@ -72,7 +72,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     remoteSocket.value = connect({ 
         hostname: address, 
         port,
-        allowHalfOpen: false,
+        allowHalfOpen: true,
         secureTransport: "on"
     });
     const writer = remoteSocket.value.writable.getWriter();
