@@ -87,9 +87,9 @@ const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, 
       return false;
     }
   };
-  const isConnected = await Promise.any([tryConnect(address), tryConnect(proxyIP)]);
+  const isConnected = await tryConnect(address) || await tryConnect(proxyIP);  
   if (!isConnected) {
-      closeWS(websocket);
+    closeWS(websocket);
   }
 };
 const createWSStream = (websocket, earlyDataHeader) => { 
