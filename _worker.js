@@ -173,7 +173,6 @@ const forwardToData = async (remoteSocket, websocket) => {
     }
     return hasData;
 };
-
 const base64ToBuffer = (base64Str) => {
     try {
         if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
