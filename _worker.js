@@ -1,26 +1,20 @@
 import { connect } from 'cloudflare:sockets';
 export default {
     async fetch(request, env) {
-        if (request.url.startsWith("http://")) {
-            const httpsUrl = request.url.replace("http://", "https://");
-            return Response.redirect(httpsUrl, 301);
-        }
         const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-        const proxyIP = env.PROXYIP || '';        
+        const proxyIP = env.PROXYIP || '';
         try {
             const isWebSocket = request.headers.get('Upgrade') === 'websocket';
-            return isWebSocket ? handleWs(request, userID, proxyIP) : handleHttps(request, userID);
+            return isWebSocket ? handleWs(request, userID, proxyIP) : handleHttp(request, userID);
         } catch (err) {
             return new Response(err.toString());
         }
     }
-const handleHttps = (request, userID) => {
-    const url = new URL(request.url);
-    const path = url.pathname;
+};
+const handleHttp = (request, userID) => {
+    const path = new URL(request.url).pathname;
     if (path === "/") {
-        return new Response(JSON.stringify(request.cf, null, 4), {
-            headers: { "Content-Type": "application/json;charset=utf-8" }
-        });
+        return new Response(JSON.stringify(request.cf, null, 4));
     }
     if (path === `/${userID}`) {
         const vlessConfig = getConfig(userID, request.headers.get("Host"));
@@ -28,10 +22,7 @@ const handleHttps = (request, userID) => {
             headers: { "Content-Type": "text/plain;charset=utf-8" }
         });
     }
-    return new Response("Not found", { 
-        status: 404, 
-        headers: { "Content-Type": "text/plain;charset=utf-8" }
-    });
+    return new Response("Not found", { status: 404 });
 };
 const handleWs = async (request, userID, proxyIP) => {
     const [client, websocket] = new WebSocketPair();
@@ -88,7 +79,8 @@ const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, 
     const tryConnect = async (addr) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, addr, port, rawClientData);
-            return await forwardToData(tcpSocket, websocket, responseHeader);
+            websocket.send(responseHeader);
+            return await forwardToData(tcpSocket, websocket, null);
         } catch (error) {
             return false;
         }
@@ -164,21 +156,17 @@ const getAddressInfo = (bytes, startIndex) => {
 };
 const forwardToData = async (remoteSocket, websocket, responseHeader) => {
     let hasData = false;
-    let headerSent = responseHeader !== null;
+    let headerSent = false;
     const writableStream = new WritableStream({
         async write(chunk, controller) {
             if (websocket.readyState !== WebSocket.OPEN) {
                 controller.error('websocket is closed');
             }
-            if (headerSent) {
-                const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
-                combinedBuffer.set(responseHeader);
-                combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
-                websocket.send(combinedBuffer);
-                headerSent = false;
-            } else {
-                websocket.send(chunk);
+            if (!headerSent) {
+                websocket.send(responseHeader);
+                headerSent = true;
             }
+            websocket.send(chunk);
             hasData = true;
         }
     });
