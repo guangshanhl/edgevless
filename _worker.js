@@ -44,6 +44,7 @@ const handleWs = async (request, userID, proxyIP) => {
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWSHeader(chunk, userID);
             if (hasError) return;
             const responseHeader = new Uint8Array([passVersion[0], 0]);
+            websocket.send(responseHeader);
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && port === 53;
             if (isDns) {
@@ -79,8 +80,7 @@ const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, 
     const tryConnect = async (addr) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, addr, port, rawClientData);
-            websocket.send(responseHeader);
-            return await forwardToData(tcpSocket, websocket, null);
+            return await forwardToData(tcpSocket, websocket);
         } catch (error) {
             return false;
         }
@@ -154,17 +154,13 @@ const getAddressInfo = (bytes, startIndex) => {
             : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
     return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, websocket, responseHeader) => {
+const forwardToData = async (remoteSocket, websocket) => {
     let hasData = false;
-    let headerSent = false;
     const writableStream = new WritableStream({
         async write(chunk, controller) {
             if (websocket.readyState !== WebSocket.OPEN) {
                 controller.error('websocket is closed');
-            }
-            if (!headerSent) {
-                websocket.send(responseHeader);
-                headerSent = true;
+                return;
             }
             websocket.send(chunk);
             hasData = true;
@@ -177,6 +173,7 @@ const forwardToData = async (remoteSocket, websocket, responseHeader) => {
     }
     return hasData;
 };
+
 const base64ToBuffer = (base64Str) => {
     try {
         if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
