@@ -155,18 +155,20 @@ const getAddressInfo = (bytes, startIndex) => {
 };
 const forwardToData = async (remoteSocket, websocket, responseHeader) => {
     let hasData = false;
-    let headerSent = responseHeader !== null;
+    let combinedBuffer = null;
+    if (responseHeader) {
+        combinedBuffer = new Uint8Array(responseHeader.byteLength);
+        combinedBuffer.set(new Uint8Array(responseHeader));
+    }
+    if (websocket.readyState !== WebSocket.OPEN) {
+        return hasData;
+    }
     const writableStream = new WritableStream({
         async write(chunk, controller) {
-            if (websocket.readyState !== WebSocket.OPEN) {
-                controller.error('websocket is closed');
-            }
-            if (headerSent) {
-                const combinedBuffer = new Uint8Array(responseHeader.byteLength + chunk.byteLength);
-                combinedBuffer.set(responseHeader);
-                combinedBuffer.set(new Uint8Array(chunk), responseHeader.byteLength);
+            if (combinedBuffer) {
+                combinedBuffer.set(new Uint8Array(chunk), combinedBuffer.byteLength);
                 websocket.send(combinedBuffer);
-                headerSent = false;
+                combinedBuffer = null;
             } else {
                 websocket.send(chunk);
             }
