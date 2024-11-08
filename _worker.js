@@ -48,12 +48,12 @@ const handleWs = async (request, userID, proxyIP) => {
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && port === 53;
             if (isDns) {
-                const { write } = await handleUdp(websocket, responseHeader);
+                const { write } = await handleUdp(websocket);
                 udpWrite = write;
                 udpWrite(rawClientData);
                 return;
             }
-            handleTcp(remoteSocket, address, port, rawClientData, websocket, responseHeader, proxyIP);
+            handleTcp(remoteSocket, address, port, rawClientData, websocket, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
@@ -76,7 +76,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
     await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
-const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, responseHeader, proxyIP) => {
+const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, proxyIP) => {
     const tryConnect = async (addr) => {
         try {
             const tcpSocket = await connectAndWrite(remoteSocket, addr, port, rawClientData);
@@ -229,7 +229,7 @@ const fetchDns = async (queryPacket) => {
     });
     return response.arrayBuffer();
 };
-const handleUdp = async (websocket, responseHeader) => {
+const handleUdp = async (websocket) => {
     let headerSent = false;
     const transformStream = new TransformStream({
         async transform(chunk, controller) {
@@ -241,15 +241,9 @@ const handleUdp = async (websocket, responseHeader) => {
                 const dnsQueryResult = await getCachedDnsResponse(udpData);
                 const udpSize = dnsQueryResult.byteLength;
                 const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-                const dataToSend = headerSent
-                    ? new Uint8Array(udpSizeBuffer.byteLength + udpSize)
-                    : new Uint8Array(responseHeader.byteLength + udpSizeBuffer.byteLength + udpSize);
-                if (!headerSent) {
-                    dataToSend.set(responseHeader);
-                    headerSent = true;
-                }
-                dataToSend.set(udpSizeBuffer, headerSent ? 0 : responseHeader.byteLength);
-                dataToSend.set(new Uint8Array(dnsQueryResult), dataToSend.length - udpSize);
+                const dataToSend = new Uint8Array(udpSizeBuffer.byteLength + udpSize);
+                dataToSend.set(udpSizeBuffer, 0);
+                dataToSend.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
                 if (websocket.readyState === WebSocket.OPEN) {
                     websocket.send(dataToSend);
                 }
