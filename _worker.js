@@ -27,8 +27,8 @@ const handleHttp = (request, userID) => {
 const handleWs = async (request, userID, proxyIP) => {
     const [client, websocket] = new WebSocketPair();
     websocket.accept();
-    const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableStream = createWSStream(websocket, earlyDataHeader);
+    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+    const readableStream = createWSStream(websocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
@@ -45,15 +45,15 @@ const handleWs = async (request, userID, proxyIP) => {
             if (hasError) return;
             const resHeader = new Uint8Array([version[0], 0]);
             websocket.send(resHeader);
-            const rawClientData = chunk.slice(rawDataIndex);
+            const clientData = chunk.slice(rawDataIndex);
             isDns = isUDP && port === 53;
             if (isDns) {
                 const { write } = await handleUdp(websocket);
                 udpWrite = write;
-                udpWrite(rawClientData);
+                udpWrite(clientData);
                 return;
             }
-            handleTcp(remoteSocket, address, port, rawClientData, websocket, proxyIP);
+            handleTcp(remoteSocket, address, port, clientData, websocket, proxyIP);
         }
     });
     readableStream.pipeTo(writableStream);
@@ -64,7 +64,7 @@ const writeToRemote = async (socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+const connectAndWrite = async (remoteSocket, address, port, clientData) => {
     if (!remoteSocket.value || remoteSocket.value.closed) {
         remoteSocket.value = await connect({
             hostname: address,
@@ -73,13 +73,13 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
             secureTransport: "on"
         });
     }
-    await writeToRemote(remoteSocket.value, rawClientData);
+    await writeToRemote(remoteSocket.value, clientData);
     return remoteSocket.value;
 };
-const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, proxyIP) => {
+const handleTcp = async (remoteSocket, address, port, clientData, websocket, proxyIP) => {
     const tryConnect = async (addr) => {
         try {
-            const tcpSocket = await connectAndWrite(remoteSocket, addr, port, rawClientData);
+            const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
             return await forwardToData(tcpSocket, websocket);
         } catch (error) {
             return false;
@@ -89,7 +89,7 @@ const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, 
         closeWS(websocket);
     }
 };
-const createWSStream = (websocket, earlyDataHeader) => {
+const createWSStream = (websocket, earlyHeader) => {
     const handleEvent = (event, controller) => {
         switch (event.type) {
             case 'message':
@@ -106,7 +106,7 @@ const createWSStream = (websocket, earlyDataHeader) => {
     };
     return new ReadableStream({
         start(controller) {
-            const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
