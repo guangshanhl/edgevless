@@ -147,11 +147,17 @@ const getAddressInfo = (bytes, startIndex) => {
     const addressType = bytes[startIndex];
     const addressLength = addressType === 2 ? bytes[startIndex + 1] : (addressType === 1 ? 4 : 16);
     const addressValueIndex = startIndex + (addressType === 2 ? 2 : 1);
-    const addressValue = addressType === 1
-        ? Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.')
-        : addressType === 2
-            ? new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-            : Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
+    let addressValue;
+    if (addressType === 1) {
+        addressValue = Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.');
+    } else if (addressType === 2) {
+        addressValue = new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength));
+    } else {
+        addressValue = Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join(':')
+            .replace(/(:0{1,3}){2,}:/, '::');
+    }
     return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, websocket) => {
