@@ -41,8 +41,10 @@ const handleWs = async (request, userID, proxyIP) => {
                 await writeToRemote(remoteSocket.value, chunk);
                 return;
             }
-            const { hasError, address, port, rawDataIndex, isUDP } = processWSHeader(chunk, userID);
+            const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWSHeader(chunk, userID);
             if (hasError) return;
+            const responseHeader = new Uint8Array([passVersion[0]]);
+            websocket.send(responseHeader);
             const rawClientData = chunk.slice(rawDataIndex);
             isDns = isUDP && port === 53;
             if (isDns) {
@@ -120,11 +122,12 @@ const createWSStream = (websocket, earlyDataHeader) => {
     });
 };
 class WebSocketHeader {
-    constructor(hasError, address, port, rawDataIndex, isUDP) {
+    constructor(hasError, address, port, rawDataIndex, passVersion, isUDP) {
         this.hasError = hasError;
         this.address = address;
         this.port = port;
         this.rawDataIndex = rawDataIndex;
+        this.passVersion = passVersion;
         this.isUDP = isUDP;
     }
 }
@@ -138,7 +141,7 @@ const processWSHeader = (buffer, userID) => {
     const isUDP = command === 2;
     const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
     const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-    return new WebSocketHeader(false, address, port, rawDataIndex, isUDP);
+    return new WebSocketHeader(false, address, port, rawDataIndex, bytes.subarray(0, 1), isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
     const addressType = bytes[startIndex];
