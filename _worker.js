@@ -76,16 +76,17 @@ const connectAndWrite = async (remoteSocket, address, port, clientData) => {
     await writeToRemote(remoteSocket.value, clientData);
     return remoteSocket.value;
 };
+const tryConnect = async (addr, port, clientData, remoteSocket) => {
+    const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
+    if (tcpSocket) {
+        return await forwardToData(tcpSocket, websocket);
+    }
+    return false;
+};
 const handleTcp = async (remoteSocket, address, port, clientData, websocket, proxyIP) => {
-    const tryConnect = async (addr) => {
-        try {
-            const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
-            return await forwardToData(tcpSocket, websocket);
-        } catch (error) {
-            return false;
-        }
-    };
-    if (!(await tryConnect(address) || await tryConnect(proxyIP))) {
+    const success = await tryConnect(address, port, clientData, remoteSocket) || 
+                    await tryConnect(proxyIP, port, clientData, remoteSocket);
+    if (!success) {
         closeWS(websocket);
     }
 };
@@ -195,7 +196,7 @@ const base64ToBuffer = (base64Str) => {
     }
 };
 const closeWS = (websocket) => {
-    if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CLOSING) {
+    if (websocket.readyState === WebSocket.OPEN) {
         websocket.close();
     }
 };
