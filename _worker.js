@@ -79,13 +79,13 @@ const connectAndWrite = async (remoteSocket, address, port, clientData) => {
 const handleTcp = async (remoteSocket, address, port, clientData, websocket, proxyIP) => {
     const tryConnect = async (addr) => {
         const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
-        if (tcpSocket) {
-            return await forwardToData(tcpSocket, websocket);
-        } else {
-            return false;
-        }
+		if (tcpSocket) {
+			return await forwardToData(tcpSocket, websocket);
+		} else {
+			return false;
+		}
     };
-    const success = await tryConnect(address) || await tryConnect(proxyIP);
+	const success = await tryConnect(address) || await tryConnect(proxyIP);
     if (!success) {
         closeWS(websocket);
     }
@@ -155,9 +155,10 @@ const getAddressInfo = (bytes, startIndex) => {
         addressValue = new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength));
     } else {
         addressValue = Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join(':')
-        .replace(/((^|:)0(?=:|$))+:?/g, '::');
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join(':')
+            .replace(/(:0{1,3}){2,}:/, '::');
+    }
     return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, websocket) => {
