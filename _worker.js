@@ -79,13 +79,13 @@ const connectAndWrite = async (remoteSocket, address, port, clientData) => {
 const handleTcp = async (remoteSocket, address, port, clientData, websocket, proxyIP) => {
     const tryConnect = async (addr) => {
         const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
-		if (tcpSocket) {
-			return await forwardToData(tcpSocket, websocket);
-		} else {
-			return false;
-		}
+        if (tcpSocket) {
+            return await forwardToData(tcpSocket, websocket);
+        } else {
+            return false;
+        }
     };
-	const success = await tryConnect(address) || await tryConnect(proxyIP);
+    const success = await tryConnect(address) || await tryConnect(proxyIP);
     if (!success) {
         closeWS(websocket);
     }
