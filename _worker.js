@@ -89,7 +89,7 @@ const handleTcp = async (remoteSocket, address, port, clientData, websocket, pro
         closeWS(websocket);
     }
 };
-const createWSStream = (websocket, earlyHeader) => {
+const createWSStream = (websocket, earlyHeader, eventTypes = ['message', 'close', 'error']) => {
     const handleEvent = (event, controller) => {
         switch (event.type) {
             case 'message':
@@ -112,7 +112,7 @@ const createWSStream = (websocket, earlyHeader) => {
             } else if (earlyData) {
                 controller.enqueue(earlyData);
             }
-            ['message', 'close', 'error'].forEach(type =>
+            eventTypes.forEach(type =>
                 websocket.addEventListener(type, event => handleEvent(event, controller))
             );
         },
