@@ -155,10 +155,9 @@ const getAddressInfo = (bytes, startIndex) => {
         addressValue = new TextDecoder().decode(bytes.subarray(addressValueIndex, addressValueIndex + addressLength));
     } else {
         addressValue = Array.from(bytes.subarray(addressValueIndex, addressValueIndex + addressLength))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join(':')
-            .replace(/(:0{1,3}){2,}:/, '::');
-    }
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join(':')
+        .replace(/((^|:)0(?=:|$))+:?/g, '::');
     return { address: addressValue, rawDataIndex: addressValueIndex + addressLength };
 };
 const forwardToData = async (remoteSocket, websocket) => {
@@ -196,7 +195,7 @@ const base64ToBuffer = (base64Str) => {
     }
 };
 const closeWS = (websocket) => {
-    if (websocket.readyState === WebSocket.OPEN) {
+    if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CLOSING) {
         websocket.close();
     }
 };
