@@ -161,7 +161,7 @@ const getAddressInfo = (bytes, startIndex) => {
 };
 const forwardToData = async (remoteSocket, websocket, responseHeader) => {
     let hasData = false;
-    let headerSent = responseHeader !== null;
+    let headerSent = !!responseHeader;
     const writableStream = new WritableStream({
         async write(chunk, controller) {
             if (websocket.readyState !== WebSocket.OPEN) {
@@ -187,19 +187,16 @@ const forwardToData = async (remoteSocket, websocket, responseHeader) => {
     return hasData;
 };
 const base64ToBuffer = (base64Str) => {
-    try {
-        if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
-            return { earlyData: base64Str, error: null };
-        }
-        const binaryStr = atob(base64Str.replace(/[-_]/g, (match) => (match === '-' ? '+' : '/')));
-        const buffer = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-            buffer[i] = binaryStr.charCodeAt(i);
-        }
-        return { earlyData: buffer.buffer, error: null };
-    } catch (error) {
-        return { error };
+  try {
+    if (base64Str instanceof ArrayBuffer || base64Str instanceof Uint8Array) {
+      return { earlyData: base64Str, error: null };
     }
+    const binaryStr = atob(base64Str.replace(/-/g, '+').replace(/_/g, '/'));
+    const buffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
+    return { earlyData: buffer.buffer, error: null };
+  } catch (error) {
+    return { error };
+  }
 };
 const closeWS = (websocket) => {
     if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CLOSING) {
@@ -221,60 +218,61 @@ const stringify = (arr, offset = 0) => {
 };
 const dnsCache = new Map();
 const getCachedDnsResponse = async (queryPacket) => {
-    const cacheKey = new TextDecoder().decode(queryPacket);
-    const cachedEntry = dnsCache.get(cacheKey);
-    if (cachedEntry && cachedEntry.expires > Date.now()) {
-        return cachedEntry.result;
-    }
-    const response = await fetchDns(queryPacket);
-    dnsCache.set(cacheKey, { result: response, expires: Date.now() + 300000 });
-    return response;
+  const cacheKey = new TextDecoder().decode(queryPacket);
+  const cachedEntry = dnsCache.get(cacheKey);
+  if (cachedEntry && cachedEntry.expires > Date.now()) {
+    return cachedEntry.result;
+  }
+  const response = await fetchDns(queryPacket);
+  dnsCache.set(cacheKey, { result: response, expires: Date.now() + 300000 });
+  return response;
 };
 const fetchDns = async (queryPacket) => {
-    const response = await fetch("https://1.1.1.1/dns-query", {
-        method: "POST",
-        headers: {
-            accept: "application/dns-message",
-            "content-type": "application/dns-message",
-        },
-        body: queryPacket,
-    });
-    return response.arrayBuffer();
+  const response = await fetch("https://1.1.1.1/dns-query", {
+    method: "POST",
+    headers: {
+      accept: "application/dns-message",
+      "content-type": "application/dns-message",
+    },
+    body: queryPacket,
+  });
+
+  return response.arrayBuffer();
 };
 const handleUdp = async (websocket, responseHeader) => {
-    let headerSent = false;
-    const transformStream = new TransformStream({
-        async transform(chunk, controller) {
-            let index = 0;
-            while (index < chunk.byteLength) {
-                const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-                const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
-                index += 2 + udpPacketLength;
-                const dnsQueryResult = await getCachedDnsResponse(udpData);
-                const udpSize = dnsQueryResult.byteLength;
-                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-                const dataToSend = headerSent
-                    ? new Uint8Array(udpSizeBuffer.byteLength + udpSize)
-                    : new Uint8Array(responseHeader.byteLength + udpSizeBuffer.byteLength + udpSize);
-                if (!headerSent) {
-                    dataToSend.set(responseHeader);
-                    headerSent = true;
-                }
-                dataToSend.set(udpSizeBuffer, headerSent ? 0 : responseHeader.byteLength);
-                dataToSend.set(new Uint8Array(dnsQueryResult), dataToSend.length - udpSize);
-                if (websocket.readyState === WebSocket.OPEN) {
-                    websocket.send(dataToSend);
-                }
-            }
-            controller.close();
+  let headerSent = false;
+  const transformStream = new TransformStream({
+    async transform(chunk, controller) {
+      for (let index = 0; index < chunk.byteLength;) {
+        const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+        const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
+        index += 2 + udpPacketLength;
+        const dnsQueryResult = await getCachedDnsResponse(udpData);
+        const udpSize = dnsQueryResult.byteLength;
+        const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+        const dataToSend = headerSent
+          ? new Uint8Array(udpSizeBuffer.byteLength + udpSize)
+          : new Uint8Array(responseHeader.byteLength + udpSizeBuffer.byteLength + udpSize);
+        if (!headerSent) {
+          dataToSend.set(responseHeader);
+          headerSent = true;
         }
-    });
-    const writer = transformStream.writable.getWriter();
-    return {
-        write(chunk) {
-            writer.write(chunk);
+        const offset = headerSent ? 0 : responseHeader.byteLength;
+        dataToSend.set(udpSizeBuffer, offset);
+        dataToSend.set(new Uint8Array(dnsQueryResult), offset + udpSizeBuffer.byteLength);
+        if (websocket.readyState === WebSocket.OPEN) {
+          websocket.send(dataToSend);
         }
-    };
+      }
+      controller.close();
+    }
+  });
+  const writer = transformStream.writable.getWriter();
+  return {
+    write(chunk) {
+      writer.write(chunk);
+    }
+  };
 };
 const getConfig = (userID, host) => {
     return `vless://${userID}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2560#${host}`;
