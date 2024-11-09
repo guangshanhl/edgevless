@@ -38,7 +38,7 @@ const handleWs = async (request, userID, proxyIP) => {
                 return udpWrite(chunk);
             }
             if (remoteSocket.value) {
-                writeToRemote(remoteSocket.value, chunk);
+                await writeToRemote(remoteSocket.value, chunk);
                 return;
             }
             const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWSHeader(chunk, userID);
@@ -70,7 +70,7 @@ const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
             port,
         });
     }
-    writeToRemote(remoteSocket.value, rawClientData);
+    await writeToRemote(remoteSocket.value, rawClientData);
     return remoteSocket.value;
 };
 const handleTcp = async (remoteSocket, address, port, rawClientData, websocket, responseHeader, proxyIP) => {
