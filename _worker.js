@@ -236,7 +236,6 @@ const fetchDns = async (queryPacket) => {
     },
     body: queryPacket,
   });
-
   return response.arrayBuffer();
 };
 const handleUdp = async (websocket, responseHeader) => {
