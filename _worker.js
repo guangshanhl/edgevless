@@ -7,7 +7,7 @@ export default {
             const isWebSocket = request.headers.get('Upgrade') === 'websocket';
             return isWebSocket ? handleWs(request, userID, proxyIP) : handleHttp(request, userID);
         } catch (err) {
-            return new Response(err.toString());
+            return new Response('Internal Server Error', { status: 500 });
         }
     }
 };
@@ -76,21 +76,21 @@ const connectAndWrite = async (remoteSocket, address, port, clientData) => {
     await writeToRemote(remoteSocket.value, clientData);
     return remoteSocket.value;
 };
-const tryConnect = async (addr, port, clientData, remoteSocket) => {
-    const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
-    if (tcpSocket) {
-        return await forwardToData(tcpSocket, websocket);
-    }
-    return false;
-};
 const handleTcp = async (remoteSocket, address, port, clientData, websocket, proxyIP) => {
-    const success = await tryConnect(address, port, clientData, remoteSocket) || 
-                    await tryConnect(proxyIP, port, clientData, remoteSocket);
+    const tryConnect = async (addr) => {
+        const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
+		if (tcpSocket) {
+			return await forwardToData(tcpSocket, websocket);
+		} else {
+			return false;
+		}
+    };
+	const success = await tryConnect(address) || await tryConnect(proxyIP);
     if (!success) {
         closeWS(websocket);
     }
 };
-const createWSStream = (websocket, earlyHeader, eventTypes = ['message', 'close', 'error']) => {
+const createWSStream = (websocket, earlyHeader) => {
     const handleEvent = (event, controller) => {
         switch (event.type) {
             case 'message':
@@ -113,7 +113,7 @@ const createWSStream = (websocket, earlyHeader, eventTypes = ['message', 'close'
             } else if (earlyData) {
                 controller.enqueue(earlyData);
             }
-            eventTypes.forEach(type =>
+            ['message', 'close', 'error'].forEach(type =>
                 websocket.addEventListener(type, event => handleEvent(event, controller))
             );
         },
@@ -217,11 +217,12 @@ const dnsCache = new Map();
 const getCachedDnsResponse = async (queryPacket) => {
     const cacheKey = new TextDecoder().decode(queryPacket);
     const cachedEntry = dnsCache.get(cacheKey);
+    const cacheTTL = 30 * 60 * 1000;
     if (cachedEntry && cachedEntry.expires > Date.now()) {
         return cachedEntry.result;
     }
     const response = await fetchDns(queryPacket);
-    dnsCache.set(cacheKey, { result: response, expires: Date.now() + 300000 });
+    dnsCache.set(cacheKey, { result: response, expires: Date.now() + cacheTTL });
     return response;
 };
 const fetchDns = async (queryPacket) => {
@@ -236,7 +237,6 @@ const fetchDns = async (queryPacket) => {
     return response.arrayBuffer();
 };
 const handleUdp = async (websocket) => {
-    let headerSent = false;
     const transformStream = new TransformStream({
         async transform(chunk, controller) {
             let index = 0;
@@ -244,7 +244,7 @@ const handleUdp = async (websocket) => {
                 const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
                 const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
                 index += 2 + udpPacketLength;
-                const dnsQueryResult = await getCachedDnsResponse(udpData);
+                const dnsQueryResult = await getCachedDnsResponse(udpData);  // Cache lookup here
                 const udpSize = dnsQueryResult.byteLength;
                 const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
                 const dataToSend = new Uint8Array(udpSizeBuffer.byteLength + udpSize);
