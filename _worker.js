@@ -40,8 +40,8 @@ const handleWs = async (request, userID, proxyIP) => {
       }
       if (remoteSocket.value) {
         const writer = remoteSocket.value.writable.getWriter();
-		await writer.write(chunk);
-		writer.releaseLock();
+	await writer.write(chunk);
+	writer.releaseLock();
         return;
       }
       const { hasError, address, port, dataIndex, version, isUDP } = processWSHeader(chunk, userID);
@@ -62,10 +62,10 @@ const handleWs = async (request, userID, proxyIP) => {
   readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: client });
 };
-const connectAndWrite = async (remoteSocket, addr, port, clientData) => {
+const connectWrite = async (remoteSocket, addr, port, clientData) => {
     if (remoteSocket.value?.closed === false) {
         const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(rawClientData);
+        await writer.write(clientData);
         writer.releaseLock();
         return remoteSocket.value;
     }
@@ -81,15 +81,15 @@ const connectAndWrite = async (remoteSocket, addr, port, clientData) => {
     return remoteSocket.value;
 };
 const handleTcp = async (remoteSocket, address, proxyIP, port, clientData, server, resHeader) => {
-  const tryConnect = async (addr) => {
+  const trynet = async (addr) => {
     try {
-      const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
-      return await forwardToData(tcpSocket, server, resHeader);
+      const tcpSocket = await connectWrite(remoteSocket, addr, port, clientData);
+      return await forwardData(tcpSocket, server, resHeader);
     } catch (error) {
       return false;
     }
   };
-  if (!(await tryConnect(address) || await tryConnect(proxyIP))) {
+  if (!(await trynet(address) || await trynet(proxyIP))) {
     closeWS(server);
   }
 };
@@ -158,7 +158,7 @@ const getAddressInfo = (bytes, startIndex) => {
     : Array.from(bytes.subarray(addressIndex, addressIndex + addressLength)).map(b => b.toString(16).padStart(2, '0')).join(':');
   return { address: addressValue, dataIndex: addressIndex + addressLength };
 };
-const forwardToData = async (remoteSocket, server, resHeader) => {
+const forwardData = async (remoteSocket, server, resHeader) => {
   let hasData = false;
   let headerSent = resHeader !== null;
   const writableStream = new WritableStream({
