@@ -62,7 +62,7 @@ const handleWs = async (request, userID, proxyIP) => {
   readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: client });
 };
-const connectAndWrite = async (remoteSocket, address, port, clientData) => {
+const connectAndWrite = async (remoteSocket, addr, port, clientData) => {
     if (remoteSocket.value?.closed === false) {
         const writer = remoteSocket.value.writable.getWriter();
         await writer.write(rawClientData);
@@ -70,7 +70,7 @@ const connectAndWrite = async (remoteSocket, address, port, clientData) => {
         return remoteSocket.value;
     }
     remoteSocket.value = await connect({ 
-        hostname: address, 
+        hostname: addr, 
         port,
         allowHalfOpen: false,
         secureTransport: 'on'
