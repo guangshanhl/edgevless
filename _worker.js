@@ -129,21 +129,22 @@ class WebSocketHeader {
     this.address = address;
     this.port = port;
     this.rawDataIndex = rawDataIndex;
-    this.passVersion = passVersion;
+    this.passVersion = version;
     this.isUDP = isUDP;
   }
 }
 const processWebSocketHeader = (buffer, userID) => {
   const bytes = new Uint8Array(buffer);
   const receivedID = stringify(bytes.subarray(1, 17));
-  if (receivedID !== userID) return new WebSocketHeader(true); 
+  if (receivedID !== userID) return new WebSocketHeader(true);
   const optLength = bytes[17];
   const commandStartIndex = 18 + optLength;
   const command = bytes[commandStartIndex];
   const isUDP = command === 2;
+  const version = bytes.subarray(0, 1);
   const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
   const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
-  return new WebSocketHeader(false, address, port, rawDataIndex, bytes.subarray(0, 1), isUDP);
+  return new WebSocketHeader(false, address, port, rawDataIndex, version, isUDP);
 };
 const getAddressInfo = (bytes, startIndex) => {
   const addressType = bytes[startIndex];
