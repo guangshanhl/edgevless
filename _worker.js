@@ -48,24 +48,24 @@ const handleWs = async (request, userID, proxyIP) => {
       if (hasError) return;
       resHeader[0] = passVersion[0];
       resHeader[1] = 0;
-      const rawClientData = chunk.slice(rawDataIndex);
+      const clientData = chunk.slice(rawDataIndex);
       isDns = isUDP && port === 53;
       if (isDns) {
         const { write } = await handleUdp(serverSocket, resHeader);
         udpStreamWrite = write;
-        udpStreamWrite(rawClientData);
+        udpStreamWrite(clientData);
         return;
       }
-      handleTcp(remoteSocket, address, port, rawClientData, serverSocket, resHeader, proxyIP);
+      handleTcp(remoteSocket, address, port, clientData, serverSocket, resHeader, proxyIP);
     }
   });
   readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
-const connectAndWrite = async (remoteSocket, addr, port, rawClientData) => {
+const connectAndWrite = async (remoteSocket, addr, port, clientData) => {
   if (remoteSocket.value?.closed === false) {
     const writer = remoteSocket.value.writable.getWriter();
-    await writer.write(rawClientData);
+    await writer.write(clientData);
     writer.releaseLock();
     return remoteSocket.value;
   } else {
@@ -76,14 +76,14 @@ const connectAndWrite = async (remoteSocket, addr, port, rawClientData) => {
       secureTransport: 'on'
     });
     const writer = remoteSocket.value.writable.getWriter();
-    await writer.write(rawClientData);
+    await writer.write(clientData);
     writer.releaseLock();
     return remoteSocket.value;
   }
 };
-const handleTcp = async (remoteSocket, address, port, rawClientData, serverSocket, resHeader, proxyIP) => {
+const handleTcp = async (remoteSocket, address, port, clientData, serverSocket, resHeader, proxyIP) => {
   const tryConnect = async (addr) => {
-    const tcpSocket = await connectAndWrite(remoteSocket, addr, port, rawClientData);
+    const tcpSocket = await connectAndWrite(remoteSocket, addr, port, clientData);
     if (tcpSocket) {
       return forwardToData(tcpSocket, serverSocket, resHeader);
     } else {
@@ -168,7 +168,7 @@ const forwardToData = async (remoteSocket, serverSocket, resHeader) => {
         controller.error('serverSocket is closed');
       }
       if (headerSent) {
-        const combinedBuffer = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+        const combined = new Uint8Array(resHeader.byteLength + chunk.byteLength);
         combined.set(resHeader);
         combined.set(new Uint8Array(chunk), resHeader.byteLength);
         serverSocket.send(combined);
