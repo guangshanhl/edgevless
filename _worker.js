@@ -43,7 +43,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
 		writer.releaseLock();
         return;
       }
-      const { hasError, address, port, rawDataIndex, passVersion = new Uint8Array([0, 0]), isUDP } = processWebSocketHeader(chunk, userID);
+      const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
       const responseHeader = new Uint8Array([passVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
