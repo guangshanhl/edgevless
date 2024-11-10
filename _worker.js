@@ -168,7 +168,7 @@ const forwardData = async (remoteSocket, server, resHeader) => {
       }
       if (headerSent) {
         const combined = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-        combined.set(responseHeader);
+        combined.set(resHeader);
         combined.set(new Uint8Array(chunk), resHeader.byteLength);
         server.send(combined);
         headerSent = false;
