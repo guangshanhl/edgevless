@@ -69,7 +69,7 @@ const connectAndWrite = async (remoteSocket, addr, port, rawClientData) => {
         writer.releaseLock();
         return remoteSocket.value;
     } else {
-        remoteSocket.value = await connect({ 
+        remoteSocket.value = connect({ 
             hostname: addr, 
             port,
             allowHalfOpen: false,
@@ -90,7 +90,7 @@ const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serv
       return false;
     }
   };
-  if (!(await tryConnect(address) || await tryConnect(proxyIP))) {
+  if (!(tryConnect(address) || tryConnect(proxyIP))) {
     closeWebSocket(serverSocket);
   }
 };
