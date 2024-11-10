@@ -4,8 +4,8 @@ export default {
     const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP || '';
     try {
-      const isWebSocket = request.headers.get('Upgrade') === 'websocket';
-      return isWebSocket ? handleWs(request, userID, proxyIP) : handleHttp(request, userID);
+      const isSocket = request.headers.get('Upgrade') === 'websocket';
+      return isSocket ? handleWs(request, userID, proxyIP) : handleHttp(request, userID);
     } catch (err) {
       return new Response(err.toString());
     }
@@ -91,7 +91,7 @@ const handleTcp = async (remoteSocket, address, port, clientData, serverSocket, 
     }
   };
   if (!(await tryConnect(address) || await tryConnect(proxyIP))) {
-    closeWebSocket(serverSocket);
+    closeWS(serverSocket);
   }
 };
 const createWSStream = (serverSocket, earlyHeader) => {
@@ -101,7 +101,7 @@ const createWSStream = (serverSocket, earlyHeader) => {
         controller.enqueue(event.data);
         break;
       case 'close':
-        closeWebSocket(serverSocket);
+        closeWS(serverSocket);
         controller.close();
         break;
       case 'error':
@@ -122,7 +122,7 @@ const createWSStream = (serverSocket, earlyHeader) => {
       );
     },
     cancel() {
-      closeWebSocket(serverSocket);
+      closeWS(serverSocket);
     }
   });
 };
@@ -182,7 +182,7 @@ const forwardToData = async (remoteSocket, serverSocket, resHeader) => {
   try {
     await remoteSocket.readable.pipeTo(writableStream);
   } catch (error) {
-    closeWebSocket(serverSocket);
+    closeWS(serverSocket);
   }
   return hasData;
 };
@@ -201,19 +201,19 @@ const base64ToBuffer = (base64Str) => {
     return { error };
   }
 };
-const closeWebSocket = (serverSocket) => {
+const closeWS = (serverSocket) => {
   if (serverSocket.readyState === WebSocket.OPEN || serverSocket.readyState === WebSocket.CLOSING) {
     serverSocket.close();
   }
 };
-const byteToHexTable = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
+const byteToHex = new Array(256).fill(0).map((_, i) => (i + 256).toString(16).slice(1));
 const stringify = (arr, offset = 0) => {
   const segments = [4, 2, 2, 2, 6];
   const result = [];
   for (const len of segments) {
     let str = '';
     for (let i = 0; i < len; i++) {
-      str += byteToHexTable[arr[offset++]];
+      str += byteToHex[arr[offset++]];
     }
     result.push(str);
   }
