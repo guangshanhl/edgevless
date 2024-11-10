@@ -32,7 +32,6 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null };
   let udpStreamWrite = null;
   let isDns = false;
-  const responseHeader = new Uint8Array(2);
   const writableStream = new WritableStream({
     async write(chunk) {
       if (isDns && udpStreamWrite) {
@@ -40,14 +39,13 @@ const handleWsRequest = async (request, userID, proxyIP) => {
       }
       if (remoteSocket.value) {
         const writer = remoteSocket.value.writable.getWriter();
-		await writer.write(chunk);
-		writer.releaseLock();
+	await writer.write(chunk);
+	writer.releaseLock();
         return;
       }
-      const { hasError, address, port, rawDataIndex, passVersion, isUDP } = processWebSocketHeader(chunk, userID);
+      const { hasError, address, port, rawDataIndex, version, isUDP } = processWebSocketHeader(chunk, userID);
       if (hasError) return;
-      responseHeader[0] = passVersion[0];
-      responseHeader[1] = 0;
+      const responseHeader = new Uint8Array([version[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       isDns = isUDP && port === 53;
       if (isDns) {
@@ -62,7 +60,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   readableStream.pipeTo(writableStream);
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
-const connectAndWrite = async (remoteSocket, address, port, rawClientData) => {
+const connectAndWrite = async (remoteSocket, addr, port, rawClientData) => {
     if (remoteSocket.value?.closed === false) {
         const writer = remoteSocket.value.writable.getWriter();
         await writer.write(rawClientData);
@@ -131,7 +129,7 @@ class WebSocketHeader {
     this.address = address;
     this.port = port;
     this.rawDataIndex = rawDataIndex;
-    this.passVersion = passVersion;
+    this.version = version;
     this.isUDP = isUDP;
   }
 }
