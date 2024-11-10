@@ -141,7 +141,7 @@ const processWebSocketHeader = (buffer, userID) => {
   const commandStartIndex = 18 + optLength;
   const command = bytes[commandStartIndex];
   const isUDP = command === 2;
-  const version = bytes.subarray(0, 1);
+  const version = new Uint8Array(buffer.slice(0, 1));
   const port = (bytes[commandStartIndex + 1] << 8) | bytes[commandStartIndex + 2];
   const { address, rawDataIndex } = getAddressInfo(bytes, commandStartIndex + 3);
   return new WebSocketHeader(false, address, port, rawDataIndex, version, isUDP);
