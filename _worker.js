@@ -263,7 +263,7 @@ const handleUdp = async (serverSocket, resHeader) => {
   };
 };
 const handleDNS = async (queryPacket) => {
-  const response = await fetch("https://1.1.1.1/dns-query", {
+  const response = await fetch("https://cloudflare-dns.com/dns-query", {
     method: "POST",
     headers: {
       accept: "application/dns-message",
