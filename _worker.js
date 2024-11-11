@@ -111,7 +111,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
         return tcpSocket;
     }
     async function retry() {
-        const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
+        const tcpSocket = await connectAndWrite(proxyIP, portRemote)
         tcpSocket.closed.catch(error => {
         }).finally(() => {
             safeCloseWebSocket(webSocket);
@@ -247,15 +247,12 @@ function processVlessHeader(vlessBuffer, userID) {
     };
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
-    let remoteChunkCount = 0;
     let chunks = [];
     let vlessHeader = vlessResponseHeader;
     let hasData = false;
     await remoteSocket.readable
         .pipeTo(
             new WritableStream({
-                start() {
-                },
                 async write(chunk, controller) {
                     hasData = true;
                     if (webSocket.readyState !== WS_READY_STATE_OPEN) {
