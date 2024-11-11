@@ -89,7 +89,7 @@ async function vlessOverWSHandler(request) {
                 udpStreamWrite(rawClientData);
                 return;
             }
-            handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
         },
     })).catch((err) => {
     });
@@ -320,7 +320,7 @@ function stringify(arr, offset = 0) {
     }
     return uuid;
 }
-async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
+async function handleUDPOutBound(webSocket, vlessResponseHeader) {
 	let isVlessHeaderSent = false;
 	const transformStream = new TransformStream({
 		start(controller) {
