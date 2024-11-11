@@ -43,7 +43,7 @@ async function vlessOverWSHandler(request) {
     let address = '';
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader);
-    let remoteSocketWapper = {
+    let remoteSocket = {
         value: null,
     };
     let udpStreamWrite = null;
@@ -53,8 +53,8 @@ async function vlessOverWSHandler(request) {
             if (isDns && udpStreamWrite) {
                 return udpStreamWrite(chunk);
             }
-            if (remoteSocketWapper.value) {
-                const writer = remoteSocketWapper.value.writable.getWriter()
+            if (remoteSocket.value) {
+                const writer = remoteSocket.value.writable.getWriter()
                 await writer.write(chunk);
                 writer.releaseLock();
                 return;
@@ -90,10 +90,6 @@ async function vlessOverWSHandler(request) {
                 return;
             }
             handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
-        },
-        close() {
-        },
-        abort(reason) {
         },
     })).catch((err) => {
     });
@@ -152,8 +148,6 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
             } else if (earlyData) {
                 controller.enqueue(earlyData);
             }
-        },
-        pull(controller) {
         },
         cancel(reason) {
             if (readableStreamCancel) {
@@ -276,10 +270,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
                         webSocket.send(chunk);
                     }
                 },
-                close() {
-                },
-                abort(reason) {
-                },
             })
         )
         .catch((error) => {
@@ -346,8 +336,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 				controller.enqueue(udpData);
 			}
 		},
-		flush(controller) {
-		}
 	});
 	transformStream.readable.pipeTo(new WritableStream({
 		async write(chunk) {
