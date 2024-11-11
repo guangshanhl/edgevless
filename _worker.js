@@ -256,14 +256,14 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
     let remoteChunkCount = 0;
     let chunks = [];
     let vlessHeader = vlessResponseHeader;
-    let hasIncomingData = false;
+    let hasData = false;
     await remoteSocket.readable
         .pipeTo(
             new WritableStream({
                 start() {
                 },
                 async write(chunk, controller) {
-                    hasIncomingData = true;
+                    hasData = true;
                     if (webSocket.readyState !== WS_READY_STATE_OPEN) {
                         controller.error(
                             'webSocket is close'
@@ -285,8 +285,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
         .catch((error) => {
             safeCloseWebSocket(webSocket);
         });
-
-    if (hasIncomingData === false && retry) {
+    if (hasData === false && retry) {
         retry();
     }
 }
