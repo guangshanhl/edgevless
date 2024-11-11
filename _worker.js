@@ -63,15 +63,14 @@ const handleWsRequest = async (request, userID, proxyIP) => {
   return new Response(null, { status: 101, webSocket: clientSocket });
 };
 const connectAndWrite = async (remoteSocket, addr, port, rawClientData) => {
-    const tcpSocket = connect({ 
+    remoteSocket.value = connect({ 
         hostname: addr, 
-        port,
+        port
     });
-    remoteSocket.value = tcpSocket
-    const writer = tcpSocket.writable.getWriter();
+    const writer = remoteSocket.value.writable.getWriter();
     await writer.write(rawClientData);
     writer.releaseLock();    
-    return tcpSocket;
+    return remoteSocket.value;
 };
 const handleTcpRequest = async (remoteSocket, address, port, rawClientData, serverSocket, responseHeader, proxyIP) => {
   const tryConnect = async (addr) => {
