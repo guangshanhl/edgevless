@@ -35,7 +35,6 @@ const handleHttp = (request, userID) => {
   }
   return new Response("Not found", {status: 404});
 };
-
 const handleWs = async (request, userID, proxyIP) => {
   const [client, webSocket] = new WebSocketPair();
   webSocket.accept();
