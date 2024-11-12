@@ -32,7 +32,7 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     const [clientSocket, serverSocket] = new WebSocketPair();
     serverSocket.accept();
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader, userID);
+    const readableStream = createWebSocketStream(serverSocket, earlyDataHeader);
     let remoteSocket = { value: null };
     let udpStreamWrite = null;
     let isDns = false;
@@ -91,7 +91,7 @@ const handleTcpRequest = async(remoteSocket, address, port, rawClientData, serve
         }
     }
 };
-const createWebSocketStream = (serverSocket, earlyDataHeader, userID) => {
+const createWebSocketStream = (serverSocket, earlyDataHeader) => {
     const stream = new ReadableStream({
         start(controller) {
             serverSocket.addEventListener("message", (event) => {
