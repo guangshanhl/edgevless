@@ -257,7 +257,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
     let chunks = [];
     let vlessHeader = vlessResponseHeader;
     let hasData = false;
-	const isWebSocketOpen = () => webSocket.readyState === WS_READY_STATE_OPEN;
     await remoteSocket.readable
         .pipeTo(
             new WritableStream({
@@ -265,10 +264,11 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
                 },
                 async write(chunk, controller) {
                     hasData = true;
-                    if (!isWebSocketOpen()) {
-			controller.error('WebSocket is closed');
-			return;
-		    }
+                    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+                        controller.error(
+                            'webSocket is close'
+                        );
+                    }
                     if (vlessHeader) {
                         webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
                         vlessHeader = null;
@@ -330,9 +330,8 @@ function stringify(arr, offset = 0) {
     }
     return uuid;
 }
-async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
+async function handleUDPOutBound(webSocket, vlessResponseHeader) {
 	let isVlessHeaderSent = false;
-	const isWebSocketOpen = () => webSocket.readyState === WS_READY_STATE_OPEN;
 	const transformStream = new TransformStream({
 		start(controller) {
 		},
@@ -363,7 +362,7 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
 			const dnsQueryResult = await resp.arrayBuffer();
 			const udpSize = dnsQueryResult.byteLength;
 			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-			if (isWebSocketOpen) {
+			if (webSocket.readyState === WS_READY_STATE_OPEN) {
 				if (isVlessHeaderSent) {
 					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
 				} else {
