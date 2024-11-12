@@ -102,6 +102,7 @@ const processVlessHeader = (buffer, userID) => {
   const optLength = view.getUint8(17);
   const command = view.getUint8(18 + optLength);
   const isUDP = command === 2;
+  const version = new Uint8Array(buffer.slice(0, 1));
   const portRemote = view.getUint16(18 + optLength + 1);
   const addressIndex = 18 + optLength + 3;
   const addressType = view.getUint8(addressIndex);
@@ -121,7 +122,7 @@ const processVlessHeader = (buffer, userID) => {
     addressRemote: addressValue,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    vlessVersion: [0],
+    vlessVersion: version,
     isUDP
   };
 };
