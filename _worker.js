@@ -42,7 +42,7 @@ const handleWs = async (request, userID, proxyIP) => {
       if (isUDP) {
         isDns = portRemote === 53;
         if (isDns) {
-          udpStreamWrite = await handleUDP(webSocket, responseHeader, clientData);
+          udpWrite = await handleUDP(webSocket, responseHeader, clientData);
         }
       } else {
         handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, proxyIP);
