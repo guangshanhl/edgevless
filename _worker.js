@@ -47,6 +47,7 @@ async function vlessOverWSHandler(request) {
 	};
 	let udpStreamWrite = null;
 	let isDns = false;
+	let address = " "
 	readableWebSocketStream.pipeTo(new WritableStream({
 		async write(chunk, controller) {
 			if (isDns && udpStreamWrite) {
