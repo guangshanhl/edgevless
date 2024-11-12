@@ -254,18 +254,16 @@ function processVlessHeader(vlessBuffer, userID) {
 }
 function combineArrayBuffers(...buffers) {
     const totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
-    const result = new Uint8Array(
-        ArrayBuffer.transfer(buffers[0], totalLength)
-    );   
-    let offset = buffers[0].byteLength;
-    for (let i = 1; i < buffers.length; i++) {
+    const result = new Uint8Array(totalLength);   
+    let offset = 0;
+    for (let i = 0; i < buffers.length; i++) {
         result.set(new Uint8Array(buffers[i]), offset);
         offset += buffers[i].byteLength;
-    }   
-    return result;
+    }    
+    return result.buffer;
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
-    let hasData = false;   
+    let hasData = false;    
     await remoteSocket.readable
         .pipeTo(
             new WritableStream({
@@ -273,6 +271,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
                     hasData = true;
                     if (webSocket.readyState !== WS_READY_STATE_OPEN) {
                         controller.error('webSocket is close');
+                        return;
                     }                   
                     if (vlessResponseHeader) {
                         const combined = combineArrayBuffers(vlessResponseHeader, chunk);
@@ -283,15 +282,16 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
                     }
                 },
                 close() {
+                    safeCloseWebSocket(webSocket);
                 },
                 abort(reason) {
+                    safeCloseWebSocket(webSocket);
                 }
             })
         )
         .catch((error) => {
             safeCloseWebSocket(webSocket);
         });
-
     if (hasData === false && retry) {
         retry();
     }
