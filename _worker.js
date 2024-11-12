@@ -77,7 +77,7 @@ async function vlessOverWSHandler(request) {
                 if (portRemote === 53) {
                     isDns = true;
                 } else {
-                    throw new Error('UDP port 53');
+                    throw new Error('UDP DNS is port 53');
                     return;
                 }
             }
@@ -252,41 +252,34 @@ function processVlessHeader(vlessBuffer, userID) {
         isUDP,
     };
 }
-function combineArrayBuffers(...buffers) {
-    const totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
-    const result = new Uint8Array(totalLength);   
-    let offset = 0;
-    for (let i = 0; i < buffers.length; i++) {
-        result.set(new Uint8Array(buffers[i]), offset);
-        offset += buffers[i].byteLength;
-    }    
-    return result.buffer;
-}
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
-    let hasData = false;    
+    let remoteChunkCount = 0;
+    let chunks = [];
+    let vlessHeader = vlessResponseHeader;
+    let hasData = false;
+	const isWebSocketOpen = () => webSocket.readyState === WS_READY_STATE_OPEN;
     await remoteSocket.readable
         .pipeTo(
             new WritableStream({
-                write(chunk, controller) {
+                start() {
+                },
+                async write(chunk, controller) {
                     hasData = true;
-                    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-                        controller.error('webSocket is close');
-                        return;
-                    }                   
-                    if (vlessResponseHeader) {
-                        const combined = combineArrayBuffers(vlessResponseHeader, chunk);
-                        webSocket.send(combined);
-                        vlessResponseHeader = null;
+                    if (!isWebSocketOpen()) {
+			controller.error('WebSocket is closed');
+			return;
+		    }
+                    if (vlessHeader) {
+                        webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+                        vlessHeader = null;
                     } else {
                         webSocket.send(chunk);
                     }
                 },
                 close() {
-                    safeCloseWebSocket(webSocket);
                 },
                 abort(reason) {
-                    safeCloseWebSocket(webSocket);
-                }
+                },
             })
         )
         .catch((error) => {
@@ -337,59 +330,56 @@ function stringify(arr, offset = 0) {
     }
     return uuid;
 }
-async function handleUDPOutBound(webSocket, vlessResponseHeader) {
-    let isVlessHeaderSent = false;
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            for (let index = 0; index < chunk.byteLength;) {
-                const lengthBuffer = chunk.slice(index, index + 2);
-                const udpPakcetLength = new DataView(lengthBuffer).getUint16(0);
-                const udpData = new Uint8Array(
-                    chunk.slice(index + 2, index + 2 + udpPakcetLength)
-                );
-                index = index + 2 + udpPakcetLength;
-                controller.enqueue(udpData);
-            }
-        }
-    });
-    transformStream.readable.pipeTo(new WritableStream({
-        async write(chunk) {
-            const resp = await fetch('https://1.1.1.1/dns-query', {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/dns-message',
-                },
-                body: chunk,
-            });           
-            const dnsQueryResult = await resp.arrayBuffer();
-            const udpSize = dnsQueryResult.byteLength;
-            const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);           
-            if (webSocket.readyState === WS_READY_STATE_OPEN) {          
-                if (isVlessHeaderSent) {
-                    const combined = combineArrayBuffers(
-                        udpSizeBuffer.buffer, 
-                        dnsQueryResult
-                    );
-                    webSocket.send(combined);
-                } else {
-                    const combined = combineArrayBuffers(
-                        vlessResponseHeader,
-                        udpSizeBuffer.buffer,
-                        dnsQueryResult
-                    );
-                    webSocket.send(combined);
-                    isVlessHeaderSent = true;
-                }
-            }
-        }
-    })).catch((error) => {
-    });
-    const writer = transformStream.writable.getWriter();   
-    return {
-        write(chunk) {
-            writer.write(chunk);
-        }
-    };
+async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
+	let isVlessHeaderSent = false;
+	const isWebSocketOpen = () => webSocket.readyState === WS_READY_STATE_OPEN;
+	const transformStream = new TransformStream({
+		start(controller) {
+		},
+		transform(chunk, controller) {
+			for (let index = 0; index < chunk.byteLength;) {
+				const lengthBuffer = chunk.slice(index, index + 2);
+				const udpPakcetLength = new DataView(lengthBuffer).getUint16(0);
+				const udpData = new Uint8Array(
+					chunk.slice(index + 2, index + 2 + udpPakcetLength)
+				);
+				index = index + 2 + udpPakcetLength;
+				controller.enqueue(udpData);
+			}
+		},
+		flush(controller) {
+		}
+	});
+	transformStream.readable.pipeTo(new WritableStream({
+		async write(chunk) {
+			const resp = await fetch('https://1.1.1.1/dns-query',
+				{
+					method: 'POST',
+					headers: {
+						'content-type': 'application/dns-message',
+					},
+					body: chunk,
+				})
+			const dnsQueryResult = await resp.arrayBuffer();
+			const udpSize = dnsQueryResult.byteLength;
+			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+			if (isWebSocketOpen) {
+				if (isVlessHeaderSent) {
+					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+				} else {
+					webSocket.send(await new Blob([vlessResponseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+					isVlessHeaderSent = true;
+				}
+			}
+		}
+	})).catch((error) => {
+	});
+	const writer = transformStream.writable.getWriter();
+	return {
+		write(chunk) {
+			writer.write(chunk);
+		}
+	};
 }
 function getVLESSConfig(userID, hostName) {
 	const vlessMain = `vless://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`
