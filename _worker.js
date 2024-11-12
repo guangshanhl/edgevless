@@ -101,7 +101,6 @@ const createWebSocketStream = (serverSocket, earlyDataHeader, userID) => {
             serverSocket.addEventListener("close", () => {
                 closeWebSocket(serverSocket);
                 controller.close();
-                wsCache.delete(userID);
             });
             serverSocket.addEventListener("error", (err) => {
                 controller.error(err);
