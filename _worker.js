@@ -41,12 +41,8 @@ async function perOverWSHandler(request) {
 	const [client, webSocket] = Object.values(webSocketPair);
 	webSocket.accept();
 	let address = '';
-	let portWithRandomLog = '';
-	const log = (info, event) => {
-		console.log(`[${address}:${portWithRandomLog}] ${info}`, event || '');
-	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-	const readableWebSocketStream = makeReadableStream(webSocket, earlyDataHeader, log);
+	const readableWebSocketStream = makeReadableStream(webSocket, earlyDataHeader);
 	let remoteSocketWapper = {
 		value: null,
 	};
@@ -73,8 +69,6 @@ async function perOverWSHandler(request) {
 				isUDP,
 			} = processperHeader(chunk, userID);
 			address = addressRemote;
-			portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp ' : 'tcp '
-				} `;
 			if (hasError) {
 				throw new Error(message);
 				return;
@@ -90,35 +84,31 @@ async function perOverWSHandler(request) {
 			const responseHeader = new Uint8Array([perVersion[0], 0]);
 			const rawClientData = chunk.slice(rawDataIndex);
 			if (isDns) {
-				const { write } = await handleUDPOutBound(webSocket, responseHeader, log);
+				const { write } = await handleUDPOutBound(webSocket, responseHeader);
 				udpStreamWrite = write;
 				udpStreamWrite(rawClientData);
 				return;
 			}
-			handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, responseHeader, log);
+			handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
 		},
 		close() {
-			log(`readableWebSocketStream is close`);
 		},
 		abort(reason) {
-			log(`readableWebSocketStream is abort`, JSON.stringify(reason));
 		},
 	})).catch((err) => {
-		log('readableWebSocketStream pipeTo error', err);
 	});
 	return new Response(null, {
 		status: 101,
 		webSocket: client,
 	});
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, log,) {
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader) {
 	async function connectAndWrite(address, port) {
 		const tcpSocket = connect({
 			hostname: address,
 			port: port,
 		});
 		remoteSocket.value = tcpSocket;
-		log(`connected to ${address}:${port}`);
 		const writer = tcpSocket.writable.getWriter();
 		await writer.write(rawClientData);
 		writer.releaseLock();
@@ -127,16 +117,15 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 	async function retry() {
 		const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
 		tcpSocket.closed.catch(error => {
-			console.log('retry tcpSocket closed error', error);
 		}).finally(() => {
 			safeCloseWebSocket(webSocket);
 		})
-		remoteSocketToWS(tcpSocket, webSocket, responseHeader, null, log);
+		remoteSocketToWS(tcpSocket, webSocket, responseHeader, null);
 	}
 	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	remoteSocketToWS(tcpSocket, webSocket, responseHeader, retry, log);
+	remoteSocketToWS(tcpSocket, webSocket, responseHeader, retry);
 }
-function makeReadableStream(webSocketServer, earlyDataHeader, log) {
+function makeReadableStream(webSocketServer, earlyDataHeader) {
 	let readableStreamCancel = false;
 	const stream = new ReadableStream({
 		start(controller) {
@@ -156,7 +145,6 @@ function makeReadableStream(webSocketServer, earlyDataHeader, log) {
 			}
 			);
 			webSocketServer.addEventListener('error', (err) => {
-				log('webSocketServer has error');
 				controller.error(err);
 			}
 			);
@@ -173,7 +161,6 @@ function makeReadableStream(webSocketServer, earlyDataHeader, log) {
 			if (readableStreamCancel) {
 				return;
 			}
-			log(`ReadableStream was canceled, due to ${reason}`)
 			readableStreamCancel = true;
 			safeCloseWebSocket(webSocketServer);
 		}
@@ -187,7 +174,6 @@ function processperHeader(
 	if (perBuffer.byteLength < 24) {
 		return {
 			hasError: true,
-			message: 'invalid data',
 		};
 	}
 	const version = new Uint8Array(perBuffer.slice(0, 1));
@@ -199,7 +185,6 @@ function processperHeader(
 	if (!isValidUser) {
 		return {
 			hasError: true,
-			message: 'invalid user',
 		};
 	}
 	const optLength = new Uint8Array(perBuffer.slice(17, 18))[0];
@@ -212,7 +197,6 @@ function processperHeader(
 	} else {
 		return {
 			hasError: true,
-			message: `command ${command} is not support, command 01-tcp,02-udp,03-mux`,
 		};
 	}
 	const portIndex = 18 + optLength + 1;
@@ -256,13 +240,11 @@ function processperHeader(
 		default:
 			return {
 				hasError: true,
-				message: `invild  addressType is ${addressType}`,
 			};
 	}
 	if (!addressValue) {
 		return {
 			hasError: true,
-			message: `addressValue is empty, addressType is ${addressType}`,
 		};
 	}
 	return {
@@ -275,8 +257,7 @@ function processperHeader(
 		isUDP,
 	};
 }
-async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry, log) {
-	let remoteChunkCount = 0;
+async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry) {
 	let chunks = [];
 	let perHeader = responseHeader;
 	let hasData = false;
@@ -300,7 +281,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry, 
 					}
 				},
 				close() {
-					log(`remoteConnection!.readable is close with hasData is ${hasData}`);
 				},
 				abort(reason) {
 					console.error(`remoteConnection!.readable abort`, reason);
@@ -315,7 +295,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry, 
 			safeCloseWebSocket(webSocket);
 		});
 	if (hasData === false && retry) {
-		log(`retry`)
 		retry();
 	}
 }
@@ -361,7 +340,7 @@ function stringify(arr, offset = 0) {
 	}
 	return uuid;
 }
-async function handleUDPOutBound(webSocket, responseHeader, log) {
+async function handleUDPOutBound(webSocket, responseHeader) {
 	let headerSent = false;
 	const transformStream = new TransformStream({
 		start(controller) {
@@ -394,7 +373,6 @@ async function handleUDPOutBound(webSocket, responseHeader, log) {
 			const udpSize = dnsQueryResult.byteLength;
 			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
 			if (webSocket.readyState === WS_READY_STATE_OPEN) {
-				log(`doh success and dns message length is ${udpSize}`);
 				if (headerSent) {
 					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
 				} else {
@@ -404,7 +382,6 @@ async function handleUDPOutBound(webSocket, responseHeader, log) {
 			}
 		}
 	})).catch((error) => {
-		log('dns udp has error' + error)
 	});
 	const writer = transformStream.writable.getWriter();
 	return {
