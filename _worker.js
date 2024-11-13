@@ -41,7 +41,7 @@ const handleWs = async (request, userID, proxyIP) => {
       if (isUDP && portRemote === 53) {
        await handleUDP(webSocket, responseHeader, clientData);
       } else {
-      handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, proxyIP);
+      handleTCP(remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, responseHeader);
       }
     } 
   })); 
@@ -52,7 +52,7 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, proxyIP) => {
+const handleTCP = async (remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, responseHeader) => {
   try {
     const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, clientData);
     forwardToData(tcpSocket, webSocket, responseHeader, async () => {
@@ -65,14 +65,11 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, clientData) => {
-  if (remoteSocket.value && !remoteSocket.value.closed) {
-    await writeToRemote(remoteSocket.value, clientData);
-    return remoteSocket.value;
-  } else {
+  if (!remoteSocket.value || remoteSocket.value.closed) {
     remoteSocket.value = connect({ hostname: address, port });
-    await writeToRemote(remoteSocket.value, clientData);
-    return remoteSocket.value;
-  }
+  }  
+  await writeToRemote(remoteSocket.value, clientData);
+  return remoteSocket.value;
 };
 const createWstream = (webSocket, earlyDataHeader) => {
   let isCancelled = false;
@@ -123,7 +120,6 @@ const processHeader = (buffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
-    //closeWebSocket(webSocket);
     return;
   }
   let hasData = false;
