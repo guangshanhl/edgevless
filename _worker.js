@@ -62,19 +62,11 @@ const handleTCP = async (remoteSocket, addressRemote, proxyIP, portRemote, clien
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, clientData) => {
-  try {
-    if (!remoteSocket.value || remoteSocket.value.closed) {
-      remoteSocket.value = await connect({ 
-        hostname: address, 
-        port,
-        timeout: 5000
-      });
-    }    
-    await writeToRemote(remoteSocket.value, clientData);
-    return remoteSocket.value;
-  } catch {
-    return null;
-  }
+  if (!remoteSocket.value || remoteSocket.value.closed) {
+    remoteSocket.value = await connect({ hostname: address, port });
+  }  
+  await writeToRemote(remoteSocket.value, clientData);
+  return remoteSocket.value;
 };
 const createWstream = (webSocket, earlyDataHeader) => {
   let isCancelled = false;
@@ -156,9 +148,9 @@ const base64ToBuffer = base64Str => {
     return { error };
   }
 };
-const closeWebSocket = socket => {
-  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-    socket.close();
+const closeWebSocket = webSocket => {
+  if (webSocket.readyState === WebSocket.OPEN || webSocket.readyState === WebSocket.CLOSING) {
+    webSocket.close();
   }
 };
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
