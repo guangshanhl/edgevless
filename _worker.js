@@ -52,15 +52,12 @@ const writeToRemote = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTCP = async (remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, responseHeader) => {
-  try {
-    const tcpSocket = await connectAndWrite(remoteSocket, addressRemote, portRemote, clientData);
-    forwardToData(tcpSocket, webSocket, responseHeader, async () => {
-      const backSocket = await connectAndWrite(remoteSocket, proxyIP, portRemote, clientData);
-      backSocket.closed.catch(() => {}).finally(() => closeWebSocket(webSocket));
-      forwardToData(backSocket, webSocket, responseHeader);
-    });
-  } catch {
+const handleTcp = async (remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, responseHeader) => {
+  const tryConnect = async (address) => {
+    const tcpSocket = await connectAndWrite(remoteSocket, address, port, clientData);
+    return tcpSocket ? forwardToData(tcpSocket, webSocket, responseHeader) : false;
+  };
+  if (!(await tryConnect(addressRemote) || await tryConnect(proxyIP))) {
     closeWebSocket(webSocket);
   }
 };
@@ -118,7 +115,7 @@ const processHeader = (buffer, userID) => {
     isUDP
   };
 };
-const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
+const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
     return;
   }
@@ -137,7 +134,7 @@ const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => 
   } catch {
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) retry();
+  return hasData;
 };
 const base64ToBuffer = base64Str => {
   try {
