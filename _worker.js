@@ -55,7 +55,7 @@ const writeToRemote = async (socket, chunk) => {
 const handleTCP = async (remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, responseHeader) => {
   const tryConnect = async (address, port) => {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, clientData);
-    return tcpSocket ? forwardToData(tcpSocket, webSocket, responseHeader) : false;
+    return tcpSocket ? await forwardToData(tcpSocket, webSocket, responseHeader) : false;
   };
   if (!(await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote))) {
     closeWebSocket(webSocket);
@@ -63,7 +63,7 @@ const handleTCP = async (remoteSocket, addressRemote, proxyIP, portRemote, clien
 };
 const connectAndWrite = async (remoteSocket, address, port, clientData) => {
   if (!remoteSocket.value || remoteSocket.value.closed) {
-    remoteSocket.value = connect({ hostname: address, port });
+    remoteSocket.value = await connect({ hostname: address, port });
   }  
   await writeToRemote(remoteSocket.value, clientData);
   return remoteSocket.value;
@@ -117,6 +117,7 @@ const processHeader = (buffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
+    closeWebSocket(webSocket)
     return;
   }
   let hasData = false;
