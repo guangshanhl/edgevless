@@ -37,17 +37,13 @@ const handleHttp = async (request, userID) => {
     return new Response('Server Error', { status: 500 });
   }
 };
-
 const handleWs = async (request, userID, proxyIP) => {
-  const [client, webSocket] = Object.values(new WebSocketPair());
-  
+  const [client, webSocket] = new WebSocketPair();  
   try {
-    webSocket.accept();
-    
+    webSocket.accept();    
     const protocol = request.headers.get('sec-websocket-protocol') || '';
     const readableStream = createWstream(webSocket, protocol);
     let remoteSocket = { value: null };
-
     await readableStream.pipeTo(new WritableStream({
       async write(chunk) {
         if (!chunk || !chunk.byteLength) return;
