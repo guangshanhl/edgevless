@@ -62,11 +62,19 @@ const handleTCP = async (remoteSocket, addressRemote, proxyIP, portRemote, clien
   }
 };
 const connectAndWrite = async (remoteSocket, address, port, clientData) => {
-  if (!remoteSocket.value || remoteSocket.value.closed) {
-    remoteSocket.value = await connect({ hostname: address, port });
-  }  
-  await writeToRemote(remoteSocket.value, clientData);
-  return remoteSocket.value;
+  try {
+    if (!remoteSocket.value || remoteSocket.value.closed) {
+      remoteSocket.value = await connect({ 
+        hostname: address, 
+        port,
+        timeout: 5000
+      });
+    }    
+    await writeToRemote(remoteSocket.value, clientData);
+    return remoteSocket.value;
+  } catch {
+    return null;
+  }
 };
 const createWstream = (webSocket, earlyDataHeader) => {
   let isCancelled = false;
