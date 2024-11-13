@@ -40,9 +40,10 @@ const handleWs = async (request, userID, proxyIP) => {
       const clientData = chunk.slice(rawDataIndex);
       if (isUDP && portRemote === 53) {
        await handleUDP(webSocket, responseHeader, clientData);
-      }
+      } else {
       handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, proxyIP);
-    }
+      }
+    } 
   })); 
   return new Response(null, { status: 101, webSocket: client });
 };
