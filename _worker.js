@@ -282,21 +282,38 @@ async function remoteSocketToWS(remoteSocket, webSocket, passResponseHeader, ret
     let chunks = [];
     let passHeader = passResponseHeader;
     let hasIncomingData = false;
+
+    // 使用 ReadableStream 进行数据传输
     await remoteSocket.readable
     .pipeTo(
         new WritableStream({
             start() {},
             async write(chunk, controller) {
                 hasIncomingData = true;
-                if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-                    controller.error(
-                        'webSocket.readyState is not open, maybe close');
+
+                // 检查 WebSocket 是否已关闭
+                if (webSocket.readyState !== WebSocket.OPEN) {
+                    controller.error('WebSocket is not open, cannot send data.');
+                    return; // 如果 WebSocket 已关闭，停止写入
                 }
+
+                // 如果有 passResponseHeader，先发送头部再发送数据
                 if (passHeader) {
-                    webSocket.send(await new Blob([passHeader, chunk]).arrayBuffer());
-                    passHeader = null;
+                    try {
+                        const combinedData = await new Blob([passHeader, chunk]).arrayBuffer();
+                        webSocket.send(combinedData);
+                        passHeader = null; // 只发送一次头部
+                    } catch (err) {
+                        console.error("Error sending combined header and data:", err);
+                        controller.error("Error sending data with header.");
+                    }
                 } else {
-                    webSocket.send(chunk);
+                    try {
+                        webSocket.send(chunk);
+                    } catch (err) {
+                        console.error("Error sending data:", err);
+                        controller.error("Error sending data.");
+                    }
                 }
             },
             close() {
@@ -304,20 +321,24 @@ async function remoteSocketToWS(remoteSocket, webSocket, passResponseHeader, ret
             },
             abort(reason) {
                 console.error(`remoteConnection!.readable abort`, reason);
+                if (webSocket.readyState === WebSocket.OPEN) {
+                    safeCloseWebSocket(webSocket); // 确保 WebSocket 在流中止时安全关闭
+                }
             },
-        }))
+        })
+    )
     .catch((error) => {
-        console.error(
-`remoteSocketToWS has exception `,
-            error.stack || error);
-        safeCloseWebSocket(webSocket);
+        console.error(`remoteSocketToWS has exception: `, error.stack || error);
+        safeCloseWebSocket(webSocket); // 出现异常时关闭 WebSocket
     });
 
-    if (hasIncomingData === false && retry) {
-        log(`retry`)
+    // 如果没有接收到任何数据，并且存在重试逻辑，则调用重试函数
+    if (!hasIncomingData && retry) {
+        log(`No incoming data, retrying...`);
         retry();
     }
 }
+
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) {
         return {
