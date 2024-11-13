@@ -213,13 +213,13 @@ function processpassHeader(
     const optLength = new Uint8Array(passBuffer.slice(17, 18))[0];
     const command = new Uint8Array(
             passBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
-    if (command === 1) {}
-    else if (command === 2) {
+    if (command === 1) {
+    } else if (command === 2) {
         isUDP = true;
-    } else {
+    } else if (command === 3) {
         return {
             hasError: true,
-            message: `command ${command} is not support, command 01-tcp,02-udp,03-mux`,
+            message: 'Command 3 (MUX) is not supported.',
         };
     }
     const portIndex = 18 + optLength + 1;
