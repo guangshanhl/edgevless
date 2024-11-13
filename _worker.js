@@ -86,6 +86,7 @@ const createWstream = (webSocket, earlyDataHeader) => {
   });
 };
 const processHeader = (buffer, userID) => {
+  if (!buffer?.byteLength || buffer.byteLength < 24) return { hasError: true };
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true }; 
   const optLength = view.getUint8(17);
