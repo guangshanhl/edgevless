@@ -123,7 +123,7 @@ const processHeader = (buffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, responseHeader, retry) => {
   if (webSocket.readyState !== WebSocket.OPEN) {
-    closeWebSocket(webSocket);
+    //closeWebSocket(webSocket);
     return;
   }
   let hasData = false;
