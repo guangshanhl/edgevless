@@ -33,7 +33,7 @@ const handleWs = async (request, userID, proxyIP) => {
   let remoteSocket = { value: null };
   readableStream.pipeTo(new WritableStream({
     async write(chunk) {
-      //if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
+      if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
       const { hasError, addressRemote, portRemote, rawDataIndex, isVersion, isUDP } = processHeader(chunk, userID);
       if (hasError) return;
       const responseHeader = new Uint8Array([isVersion[0], 0]);
