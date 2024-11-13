@@ -53,11 +53,11 @@ const writeToRemote = async (socket, chunk) => {
   writer.releaseLock();
 };
 const handleTcp = async (remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, responseHeader) => {
-  const tryConnect = async (address) => {
+  const tryConnect = async (address, port) => {
     const tcpSocket = await connectAndWrite(remoteSocket, address, port, clientData);
     return tcpSocket ? forwardToData(tcpSocket, webSocket, responseHeader) : false;
   };
-  if (!(await tryConnect(addressRemote) || await tryConnect(proxyIP))) {
+  if (!(await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote))) {
     closeWebSocket(webSocket);
   }
 };
