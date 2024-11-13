@@ -189,9 +189,7 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
     });
     return stream;
 }
-function processpassHeader(
-    passBuffer,
-    userID) {
+function processpassHeader(passBuffer, userID) {
     if (passBuffer.byteLength < 24) {
         return {
             hasError: true,
@@ -211,62 +209,63 @@ function processpassHeader(
         };
     }
     const optLength = new Uint8Array(passBuffer.slice(17, 18))[0];
-    const command = new Uint8Array(
-            passBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    const command = new Uint8Array(passBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    
     if (command === 1) {
+        // 处理命令 1（通常是 TCP）
     } else if (command === 2) {
         isUDP = true;
     } else if (command === 3) {
+        // 处理命令 3 (MUX)
+        console.log('MUX command encountered, skipping.');
         return {
-            hasError: true,
-            message: 'Command 3 (MUX) is not supported.',
+            hasError: false, // 如果你选择跳过 MUX 命令，可以这样返回
         };
     }
+    
     const portIndex = 18 + optLength + 1;
     const portBuffer = passBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
     let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(
-            passBuffer.slice(addressIndex, addressIndex + 1));
+    const addressBuffer = new Uint8Array(passBuffer.slice(addressIndex, addressIndex + 1));
     const addressType = addressBuffer[0];
     let addressLength = 0;
     let addressValueIndex = addressIndex + 1;
     let addressValue = '';
+    
     switch (addressType) {
-    case 1:
-        addressLength = 4;
-        addressValue = new Uint8Array(
-                passBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
-        break;
-    case 2:
-        addressLength = new Uint8Array(
-                passBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
-        addressValueIndex += 1;
-        addressValue = new TextDecoder().decode(
-                passBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
-        break;
-    case 3:
-        addressLength = 16;
-        const dataView = new DataView(
-                passBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
-        const ipv6 = [];
-        for (let i = 0; i < 8; i++) {
-            ipv6.push(dataView.getUint16(i * 2).toString(16));
-        }
-        addressValue = ipv6.join(':');
-        break;
-    default:
-        return {
-            hasError: true,
-            message: `invild  addressType is ${addressType}`,
-        };
+        case 1: // IPv4
+            addressLength = 4;
+            addressValue = new Uint8Array(passBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            break;
+        case 2: // 域名
+            addressLength = new Uint8Array(passBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            addressValueIndex += 1;
+            addressValue = new TextDecoder().decode(passBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            break;
+        case 3: // IPv6
+            addressLength = 16;
+            const dataView = new DataView(passBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            const ipv6 = [];
+            for (let i = 0; i < 8; i++) {
+                ipv6.push(dataView.getUint16(i * 2).toString(16));
+            }
+            addressValue = ipv6.join(':');
+            break;
+        default:
+            return {
+                hasError: true,
+                message: `invalid addressType ${addressType}`,
+            };
     }
+
     if (!addressValue) {
         return {
             hasError: true,
             message: `addressValue is empty, addressType is ${addressType}`,
         };
     }
+    
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -277,6 +276,7 @@ function processpassHeader(
         isUDP,
     };
 }
+
 async function remoteSocketToWS(remoteSocket, webSocket, passResponseHeader, retry, log) {
     let remoteChunkCount = 0;
     let chunks = [];
