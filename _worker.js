@@ -73,7 +73,7 @@ const connectAndWrite = async (remoteSocket, address, port, clientData) => {
     await writeToRemote(remoteSocket.value, clientData);
     return remoteSocket.value;
   } else {
-    remoteSocket.value = connect({ hostname: address, port, signal: AbortSignal.timeout(2000) });
+    remoteSocket.value = connect({ hostname: address, port });
     await writeToRemote(remoteSocket.value, clientData);
     return remoteSocket.value;
   }
