@@ -108,7 +108,7 @@ async function vlessOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log,) {
 	async function connectAndWrite(address, port) {
-		const tcpSocket = connect({
+		const tcpSocket = await connect({
 			hostname: address,
 			port: port,
 		});
@@ -126,10 +126,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 		}).finally(() => {
 			safeCloseWebSocket(webSocket);
 		})
-		remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+		await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
 	}
 	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+	await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
 }
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
