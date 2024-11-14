@@ -276,45 +276,37 @@ function processVlessHeader(
 	};
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, log) {
-	let remoteChunkCount = 0;
-	let chunks = [];
-	let vlessHeader = vlessResponseHeader;
-	let hasIncomingData = false;
-	await remoteSocket.readable
-		.pipeTo(
-			new WritableStream({
-				start() {
-				},
-				async write(chunk, controller) {
-					hasIncomingData = true;
-					if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-						controller.error(
-							'webSocket.readyState is not open, maybe close'
-						);
-					}
-					if (vlessHeader) {
-						webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
-						vlessHeader = null;
-					} else {
-						webSocket.send(chunk);
-					}
-				},
-				close() {
-					log(`remoteConnection!.readable is close with hasIncomingData is ${hasIncomingData}`);
-				},
-				abort(reason) {
-					console.error(`remoteConnection!.readable abort`, reason);
-				},
-			})
-		)
-		.catch((error) => {
-			console.error(
-				`remoteSocketToWS has exception `,
-				error.stack || error
-			);
-			safeCloseWebSocket(webSocket);
-		});
-	return hasIncomingData;
+  let hasIncomingData = false;
+  let vlessHeader = vlessResponseHeader;
+  await remoteSocket.readable.pipeTo(
+    new WritableStream({
+      async write(chunk, controller) {
+        hasIncomingData = true;
+        if (webSocket.readyState !== WebSocket.OPEN) {
+          return controller.error('webSocket.readyState is not open, maybe close');
+        }
+        if (vlessHeader) {
+          const combined = new Uint8Array(vlessHeader.length + chunk.byteLength);
+          combined.set(new Uint8Array(vlessHeader), 0);
+          combined.set(new Uint8Array(chunk), vlessHeader.length);
+          webSocket.send(combined.buffer);
+          vlessHeader = null;
+        } else {
+          webSocket.send(chunk);
+        }
+      },
+      close() {
+        log(`remoteConnection!.readable is close with hasIncomingData is ${hasIncomingData}`);
+      },
+      abort(reason) {
+        console.error('remoteConnection!.readable abort', reason);
+      }
+    })
+  ).catch((error) => {
+    console.error('remoteSocketToWS has exception', error.stack || error);
+    safeCloseWebSocket(webSocket);
+  });
+  return hasIncomingData;
 }
 function base64ToArrayBuffer(base64Str) {
 	if (!base64Str) {
@@ -352,56 +344,56 @@ function stringify(arr, offset = 0) {
 	return uuid;
 }
 async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
-	let isVlessHeaderSent = false;
-	const transformStream = new TransformStream({
-		start(controller) {
-		},
-		transform(chunk, controller) {
-			for (let index = 0; index < chunk.byteLength;) {
-				const lengthBuffer = chunk.slice(index, index + 2);
-				const udpPakcetLength = new DataView(lengthBuffer).getUint16(0);
-				const udpData = new Uint8Array(
-					chunk.slice(index + 2, index + 2 + udpPakcetLength)
-				);
-				index = index + 2 + udpPakcetLength;
-				controller.enqueue(udpData);
-			}
-		},
-		flush(controller) {
-		}
-	});
-	transformStream.readable.pipeTo(new WritableStream({
-		async write(chunk) {
-			const resp = await fetch('https://dns.google/dns-query',
-				{
-					method: 'POST',
-					headers: {
-						'content-type': 'application/dns-message',
-					},
-					body: chunk,
-				})
-			const dnsQueryResult = await resp.arrayBuffer();
-			const udpSize = dnsQueryResult.byteLength;
-			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-			if (webSocket.readyState === WS_READY_STATE_OPEN) {
-				log(`doh success and dns message length is ${udpSize}`);
-				if (isVlessHeaderSent) {
-					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-				} else {
-					webSocket.send(await new Blob([vlessResponseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-					isVlessHeaderSent = true;
-				}
-			}
-		}
-	})).catch((error) => {
-		log('dns udp has error' + error)
-	});
-	const writer = transformStream.writable.getWriter();
-	return {
-		write(chunk) {
-			writer.write(chunk);
-		}
-	};
+  let isVlessHeaderSent = false;
+  const processUdpChunk = (chunk) => {
+    let index = 0;
+    const udpPackets = [];
+    while (index < chunk.byteLength) {
+      const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
+      const udpData = chunk.slice(index + 2, index + 2 + udpPacketLength);
+      index += 2 + udpPacketLength;
+      udpPackets.push(udpData);
+    }
+    return udpPackets;
+  };
+  const transformStream = new TransformStream({
+    transform(chunk, controller) {
+      const udpPackets = processUdpChunk(chunk);
+      udpPackets.forEach(packet => controller.enqueue(packet));
+    }
+  });
+  transformStream.readable.pipeTo(new WritableStream({
+    async write(chunk) {
+      try {
+        const response = await fetch('https://dns.google/dns-query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/dns-message' },
+          body: chunk
+        });
+        const dnsQueryResult = await response.arrayBuffer();
+        const udpSize = dnsQueryResult.byteLength;
+        const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+        const dataToSend = isVlessHeaderSent
+          ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
+          : new Uint8Array([...vlessResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+        if (webSocket.readyState === WebSocket.OPEN) {
+          log(`doh success and dns message length is ${udpSize}`);
+          webSocket.send(dataToSend.buffer);
+          isVlessHeaderSent = true;
+        }
+      } catch (error) {
+        log('dns udp has error: ' + error);
+      }
+    }
+  })).catch((error) => {
+    log('dns udp has error: ' + error);
+  });
+  const writer = transformStream.writable.getWriter();
+  return {
+    write(chunk) {
+      writer.write(chunk);
+    }
+  };
 }
 function getVLESSConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
