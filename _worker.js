@@ -268,7 +268,7 @@ function processVlessHeader(
 		isUDP,
 	};
 }
-async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry, log) {
+async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, log) {
 	let remoteChunkCount = 0;
 	let chunks = [];
 	let vlessHeader = vlessResponseHeader;
@@ -308,7 +308,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
 			safeCloseWebSocket(webSocket);
 		});
 	return hasIncomingData;
-	}
 }
 function base64ToArrayBuffer(base64Str) {
 	if (!base64Str) {
