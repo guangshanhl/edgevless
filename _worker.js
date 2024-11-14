@@ -13,8 +13,8 @@ export default {
 					case '/':
 						return new Response(JSON.stringify(request.cf), { status: 200 });
 					case `/${userID}`: {
-						const Config = getConfig(userID, request.headers.get('Host'));
-						return new Response(`${Config}`, {
+						const vlessConfig = getVLESSConfig(userID, request.headers.get('Host'));
+						return new Response(`${vlessConfig}`, {
 							status: 200,
 							headers: {
 								"Content-Type": "text/plain;charset=utf-8",
