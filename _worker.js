@@ -276,45 +276,79 @@ function processVlessHeader(
 	};
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, log) {
-	let remoteChunkCount = 0;
-	let chunks = [];
-	let vlessHeader = vlessResponseHeader;
-	let hasIncomingData = false;
-	await remoteSocket.readable
-		.pipeTo(
-			new WritableStream({
-				start() {
-				},
-				async write(chunk, controller) {
-					hasIncomingData = true;
-					if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-						controller.error(
-							'webSocket.readyState is not open, maybe close'
-						);
-					}
-					if (vlessHeader) {
-						webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
-						vlessHeader = null;
-					} else {
-						webSocket.send(chunk);
-					}
-				},
-				close() {
-					log(`remoteConnection!.readable is close with hasIncomingData is ${hasIncomingData}`);
-				},
-				abort(reason) {
-					console.error(`remoteConnection!.readable abort`, reason);
-				},
-			})
-		)
-		.catch((error) => {
-			console.error(
-				`remoteSocketToWS has exception `,
-				error.stack || error
-			);
-			safeCloseWebSocket(webSocket);
-		});
-	return hasIncomingData;
+    let hasIncomingData = false;
+    const CHUNK_SIZE = 64 * 1024; // 定义批量发送的大小，例如64KB
+    let buffer = new Uint8Array(0);
+
+    // 提前检查 WebSocket 的连接状态
+    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+        log('WebSocket 连接未打开');
+        return hasIncomingData;
+    }
+
+    try {
+        await remoteSocket.readable
+            .pipeThrough(new TransformStream({
+                transform(chunk, controller) {
+                    hasIncomingData = true;
+
+                    // 累加 chunk 数据到 buffer
+                    const tempBuffer = new Uint8Array(buffer.length + chunk.length);
+                    tempBuffer.set(buffer);
+                    tempBuffer.set(chunk, buffer.length);
+                    buffer = tempBuffer;
+
+                    // 当 buffer 达到设定的 CHUNK_SIZE 时发送数据
+                    while (buffer.length >= CHUNK_SIZE) {
+                        const toSend = buffer.slice(0, CHUNK_SIZE);
+                        if (vlessResponseHeader) {
+                            const combined = new Uint8Array(vlessResponseHeader.byteLength + toSend.byteLength);
+                            combined.set(new Uint8Array(vlessResponseHeader));
+                            combined.set(toSend, vlessResponseHeader.byteLength);
+                            webSocket.send(combined.buffer);
+                            vlessResponseHeader = null; // 清除 header
+                        } else {
+                            webSocket.send(toSend.buffer);
+                        }
+                        buffer = buffer.slice(CHUNK_SIZE);
+                    }
+
+                    // 处理 WebSocket 状态
+                    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+                        controller.error('WebSocket 已关闭，无法继续发送数据');
+                    }
+                },
+                flush(controller) {
+                    // 在流结束时发送剩余数据
+                    if (buffer.length > 0) {
+                        if (vlessResponseHeader) {
+                            const combined = new Uint8Array(vlessResponseHeader.byteLength + buffer.byteLength);
+                            combined.set(new Uint8Array(vlessResponseHeader));
+                            combined.set(buffer, vlessResponseHeader.byteLength);
+                            webSocket.send(combined.buffer);
+                        } else {
+                            webSocket.send(buffer.buffer);
+                        }
+                    }
+                    buffer = null; // 释放内存
+                }
+            }))
+            .pipeTo(new WritableStream({
+                close() {
+                    log(`remoteSocket 已关闭，hasIncomingData 为 ${hasIncomingData}`);
+                    safeCloseWebSocket(webSocket);
+                },
+                abort(reason) {
+                    console.error('remoteSocket 读取过程被终止', reason);
+                    safeCloseWebSocket(webSocket);
+                }
+            }));
+    } catch (error) {
+        console.error('remoteSocketToWS 出现异常：', error.stack || error);
+        safeCloseWebSocket(webSocket);
+    }
+
+    return hasIncomingData;
 }
 function base64ToArrayBuffer(base64Str) {
 	if (!base64Str) {
