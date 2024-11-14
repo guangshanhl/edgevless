@@ -44,7 +44,7 @@ async function vlessOverWSHandler(request) {
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
 	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-	let remoteSocket = {
+	let remoteSocketWapper = {
 		value: null,
 	};
 	let udpStreamWrite = null;
@@ -54,8 +54,8 @@ async function vlessOverWSHandler(request) {
 			if (isDns && udpStreamWrite) {
 				return udpStreamWrite(chunk);
 			}
-			if (remoteSocket.value) {
-				const writer = remoteSocket.value.writable.getWriter()
+			if (remoteSocketWapper.value) {
+				const writer = remoteSocketWapper.value.writable.getWriter()
 				await writer.write(chunk);
 				writer.releaseLock();
 				return;
@@ -108,7 +108,7 @@ async function vlessOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log,) {
 	async function connectAndWrite(address, port) {
-		const tcpSocket = await connect({
+		const tcpSocket = connect({
 			hostname: address,
 			port: port,
 		});
@@ -119,12 +119,15 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 		writer.releaseLock();
 		return tcpSocket;
 	}
-	async function retry() {
-		const tcpSocket = await connectAndWrite(proxyIP, portRemote)
-		remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
-	}
-	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+	async function tryconnect(addr)  {
+            const tcpSocket = await connectAndWrite(addr, portRemote);
+            return remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+   	}
+  	if (!await tryconnect(addressRemote)) {
+      	  if (!await tryconnect(proxyIP)) {
+            closeWebSocket(webSocket);
+    	   }
+  	}
 }
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
@@ -304,9 +307,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, re
 			);
 			safeCloseWebSocket(webSocket);
 		});
-	if (hasIncomingData === false && retry) {
-		log(`retry`)
-		retry();
+	return hasIncomingData;
 	}
 }
 function base64ToArrayBuffer(base64Str) {
