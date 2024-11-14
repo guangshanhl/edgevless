@@ -108,7 +108,7 @@ async function OverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, log) {
 	async function connectAndWrite(address, port) {
-		const tcpSocket = await connect({
+		const tcpSocket = connect({
 			hostname: address,
 			port: port,
 		});
@@ -126,10 +126,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 		}).finally(() => {
 			safeCloseWebSocket(webSocket);
 		})
-		await remoteSocketToWS(tcpSocket, webSocket, responseHeader, null, log);
+		remoteSocketToWS(tcpSocket, webSocket, responseHeader, null, log);
 	}
 	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	await remoteSocketToWS(tcpSocket, webSocket, responseHeader, retry, log);
+	remoteSocketToWS(tcpSocket, webSocket, responseHeader, retry, log);
 }
 function makeReadableWebSocketStream(webSocket, earlyHeader, log) {
 	let isCancel = false;
