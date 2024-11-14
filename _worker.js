@@ -42,20 +42,20 @@ async function OverWSHandler(request) {
 	const log = (info, event) => {
 		console.log(`[${address}:${portWithRandomLog}] ${info}`, event || '');
 	};
-	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-	let remoteSocketWapper = {
+	const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyHeader, log);
+	let remoteSocket = {
 		value: null,
 	};
-	let udpStreamWrite = null;
+	let udpWrite = null;
 	let isDns = false;
 	readableWebSocketStream.pipeTo(new WritableStream({
 		async write(chunk, controller) {
-			if (isDns && udpStreamWrite) {
-				return udpStreamWrite(chunk);
+			if (isDns && udpWrite) {
+				return udpWrite(chunk);
 			}
-			if (remoteSocketWapper.value) {
-				const writer = remoteSocketWapper.value.writable.getWriter()
+			if (remoteSocket.value) {
+				const writer = remoteSocket.value.writable.getWriter()
 				await writer.write(chunk);
 				writer.releaseLock();
 				return;
@@ -83,14 +83,14 @@ async function OverWSHandler(request) {
 				}
 			}
 			const responseHeader = new Uint8Array([Version[0], 0]);
-			const rawClientData = chunk.slice(rawDataIndex);
+			const clientData = chunk.slice(rawDataIndex);
 			if (isDns) {
 				const { write } = await handleUDPOutBound(webSocket, responseHeader, log);
 				udpStreamWrite = write;
-				udpStreamWrite(rawClientData);
+				udpStreamWrite(clientData);
 				return;
 			}
-			handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, responseHeader, log);
+			handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, log);
 		},
 		close() {
 			log(`readableWebSocketStream is close`);
@@ -101,15 +101,14 @@ async function OverWSHandler(request) {
 	})).catch((err) => {
 		log('readableWebSocketStream pipeTo error', err);
 	});
-
 	return new Response(null, {
 		status: 101,
 		webSocket: client,
 	});
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, log,) {
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, log) {
 	async function connectAndWrite(address, port) {
-		const tcpSocket = connect({
+		const tcpSocket = await connect({
 			hostname: address,
 			port: port,
 		});
@@ -127,36 +126,36 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 		}).finally(() => {
 			safeCloseWebSocket(webSocket);
 		})
-		remoteSocketToWS(tcpSocket, webSocket, responseHeader, null, log);
+		await remoteSocketToWS(tcpSocket, webSocket, responseHeader, null, log);
 	}
 	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+	await remoteSocketToWS(tcpSocket, webSocket, responseHeader, retry, log);
 }
-function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
-	let readableStreamCancel = false;
+function makeReadableWebSocketStream(webSocket, earlyHeader, log) {
+	let isCancel = false;
 	const stream = new ReadableStream({
 		start(controller) {
-			webSocketServer.addEventListener('message', (event) => {
-				if (readableStreamCancel) {
+			webSocket.addEventListener('message', (event) => {
+				if (isCancel) {
 					return;
 				}
 				const message = event.data;
 				controller.enqueue(message);
 			});
-			webSocketServer.addEventListener('close', () => {
-				safeCloseWebSocket(webSocketServer);
-				if (readableStreamCancel) {
+			webSocket.addEventListener('close', () => {
+				safeCloseWebSocket(webSocket);
+				if (isCancel) {
 					return;
 				}
 				controller.close();
 			}
 			);
-			webSocketServer.addEventListener('error', (err) => {
-				log('webSocketServer has error');
+			webSocket.addEventListener('error', (err) => {
+				log('webSocket has error');
 				controller.error(err);
 			}
 			);
-			const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
+			const { earlyData, error } = base64ToBuffer(earlyHeader);
 			if (error) {
 				controller.error(error);
 			} else if (earlyData) {
@@ -166,12 +165,12 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 		pull(controller) {
 		},
 		cancel(reason) {
-			if (readableStreamCancel) {
+			if (isCancel) {
 				return;
 			}
 			log(`ReadableStream was canceled, due to ${reason}`)
-			readableStreamCancel = true;
-			safeCloseWebSocket(webSocketServer);
+			isCancel = true;
+			safeCloseWebSocket(webSocket);
 		}
 	});
 	return stream;
@@ -313,7 +312,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry, 
 		retry();
 	}
 }
-function base64ToArrayBuffer(base64Str) {
+function base64ToBuffer(base64Str) {
 	if (!base64Str) {
 		return { error: null };
 	}
@@ -341,11 +340,11 @@ const byteToHex = [];
 for (let i = 0; i < 256; ++i) {
 	byteToHex.push((i + 256).toString(16).slice(1));
 }
-function unsafeStringify(arr, offset = 0) {
+function safeStringify(arr, offset = 0) {
 	return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
 }
 function stringify(arr, offset = 0) {
-	const uuid = unsafeStringify(arr, offset);
+	const uuid = safeStringify(arr, offset);
 	return uuid;
 }
 async function handleUDPOutBound(webSocket, responseHeader, log) {
