@@ -1,9 +1,6 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
-if (!isValidUUID(userID)) {
-	return;
-}
 export default {
 	async fetch(request, env, ctx) {
 		try {
@@ -331,10 +328,6 @@ function base64ToArrayBuffer(base64Str) {
 		return { error };
 	}
 }
-function isValidUUID(uuid) {
-	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-	return uuidRegex.test(uuid);
-}
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 function safeCloseWebSocket(socket) {
@@ -355,9 +348,6 @@ function unsafeStringify(arr, offset = 0) {
 }
 function stringify(arr, offset = 0) {
 	const uuid = unsafeStringify(arr, offset);
-	if (!isValidUUID(uuid)) {
-		return;
-	}
 	return uuid;
 }
 async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
