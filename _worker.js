@@ -44,7 +44,7 @@ async function vlessOverWSHandler(request) {
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
 	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-	let remoteSocketWapper = {
+	let remoteSocket = {
 		value: null,
 	};
 	let udpStreamWrite = null;
@@ -54,8 +54,8 @@ async function vlessOverWSHandler(request) {
 			if (isDns && udpStreamWrite) {
 				return udpStreamWrite(chunk);
 			}
-			if (remoteSocketWapper.value) {
-				const writer = remoteSocketWapper.value.writable.getWriter()
+			if (remoteSocket.value) {
+				const writer = remoteSocket.value.writable.getWriter()
 				await writer.write(chunk);
 				writer.releaseLock();
 				return;
@@ -120,16 +120,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 		return tcpSocket;
 	}
 	async function retry() {
-		const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
-		tcpSocket.closed.catch(error => {
-			console.log('retry tcpSocket closed error', error);
-		}).finally(() => {
-			safeCloseWebSocket(webSocket);
-		})
-		await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+		const tcpSocket = await connectAndWrite(proxyIP, portRemote)
+		remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
 	}
 	const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-	await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+	remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
 }
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
