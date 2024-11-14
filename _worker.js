@@ -119,12 +119,12 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 		writer.releaseLock();
 		return tcpSocket;
 	}
-	async function tryconnect(addr) {
-            const tcpSocket = await connectAndWrite(addr, portRemote);
-            return remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+	async function tryconnect(address, port) {
+            const tcpSocket = await connectAndWrite(address, port);
+            return await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
    	}
-  	if (!await tryconnect(addressRemote)) {
-      	  if (!await tryconnect(proxyIP)) {
+  	if (!await tryconnect(addressRemote, portRemote)) {
+      	  if (!await tryconnect(proxyIP, portRemote)) {
             closeWebSocket(webSocket);
     	   }
   	}
