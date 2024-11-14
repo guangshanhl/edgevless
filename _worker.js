@@ -400,13 +400,5 @@ async function handleUDPOutBound(webSocket, responseHeader, log) {
 	};
 }
 function getConfig(userID, hostName) {
-	const Main = `type://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2048#${hostName}`
-	return `
-################################################################
-v2ray
----------------------------------------------------------------
-${Main}
----------------------------------------------------------------
-################################################################
-`;
+    return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
