@@ -14,7 +14,7 @@ export default {
 						return new Response(JSON.stringify(request.cf), { status: 200 });
 					case `/${userID}`: {
 						const Config = getConfig(userID, request.headers.get('Host'));
-						return new Response(`${vlessConfig}`, {
+						return new Response(`${Config}`, {
 							status: 200,
 							headers: {
 								"Content-Type": "text/plain;charset=utf-8",
@@ -86,8 +86,8 @@ async function OverWSHandler(request) {
 			const clientData = chunk.slice(rawDataIndex);
 			if (isDns) {
 				const { write } = await handleUDPOutBound(webSocket, responseHeader, log);
-				udpStreamWrite = write;
-				udpStreamWrite(clientData);
+				udpWrite = write;
+				udpWrite(clientData);
 				return;
 			}
 			handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader, log);
