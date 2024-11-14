@@ -108,15 +108,23 @@ async function vlessOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log) {
 	async function connectAndWrite(address, port) {
-		remoteSocket.value = connect({
-			hostname: address,
-			port: port,
-		});
-		log(`connected to ${address}:${port}`);
-		const writer = remoteSocket.value.writable.getWriter();
-		await writer.write(rawClientData);
-		writer.releaseLock();
-		return remoteSocket.value;
+		if (!remoteSocket.value || remoteSocket.value.closed) {
+			remoteSocket.value = connect({
+				hostname: address,
+				port: port,
+			});
+			log(`connected to ${address}:${port}`);
+			const writer = remoteSocket.value.writable.getWriter();
+			await writer.write(rawClientData);
+			writer.releaseLock();
+			return remoteSocket.value;
+		} else {
+			log(`connected to ${address}:${port}`);
+			const writer = remoteSocket.value.writable.getWriter();
+			await writer.write(rawClientData);
+			writer.releaseLock();
+			return remoteSocket.value;
+		}
 	}
 	async function tryconnect(address, port) {
 	        const tcpSocket = await connectAndWrite(address, port);
