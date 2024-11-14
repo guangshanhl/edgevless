@@ -121,7 +121,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 	}
 	async function tryconnect(address, port) {
             const tcpSocket = await connectAndWrite(address, port);
-            return await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+            return remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, log);
    	}
   	if (!await tryconnect(addressRemote, portRemote)) {
       	  if (!await tryconnect(proxyIP, portRemote)) {
