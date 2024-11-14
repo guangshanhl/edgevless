@@ -44,7 +44,7 @@ async function peerOverWSHandler(request) {
 	};
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
 	const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-	let remoteSocketWapper = {
+	let remoteSocket = {
 		value: null,
 	};
 	let udpStreamWrite = null;
@@ -54,8 +54,8 @@ async function peerOverWSHandler(request) {
 			if (isDns && udpStreamWrite) {
 				return udpStreamWrite(chunk);
 			}
-			if (remoteSocketWapper.value) {
-				const writer = remoteSocketWapper.value.writable.getWriter()
+			if (remoteSocket.value) {
+				const writer = remoteSocket.value.writable.getWriter()
 				await writer.write(chunk);
 				writer.releaseLock();
 				return;
@@ -66,7 +66,7 @@ async function peerOverWSHandler(request) {
 				portRemote = 443,
 				addressRemote = '',
 				rawDataIndex,
-				vlessVersion = new Uint8Array([0, 0]),
+				peerVersion = new Uint8Array([0, 0]),
 				isUDP,
 			} = processPeerHeader(chunk, userID);
 			address = addressRemote;
@@ -82,7 +82,7 @@ async function peerOverWSHandler(request) {
 					return;
 				}
 			}
-			const responseHeader = new Uint8Array([vlessVersion[0], 0]);
+			const responseHeader = new Uint8Array([peerVersion[0], 0]);
 			const rawClientData = chunk.slice(rawDataIndex);
 			if (isDns) {
 				const { write } = await handleUDPOutBound(webSocket, responseHeader, log);
@@ -90,7 +90,7 @@ async function peerOverWSHandler(request) {
 				udpStreamWrite(rawClientData);
 				return;
 			}
-			handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, responseHeader, log);
+			handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader, log);
 		},
 		close() {
 			log(`readableWebSocketStream is close`);
