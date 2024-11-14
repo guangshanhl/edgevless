@@ -277,11 +277,11 @@ function processVlessHeader(
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, log) {
     let hasIncomingData = false;
-    const CHUNK_SIZE = 64 * 1024; // 定义批量发送的大小，例如64KB
+    const CHUNK_SIZE = 64 * 1024; // 定义批量发送的大小，例如 64 KB
     let buffer = new Uint8Array(0);
 
     // 提前检查 WebSocket 的连接状态
-    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+    if (webSocket.readyState !== WebSocket.OPEN) {
         log('WebSocket 连接未打开');
         return hasIncomingData;
     }
@@ -294,7 +294,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
 
                     // 累加 chunk 数据到 buffer
                     const tempBuffer = new Uint8Array(buffer.length + chunk.length);
-                    tempBuffer.set(buffer);
+                    tempBuffer.set(buffer, 0);
                     tempBuffer.set(chunk, buffer.length);
                     buffer = tempBuffer;
 
@@ -302,6 +302,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
                     while (buffer.length >= CHUNK_SIZE) {
                         const toSend = buffer.slice(0, CHUNK_SIZE);
                         if (vlessResponseHeader) {
+                            // 合并 header 和数据
                             const combined = new Uint8Array(vlessResponseHeader.byteLength + toSend.byteLength);
                             combined.set(new Uint8Array(vlessResponseHeader));
                             combined.set(toSend, vlessResponseHeader.byteLength);
@@ -314,7 +315,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
                     }
 
                     // 处理 WebSocket 状态
-                    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+                    if (webSocket.readyState !== WebSocket.OPEN) {
                         controller.error('WebSocket 已关闭，无法继续发送数据');
                     }
                 },
@@ -322,7 +323,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
                     // 在流结束时发送剩余数据
                     if (buffer.length > 0) {
                         if (vlessResponseHeader) {
-                            const combined = new Uint8Array(vlessResponseHeader.byteLength + buffer.byteLength);
+                            const combined = new Uint8Array(vlessResponseHeader.byteLength + buffer.length);
                             combined.set(new Uint8Array(vlessResponseHeader));
                             combined.set(buffer, vlessResponseHeader.byteLength);
                             webSocket.send(combined.buffer);
@@ -347,7 +348,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
         console.error('remoteSocketToWS 出现异常：', error.stack || error);
         safeCloseWebSocket(webSocket);
     }
-
     return hasIncomingData;
 }
 function base64ToArrayBuffer(base64Str) {
