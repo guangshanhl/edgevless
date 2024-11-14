@@ -101,7 +101,6 @@ async function vlessOverWSHandler(request) {
 	})).catch((err) => {
 		log('readableWebSocketStream pipeTo error', err);
 	});
-
 	return new Response(null, {
 		status: 101,
 		webSocket: client,
