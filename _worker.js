@@ -107,30 +107,30 @@ async function vlessOverWSHandler(request) {
 	});
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log) {
-	const maxRetries = 3; // 最大重试次数
-	const retryInterval = 1000; // 每次重试间隔（毫秒）
-
+	const maxRetries = 3;
+	const retryInterval = 1000;
 	async function connectAndWrite(address, port) {
-		if (!remoteSocket.value || remoteSocket.value.closed) {
-			remoteSocket.value = connect({
-				hostname: address,
-				port: port,
-			});
-			log(`connected to ${address}:${port}`);
-			const writer = remoteSocket.value.writable.getWriter();
-			await writer.write(rawClientData);
-			writer.releaseLock();
-			return remoteSocket.value;
-		} else {
-			log(`reusing connection to ${address}:${port}`);
-			const writer = remoteSocket.value.writable.getWriter();
-			await writer.write(rawClientData);
-			writer.releaseLock();
-			return remoteSocket.value;
+		try {
+			if (!remoteSocket.value || remoteSocket.value.closed) {
+				remoteSocket.value = await connect({
+					hostname: address,
+					port: port,
+				});
+				const writer = remoteSocket.value.writable.getWriter();
+				await writer.write(rawClientData);
+				writer.releaseLock();
+				return remoteSocket.value;
+			} else {
+				const writer = remoteSocket.value.writable.getWriter();
+				await writer.write(rawClientData);
+				writer.releaseLock();
+				return remoteSocket.value;
+			}
+		} catch (error) {
+			log(`Error in connectAndWrite to ${address}:${port}: ${error.message}`);
+			throw error;
 		}
 	}
-
-	// 增加带重试的连接逻辑
 	async function connectWithRetry(address, port, retries) {
 		for (let attempt = 1; attempt <= retries; attempt++) {
 			try {
@@ -146,19 +146,19 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 			}
 		}
 	}
-
 	async function tryconnect(address, port) {
 		const tcpSocket = await connectWithRetry(address, port, maxRetries);
-		return tcpSocket ? await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, log) : false;
+		if (!tcpSocket) {
+			return false;
+		}
+		return await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, log);
 	}
-
 	if (!await tryconnect(addressRemote, portRemote)) {
 		if (!await tryconnect(proxyIP, portRemote)) {
 			closeWebSocket(webSocket);
 		}
 	}
 }
-
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
 	const stream = new ReadableStream({
