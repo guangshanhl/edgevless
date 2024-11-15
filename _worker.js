@@ -112,11 +112,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 	}
 	async function tryConnect(address, port) {
 	        const tcpSocket = await connectAndWrite(address, port);
-		if (tcpSocket) {
-   	       		return forwardToData(tcpSocket, webSocket, responseHeader);
-    	 	} else {
-		  return flase;
-		}
+   	       	return forwardToData(tcpSocket, webSocket, responseHeader);
    	}
   	if (!await tryConnect(addressRemote, portRemote)) {
      	 	if (!await tryConnect(proxyIP, portRemote)) {
@@ -287,38 +283,33 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
   return hasData;
 }
 function base64ToArrayBuffer(base64Str) {
-	if (!base64Str) {
-		return { error: null };
-	}
-	try {
-		base64Str = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-		const decode = atob(base64Str);
-		const arryBuffer = Uint8Array.from(decode, (c) => c.charCodeAt(0));
-		return { earlyData: arryBuffer.buffer, error: null };
-	} catch (error) {
-		return { error };
-	}
+    if (!base64Str) {
+        return { error: null };
+    }
+    try {
+        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+        const decodedStr = atob(normalizedStr);
+        const byteArray = new Uint8Array(decodedStr.length);
+        for (let i = 0; i < decodedStr.length; i++) {
+            byteArray[i] = decodedStr.charCodeAt(i);
+        }
+        return { earlyData: byteArray.buffer, error: null };
+    } catch (error) {
+        return { error };
+    }
 }
-const WS_READY_STATE_OPEN = 1;
-const WS_READY_STATE_CLOSING = 2;
+const WEBSOCKET_READY_STATE = {
+    OPEN: 1,
+    CLOSING: 2
+};
 function closeWebSocket(socket) {
-	try {
-		if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
-			socket.close();
-		}
-	} catch (error) {
-	}
+    if (socket.readyState === WEBSOCKET_READY_STATE.OPEN || socket.readyState === WEBSOCKET_READY_STATE.CLOSING) {
+        socket.close();
+    }
 }
-const byteToHex = [];
-for (let i = 0; i < 256; ++i) {
-	byteToHex.push((i + 256).toString(16).slice(1));
-}
-function unsafeStringify(arr, offset = 0) {
-	return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
-}
+const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 function stringify(arr, offset = 0) {
-	const uuid = unsafeStringify(arr, offset);
-	return uuid;
+    return `${byteToHex[arr[offset + 0]]}${byteToHex[arr[offset + 1]]}${byteToHex[arr[offset + 2]]}${byteToHex[arr[offset + 3]]}-${byteToHex[arr[offset + 4]]}${byteToHex[arr[offset + 5]]}-${byteToHex[arr[offset + 6]]}${byteToHex[arr[offset + 7]]}-${byteToHex[arr[offset + 8]]}${byteToHex[arr[offset + 9]]}-${byteToHex[arr[offset + 10]]}${byteToHex[arr[offset + 11]]}${byteToHex[arr[offset + 12]]}${byteToHex[arr[offset + 13]]}${byteToHex[arr[offset + 14]]}${byteToHex[arr[offset + 15]]}`.toLowerCase();
 }
 async function handleUDPOutBound(webSocket, responseHeader) {
   let isHeaderSent = false;
