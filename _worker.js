@@ -103,6 +103,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
        	     remoteSocket.value = connect({
        	         hostname: address,
        	         port: port,
+		 secureTransport: 'on'
      	       });
      	   }  
     	    const writer = remoteSocket.value.writable.getWriter();
