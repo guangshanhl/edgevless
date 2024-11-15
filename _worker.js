@@ -162,6 +162,7 @@ function makeWebStream(webSocket, earlyHeader) {
 	});
 	return stream;
 }
+let cachedUserIDBytes;
 function processVlessHeader(
 	vlessBuffer,
 	userID
