@@ -70,8 +70,7 @@ async function vlessOverWSHandler(request) {
 				isUDP,
 			} = processVlessHeader(chunk, userID);
 			address = addressRemote;
-			portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp ' : 'tcp '
-				} `;
+			portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp ' : 'tcp '} `;
 			if (hasError) {
 				return;
 			}
@@ -107,57 +106,34 @@ async function vlessOverWSHandler(request) {
 	});
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log) {
-	const maxRetries = 3;
-	const retryInterval = 1000;
 	async function connectAndWrite(address, port) {
-		try {
-			if (!remoteSocket.value || remoteSocket.value.closed) {
-				remoteSocket.value = await connect({
-					hostname: address,
-					port: port,
-				});
-				const writer = remoteSocket.value.writable.getWriter();
-				await writer.write(rawClientData);
-				writer.releaseLock();
-				return remoteSocket.value;
-			} else {
-				const writer = remoteSocket.value.writable.getWriter();
-				await writer.write(rawClientData);
-				writer.releaseLock();
-				return remoteSocket.value;
-			}
-		} catch (error) {
-			log(`Error in connectAndWrite to ${address}:${port}: ${error.message}`);
-			throw error;
-		}
-	}
-	async function connectWithRetry(address, port, retries) {
-		for (let attempt = 1; attempt <= retries; attempt++) {
-			try {
-				return await connectAndWrite(address, port);
-			} catch (error) {
-				log(`Attempt ${attempt} to connect to ${address}:${port} failed: ${error.message}`);
-				if (attempt < retries) {
-					await new Promise(resolve => setTimeout(resolve, retryInterval));
-				} else {
-					log(`Failed to connect to ${address}:${port} after ${retries} attempts`);
-					return null;
-				}
-			}
+		if (!remoteSocket.value || remoteSocket.value.closed) {
+			remoteSocket.value = connect({
+				hostname: address,
+				port: port,
+			});
+			log(`connected to ${address}:${port}`);
+			const writer = remoteSocket.value.writable.getWriter();
+			await writer.write(rawClientData);
+			writer.releaseLock();
+			return remoteSocket.value;
+		} else {
+			log(`Already connected to ${address}:${port}`);
+			const writer = remoteSocket.value.writable.getWriter();
+			await writer.write(rawClientData);
+			writer.releaseLock();
+			return remoteSocket.value;
 		}
 	}
 	async function tryconnect(address, port) {
-		const tcpSocket = await connectWithRetry(address, port, maxRetries);
-		if (!tcpSocket) {
-			return false;
-		}
-		return await remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, log);
-	}
-	if (!await tryconnect(addressRemote, portRemote)) {
-		if (!await tryconnect(proxyIP, portRemote)) {
-			closeWebSocket(webSocket);
-		}
-	}
+	        const tcpSocket = await connectAndWrite(address, port);
+	        return remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, log);
+   	}
+  	if (!await tryconnect(addressRemote, portRemote)) {
+     	 	if (!await tryconnect(proxyIP, portRemote)) {
+   	       		closeWebSocket(webSocket);
+    	 	  }
+  	}
 }
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
 	let readableStreamCancel = false;
@@ -304,6 +280,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
   await remoteSocket.readable.pipeTo(
     new WritableStream({
       async write(chunk, controller) {
+        hasIncomingData = true;
         if (webSocket.readyState !== WebSocket.OPEN) {
           return controller.error('webSocket.readyState is not open, maybe close');
         }
@@ -316,7 +293,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
         } else {
           webSocket.send(chunk);
         }
-	hasData = true;
+		hasData = true;
       },
       close() {
         log(`remoteConnection!.readable is close with hasIncomingData is ${hasIncomingData}`);
