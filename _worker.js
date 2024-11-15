@@ -255,34 +255,52 @@ function processVlessHeader(
 }
 async function forwardToData(remoteSocket, webSocket, responseHeader) {
   let hasData = false;
-  let vlessHeader = responseHeader;
+  let vlessHeader = responseHeader
+    ? new Uint8Array(responseHeader) // 将 responseHeader 转为 Uint8Array（如果需要）
+    : null;
+
   await remoteSocket.readable.pipeTo(
     new WritableStream({
       async write(chunk, controller) {
         hasData = true;
+
         if (webSocket.readyState !== WebSocket.OPEN) {
-          return controller.error('webSocket.readyState is close');
+          return controller.error('WebSocket is closed');
         }
+
         if (vlessHeader) {
-          const combined = new Uint8Array(vlessHeader.length + chunk.byteLength);
-          combined.set(new Uint8Array(vlessHeader), 0);
-          combined.set(new Uint8Array(chunk), vlessHeader.length);
-          webSocket.send(combined.buffer);
+          // 预先分配足够大的缓冲区
+          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+
+          // 合并 header 和 chunk 数据
+          combinedBuffer.set(vlessHeader, 0);
+          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
+
+          // 发送合并后的数据
+          webSocket.send(combinedBuffer.buffer);
+
+          // 清除 header，确保只发送一次
           vlessHeader = null;
         } else {
+          // 如果 header 已经发送，直接发送 chunk
           webSocket.send(chunk);
         }
       },
       close() {
+        console.log('Stream closed');
       },
       abort(reason) {
+        console.error('Stream aborted:', reason);
       }
     })
   ).catch((error) => {
+    console.error('Stream pipe error:', error);
     closeWebSocket(webSocket);
   });
+
   return hasData;
 }
+
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
