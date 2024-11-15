@@ -256,51 +256,35 @@ function processVlessHeader(
 async function forwardToData(remoteSocket, webSocket, responseHeader) {
   let hasData = false;
   let vlessHeader = responseHeader
-    ? new Uint8Array(responseHeader) // 将 responseHeader 转为 Uint8Array（如果需要）
+    ? new Uint8Array(responseHeader)
     : null;
-
   await remoteSocket.readable.pipeTo(
     new WritableStream({
       async write(chunk, controller) {
         hasData = true;
-
         if (webSocket.readyState !== WebSocket.OPEN) {
           return controller.error('WebSocket is closed');
         }
-
         if (vlessHeader) {
-          // 预先分配足够大的缓冲区
           const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
-
-          // 合并 header 和 chunk 数据
           combinedBuffer.set(vlessHeader, 0);
           combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
-
-          // 发送合并后的数据
           webSocket.send(combinedBuffer.buffer);
-
-          // 清除 header，确保只发送一次
           vlessHeader = null;
         } else {
-          // 如果 header 已经发送，直接发送 chunk
           webSocket.send(chunk);
         }
       },
       close() {
-        console.log('Stream closed');
       },
       abort(reason) {
-        console.error('Stream aborted:', reason);
       }
     })
   ).catch((error) => {
-    console.error('Stream pipe error:', error);
     closeWebSocket(webSocket);
   });
-
   return hasData;
 }
-
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
@@ -351,7 +335,7 @@ function handleUDPOutBound(webSocket, responseHeader) {
   transformStream.readable.pipeTo(new WritableStream({
     async write(chunk) {
       try {
-        const response = await fetch('https://dns.google/dns-query', {
+        const response = await fetch('https://cloudflare-dns.com/dns-query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/dns-message' },
           body: chunk
@@ -375,11 +359,9 @@ function handleUDPOutBound(webSocket, responseHeader) {
           webSocket.send(outputBuffer);
         }
       } catch (error) {
-        console.error('Failed to process DNS query:', error);
       }
     }
   })).catch(error => {
-    console.error('Stream error:', error);
   });
   const writer = transformStream.writable.getWriter();
   return {
