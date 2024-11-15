@@ -276,12 +276,11 @@ function processVlessHeader(
 	};
 }
 async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, log) {
-  let hasIncomingData = false;
+  let hasData = false;
   let vlessHeader = vlessResponseHeader;
   await remoteSocket.readable.pipeTo(
     new WritableStream({
       async write(chunk, controller) {
-        hasIncomingData = true;
         if (webSocket.readyState !== WebSocket.OPEN) {
           return controller.error('webSocket.readyState is not open, maybe close');
         }
@@ -294,6 +293,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
         } else {
           webSocket.send(chunk);
         }
+	hasData = true;
       },
       close() {
         log(`remoteConnection!.readable is close with hasIncomingData is ${hasIncomingData}`);
@@ -306,7 +306,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, lo
     console.error('remoteSocketToWS has exception', error.stack || error);
     safeCloseWebSocket(webSocket);
   });
-  return hasIncomingData;
+  return hasData;
 }
 function base64ToArrayBuffer(base64Str) {
 	if (!base64Str) {
