@@ -172,16 +172,16 @@ function processVlessHeader(
 		};
 	}
 	const version = new Uint8Array(vlessBuffer.slice(0, 1));
-	let isUser = false;
 	let isUDP = false;
-	if (stringify(new Uint8Array(vlessBuffer.slice(1, 17))) === userID) {
-		isUser = true;
+	if (!cachedUserIDBytes) {
+	    cachedUserIDBytes = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
 	}
-	if (!isUser) {
-		return {
-			hasError: true,
-		};
-	}
+	const bufferUserID = new Uint8Array(vlessBuffer.slice(1, 17));
+	if (!bufferUserID.every((byte, index) => byte === cachedUserIDBytes[index])) {
+	    return {
+	      hasError: true,
+ 	   };
+  	}
 	const optLength = new Uint8Array(vlessBuffer.slice(17, 18))[0];
 	const command = new Uint8Array(
 		vlessBuffer.slice(18 + optLength, 18 + optLength + 1)
@@ -313,17 +313,18 @@ function stringify(arr, offset = 0) {
 }
 async function handleUDPOutBound(webSocket, responseHeader) {
   let isHeaderSent = false;
-  const processUdpChunk = (chunk) => {
-    let index = 0;
+  function processUdpChunk(chunk) {
     const udpPackets = [];
-    while (index < chunk.byteLength) {
-      const udpPacketLength = new DataView(chunk.buffer, index, 2).getUint16(0);
-      const udpData = chunk.slice(index + 2, index + 2 + udpPacketLength);
-      index += 2 + udpPacketLength;
-      udpPackets.push(udpData);
+    let offset = 0;
+    while (offset < chunk.byteLength) {
+	const udpPacketLength = new DataView(chunk.buffer, offset, 2).getUint16(0);
+ 	const nextOffset = offset + 2 + udpPacketLength;
+ 	const udpData = chunk.slice(offset + 2, nextOffset);
+        udpPackets.push(udpData);
+        offset = nextOffset;
     }
-    return udpPackets;
-  };
+  return udpPackets;
+  }
   const transformStream = new TransformStream({
     transform(chunk, controller) {
       const udpPackets = processUdpChunk(chunk);
