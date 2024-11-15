@@ -13,8 +13,8 @@ export default {
 					case '/':
 						return new Response(JSON.stringify(request.cf), { status: 200 });
 					case `/${userID}`: {
-						const vlessConfig = getVLESSConfig(userID, request.headers.get('Host'));
-						return new Response(`${vlessConfig}`, {
+						const config = getConfig(userID, request.headers.get('Host'));
+						return new Response(`${config}`, {
 							status: 200,
 							headers: {
 								"Content-Type": "text/plain;charset=utf-8",
@@ -43,12 +43,12 @@ async function vlessOverWSHandler(request) {
 	let remoteSocket = {
 		value: null,
 	};
-	let udpStreamWrite = null;
+	let udpWrite = null;
 	let isDns = false;
 	readableWebStream.pipeTo(new WritableStream({
 		async write(chunk, controller) {
-			if (isDns && udpStreamWrite) {
-				return udpStreamWrite(chunk);
+			if (isDns && udpWrite) {
+				return udpWrite(chunk);
 			}
 			if (remoteSocket.value) {
 				const writer = remoteSocket.value.writable.getWriter()
@@ -77,14 +77,14 @@ async function vlessOverWSHandler(request) {
 				}
 			}
 			const responseHeader = new Uint8Array([vlessVersion[0], 0]);
-			const rawClientData = chunk.slice(rawDataIndex);
+			const clientData = chunk.slice(rawDataIndex);
 			if (isDns) {
 				const { write } = await handleUDPOutBound(webSocket, responseHeader);
-				udpStreamWrite = write;
-				udpStreamWrite(rawClientData);
+				udpWrite = write;
+				udpWrite(clientData);
 				return;
 			}
-			handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader);
+			handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader);
 		},
 		close() {
 		},
@@ -97,7 +97,7 @@ async function vlessOverWSHandler(request) {
 		webSocket: client,
 	});
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, responseHeader) {
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader) {
 	async function connectAndWrite(address, port) {
 	  if (!remoteSocket.value || remoteSocket.value.closed) {
        	     remoteSocket.value = connect({
@@ -106,7 +106,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
      	       });
      	   }  
     	    const writer = remoteSocket.value.writable.getWriter();
-    	    await writer.write(rawClientData);
+    	    await writer.write(clientData);
     	    writer.releaseLock();       
     	    return remoteSocket.value;
 	}
