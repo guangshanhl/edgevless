@@ -253,80 +253,35 @@ function processVlessHeader(
 	};
 }
 async function forwardToData(remoteSocket, webSocket, responseHeader) {
-    let hasData = false;
-    let buffer = [];
-    let bufferSize = 0;
-    const maxBufferSize = 1024 * 16; // 设置缓冲区大小，比如16KB
-
-    const sendBufferedData = async () => {
-        if (bufferSize === 0) return;
-
-        let dataToSend = new Uint8Array(bufferSize);
-        let offset = 0;
-
-        for (let chunk of buffer) {
-            dataToSend.set(chunk, offset);
-            offset += chunk.length;
+  let hasData = false;
+  let vlessHeader = responseHeader;
+  await remoteSocket.readable.pipeTo(
+    new WritableStream({
+      async write(chunk, controller) {
+        hasData = true;
+        if (webSocket.readyState !== WebSocket.OPEN) {
+          return controller.error('webSocket.readyState is close');
         }
-
-        buffer = [];
-        bufferSize = 0;
-
-        if (webSocket.readyState === WebSocket.OPEN) {
-            try {
-                await new Promise((resolve, reject) => {
-                    webSocket.send(dataToSend.buffer, (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-            } catch (error) {
-                console.error('Error sending buffered data:', error);
-                closeWebSocket(webSocket);
-            }
+        if (vlessHeader) {
+          const combined = new Uint8Array(vlessHeader.length + chunk.byteLength);
+          combined.set(new Uint8Array(vlessHeader), 0);
+          combined.set(new Uint8Array(chunk), vlessHeader.length);
+          webSocket.send(combined.buffer);
+          vlessHeader = null;
+        } else {
+          webSocket.send(chunk);
         }
-    };
-
-    try {
-        await remoteSocket.readable.pipeTo(new WritableStream({
-            async write(chunk, controller) {
-                hasData = true;
-
-                if (webSocket.readyState !== WebSocket.OPEN) {
-                    return controller.error('webSocket.readyState is closed');
-                }
-
-                if (responseHeader) {
-                    const firstChunk = new Uint8Array(responseHeader.length + chunk.byteLength);
-                    firstChunk.set(responseHeader, 0);
-                    firstChunk.set(chunk, responseHeader.length);
-                    buffer.push(firstChunk);
-                    bufferSize += firstChunk.byteLength;
-                    responseHeader = null;
-                } else {
-                    buffer.push(chunk);
-                    bufferSize += chunk.byteLength;
-                }
-
-                if (bufferSize >= maxBufferSize) {
-                    await sendBufferedData();
-                }
-            },
-            async close() {
-                await sendBufferedData();
-            },
-            abort(reason) {
-                console.error('WritableStream aborted due to', reason);
-            }
-        }));
-    } catch (error) {
-        closeWebSocket(webSocket);
-        console.error('Error piping data:', error);
-    }
-
-    return hasData;
+      },
+      close() {
+      },
+      abort(reason) {
+      }
+    })
+  ).catch((error) => {
+    closeWebSocket(webSocket);
+  });
+  return hasData;
 }
-
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
