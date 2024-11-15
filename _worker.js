@@ -130,50 +130,48 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
   	}
 }
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
-    let readableStreamCancel = false;
-    const stream = new ReadableStream({
-        start(controller) {
-            const messageHandler = (event) => {
-                if (!readableStreamCancel) {
-                    controller.enqueue(event.data);
-                }
-            };
-            const closeHandler = () => {
-                safeCloseWebSocket(webSocketServer);
-                if (!readableStreamCancel) {
-                    controller.close();
-                }
-            };
-            const errorHandler = (err) => {
-                log('webSocketServer has error');
-                controller.error(err);
-            };
-            webSocketServer.addEventListener('message', messageHandler);
-            webSocketServer.addEventListener('close', closeHandler);
-            webSocketServer.addEventListener('error', errorHandler);
-            const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
-            controller.signal.addEventListener('abort', () => {
-                webSocketServer.removeEventListener('message', messageHandler);
-                webSocketServer.removeEventListener('close', closeHandler);
-                webSocketServer.removeEventListener('error', errorHandler);
-                safeCloseWebSocket(webSocketServer);
-            });
-        },
-        pull(controller) {},
-        cancel(reason) {
-            if (!readableStreamCancel) {
-                log(`ReadableStream was canceled, due to ${reason}`);
-                readableStreamCancel = true;
-                safeCloseWebSocket(webSocketServer);
-            }
-        }
-    });
-    return stream;
+	let readableStreamCancel = false;
+	const stream = new ReadableStream({
+		start(controller) {
+			webSocketServer.addEventListener('message', (event) => {
+				if (readableStreamCancel) {
+					return;
+				}
+				const message = event.data;
+				controller.enqueue(message);
+			});
+			webSocketServer.addEventListener('close', () => {
+				safeCloseWebSocket(webSocketServer);
+				if (readableStreamCancel) {
+					return;
+				}
+				controller.close();
+			}
+			);
+			webSocketServer.addEventListener('error', (err) => {
+				log('webSocketServer has error');
+				controller.error(err);
+			}
+			);
+			const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
+			if (error) {
+				controller.error(error);
+			} else if (earlyData) {
+				controller.enqueue(earlyData);
+			}
+		},
+		pull(controller) {
+		},
+		cancel(reason) {
+			if (readableStreamCancel) {
+				return;
+			}
+			log(`ReadableStream was canceled, due to ${reason}`)
+			readableStreamCancel = true;
+			safeCloseWebSocket(webSocketServer);
+		}
+	});
+	return stream;
 }
 function processVlessHeader(
 	vlessBuffer,
