@@ -100,17 +100,11 @@ async function vlessOverWSHandler(request) {
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, responseHeader) {
 	async function connectAndWrite(address, port) {
 	  if (!remoteSocket.value || remoteSocket.value.closed) {
-	     try {
-       	   	  remoteSocket.value = connect({
-       	   	      hostname: address,
-       	   	      port: port,
-		      secureTransport: 'on',
-		      timeout: 3000
-     	   	    });
-		} catch (error) {
-		   return flase;
-		}
-     	   }  
+       	    remoteSocket.value = connect({
+       	   	hostname: address,
+       	   	port: port
+     	   	});
+     	    }  
     	    const writer = remoteSocket.value.writable.getWriter();
     	    await writer.write(clientData);
     	    writer.releaseLock();       
