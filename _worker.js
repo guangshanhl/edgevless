@@ -100,7 +100,6 @@ async function vlessOverWSHandler(request) {
     })).catch((err) => {
         log('readableWebSocketStream pipeTo error', err);
     });
-
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -362,7 +361,6 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
                     const dataToSend = isVlessHeaderSent
                         ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                         : new Uint8Array([...vlessResponseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
-
                     if (webSocket.readyState === WebSocket.OPEN) {
                         log(`doh success and dns message length is ${udpSize}`);
                         webSocket.send(dataToSend.buffer);
