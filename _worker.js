@@ -238,7 +238,7 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
             } else {
                 bufferToSend = chunk;
             }
-            webSocket.send(bufferToSend.buffer);
+            webSocket.send(bufferToSend);
             hasData = true;
         },
         close() {},
@@ -328,7 +328,7 @@ async function handleUDPOutBound(webSocket, responseHeader) {
                     isHeaderSent = true;
                 }
                 if (webSocket.readyState === WebSocket.OPEN) {
-                    webSocket.send(payload.buffer);
+                    webSocket.send(payload);
                 }
             } catch (error) {
             }
