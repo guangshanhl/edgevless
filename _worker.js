@@ -230,7 +230,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 return;
             }
             let bufferToSend;
-            if (lessHeader) {
+            if (ressHeader) {
                 bufferToSend = new Uint8Array(ressHeader.byteLength + chunk.byteLength);
                 bufferToSend.set(ressHeader, 0);
                 bufferToSend.set(chunk, ressHeader.byteLength);
