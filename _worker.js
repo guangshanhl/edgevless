@@ -228,7 +228,7 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
             async write(chunk, controller) {
                 hasData = true;
                 if (webSocket.readyState !== WebSocket.OPEN) {
-                    return controller.error('WebSocket is closed');
+                    controller.error('WebSocket is closed');
                 }
                 if (vlessHeader) {
                     const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
