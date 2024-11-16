@@ -58,7 +58,7 @@ async function ressOverWSHandler(request) {
                 portRemote = 443,
                 addressRemote = '',
                 rawDataIndex,
-                lessVersion = new Uint8Array([0, 0]),
+                ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
             address = addressRemote;
