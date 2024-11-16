@@ -257,40 +257,27 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
     let hasData = false;
     let buffer = [];
     let bufferSize = 0;
-    const maxBufferSize = 1024 * 16; // 设置缓冲区大小，比如16KB
-    const responseHeaderArray = responseHeader ? new Uint8Array(responseHeader) : null;
-
+    const maxBufferSize = 1024 * 16;
+    let responseHeaderArray = responseHeader ? new Uint8Array(responseHeader) : null;
     const sendBufferedData = async () => {
         if (bufferSize === 0) return;
-
         const combinedBuffer = new Uint8Array(bufferSize);
         let offset = 0;
-
         for (let chunk of buffer) {
             combinedBuffer.set(chunk, offset);
             offset += chunk.length;
         }
-
         buffer = [];
         bufferSize = 0;
-
         try {
-            await new Promise((resolve, reject) => {
-                webSocket.send(combinedBuffer.buffer, (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
+            webSocket.send(combinedBuffer.buffer);
         } catch (error) {
-            console.error('Error sending buffered data:', error);
-            closeWebSocket(webSocket);
+            return false;
         }
     };
-
     const writableStream = new WritableStream({
         async write(chunk, controller) {
             hasData = true;
-
             if (responseHeaderArray) {
                 const combinedBuffer = new Uint8Array(responseHeaderArray.length + chunk.byteLength);
                 combinedBuffer.set(responseHeaderArray, 0);
@@ -302,29 +289,23 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
                 buffer.push(chunk);
                 bufferSize += chunk.byteLength;
             }
-
             if (bufferSize >= maxBufferSize) {
                 await sendBufferedData();
             }
         },
         async close() {
-            await sendBufferedData(); // 发送所有剩余的缓冲数据
+            await sendBufferedData();
         },
         abort(reason) {
-            console.error('WritableStream aborted due to', reason);
         }
     });
-
     try {
         await remoteSocket.readable.pipeTo(writableStream);
     } catch (error) {
         closeWebSocket(webSocket);
-        console.error('Error piping data:', error);
     }
-
     return hasData;
 }
-
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
