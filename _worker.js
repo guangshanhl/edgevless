@@ -225,29 +225,27 @@ function processVlessHeader(vlessBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, responseHeader) {
     let hasData = false;
     let vlessHeader = responseHeader;
-    await remoteSocket.readable.pipeTo(
-        new WritableStream({
-            async write(chunk, controller) {
-                hasData = true;
-                if (webSocket.readyState !== WebSocket.OPEN) {
-                    controller.error('WebSocket is closed');
-                }
-                if (vlessHeader) {
-                    const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
-                    combinedBuffer.set(vlessHeader, 0);
-                    combinedBuffer.set(chunk, vlessHeader.byteLength);
-                    webSocket.send(combinedBuffer.buffer);
-                    vlessHeader = null;
-                } else {
-                    webSocket.send(chunk);
-                }
-            },
-            close() {
-            },
-            abort(reason) {
+    await remoteSocket.readable.pipeTo(new WritableStream({
+        async write(chunk, controller) {
+            if (webSocket.readyState !== WebSocket.OPEN) {
+                controller.error('WebSocket is closed');
+                return;
             }
-        })
-    ).catch((error) => {
+            let bufferToSend;
+            if (vlessHeader) {
+                bufferToSend = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+                bufferToSend.set(vlessHeader, 0);
+                bufferToSend.set(chunk, vlessHeader.byteLength);
+                vlessHeader = null;
+            } else {
+                bufferToSend = chunk;
+            }
+            webSocket.send(bufferToSend.buffer);
+            hasData = true;
+        },
+        close() {},
+        abort(reason) {}
+    })).catch((error) => {
         closeWebSocket(webSocket);
     });
     return hasData;
@@ -284,7 +282,10 @@ async function handleUDPOutBound(webSocket, responseHeader) {
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partialChunk) {
-                chunk = new Uint8Array([...partialChunk, ...chunk]);
+                const combinedChunk = new Uint8Array(partialChunk.byteLength + chunk.byteLength);
+                combinedChunk.set(partialChunk, 0);
+                combinedChunk.set(chunk, partialChunk.byteLength);
+                chunk = combinedChunk;
                 partialChunk = null;
             }
             let offset = 0;
@@ -315,20 +316,27 @@ async function handleUDPOutBound(webSocket, responseHeader) {
                 });
                 const dnsQueryResult = await resp.arrayBuffer();
                 const udpSize = dnsQueryResult.byteLength;
-                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-                const payload = isHeaderSent
-                    ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-                    : new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);            
+                let payload;
+                if (isHeaderSent) {
+                    payload = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+                    payload.set(udpSizeBuffer, 0);
+                    payload.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+                } else {
+                    payload = new Uint8Array(responseHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+                    payload.set(responseHeader, 0);
+                    payload.set(udpSizeBuffer, responseHeader.byteLength);
+                    payload.set(new Uint8Array(dnsQueryResult), responseHeader.byteLength + udpSizeBuffer.byteLength);
+                    isHeaderSent = true;
+                }
                 if (webSocket.readyState === WebSocket.OPEN) {
                     webSocket.send(payload.buffer);
-                    isHeaderSent = true;
                 }
             } catch (error) {
             }
         }
-    })).catch((error) => {
-    });
-    const writer = transformStream.writable.getWriter();
+    })).catch((error) => {});
+    const writer = transformStream.writable.getWriter();   
     return {
         write(chunk) {
             writer.write(chunk);
