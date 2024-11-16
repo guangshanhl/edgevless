@@ -254,57 +254,36 @@ function processVlessHeader(
 	};
 }
 async function forwardToData(remoteSocket, webSocket, responseHeader) {
-    let hasData = false;
-    let buffer = [];
-    let bufferSize = 0;
-    const maxBufferSize = 1024 * 16;
-    let responseHeaderArray = responseHeader ? new Uint8Array(responseHeader) : null;
-    const sendBufferedData = async () => {
-        if (bufferSize === 0) return;
-        const combinedBuffer = new Uint8Array(bufferSize);
-        let offset = 0;
-        for (let chunk of buffer) {
-            combinedBuffer.set(chunk, offset);
-            offset += chunk.length;
+  let hasData = false;
+  let vlessHeader = responseHeader
+    ? new Uint8Array(responseHeader)
+    : null;
+  await remoteSocket.readable.pipeTo(
+    new WritableStream({
+      async write(chunk, controller) {
+        hasData = true;
+        if (webSocket.readyState !== WebSocket.OPEN) {
+          return controller.error('WebSocket is closed');
         }
-        buffer = [];
-        bufferSize = 0;
-        try {
-            webSocket.send(combinedBuffer.buffer);
-        } catch (error) {
-            return false;
+        if (vlessHeader) {
+          const combinedBuffer = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+          combinedBuffer.set(vlessHeader, 0);
+          combinedBuffer.set(new Uint8Array(chunk), vlessHeader.byteLength);
+          webSocket.send(combinedBuffer.buffer);
+          vlessHeader = null;
+        } else {
+          webSocket.send(chunk);
         }
-    };
-    const writableStream = new WritableStream({
-        async write(chunk, controller) {
-            hasData = true;
-            if (responseHeaderArray) {
-                const combinedBuffer = new Uint8Array(responseHeaderArray.length + chunk.byteLength);
-                combinedBuffer.set(responseHeaderArray, 0);
-                combinedBuffer.set(new Uint8Array(chunk), responseHeaderArray.length);
-                buffer.push(combinedBuffer);
-                bufferSize += combinedBuffer.byteLength;
-                responseHeaderArray = null;
-            } else {
-                buffer.push(chunk);
-                bufferSize += chunk.byteLength;
-            }
-            if (bufferSize >= maxBufferSize) {
-                await sendBufferedData();
-            }
-        },
-        async close() {
-            await sendBufferedData();
-        },
-        abort(reason) {
-        }
-    });
-    try {
-        await remoteSocket.readable.pipeTo(writableStream);
-    } catch (error) {
-        closeWebSocket(webSocket);
-    }
-    return hasData;
+      },
+      close() {
+      },
+      abort(reason) {
+      }
+    })
+  ).catch((error) => {
+    closeWebSocket(webSocket);
+  });
+  return hasData;
 }
 function base64ToArrayBuffer(base64Str) {
     if (!base64Str) {
