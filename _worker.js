@@ -285,21 +285,21 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
   });
   return hasData;
 }
-function base64ToArrayBuffer(base64Str) {
-    if (!base64Str) {
-        return { error: null };
+function base64ToArrayBufferWithDataView(base64Str) {
+  if (!base64Str) {
+    return { error: null };
+  }
+  try {
+    const decodedStr = atob(base64Str);
+    const arrayBuffer = new ArrayBuffer(decodedStr.length);
+    const dataView = new DataView(arrayBuffer);
+    for (let i = 0; i < decodedStr.length; i++) {
+      dataView.setUint8(i, decodedStr.charCodeAt(i));
     }
-    try {
-        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-        const decodedStr = atob(normalizedStr);
-        const byteArray = new Uint8Array(decodedStr.length);
-        for (let i = 0; i < decodedStr.length; i++) {
-            byteArray[i] = decodedStr.charCodeAt(i);
-        }
-        return { earlyData: byteArray.buffer, error: null };
-    } catch (error) {
-        return { error };
-    }
+    return { earlyData: arrayBuffer, error: null };
+  } catch (error) {
+    return { error };
+  }
 }
 const WEBSOCKET_READY_STATE = {
     OPEN: 1,
