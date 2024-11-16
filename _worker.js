@@ -231,7 +231,7 @@ function processVlessHeader(vlessBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, responseHeader) {
     let hasData = false;
-    let vlessHeader = responseHeader ? new Uint8Array(responseHeader) : null;
+    let vlessHeader = responseHeader;
     await remoteSocket.readable.pipeTo(
         new WritableStream({
             async write(chunk, controller) {
