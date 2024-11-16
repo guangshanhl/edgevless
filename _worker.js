@@ -17,9 +17,7 @@ export default {
                         return new Response(config, {
                             status: 200,
                             headers: {
-                                "Content-Type": "text/plain;charset=utf-8",
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36",
-                                "Time-Zone": "Asia/Shanghai"
+                                "Content-Type": "text/plain;charset=utf-8"
                             },
                         });
                     }
@@ -343,6 +341,6 @@ async function handleUDPOutBound(webSocket, responseHeader) {
         }
     };
 }
-function getVLESSConfig(userID, hostName) {
+function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
