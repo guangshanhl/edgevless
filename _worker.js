@@ -285,21 +285,21 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
   });
   return hasData;
 }
-function base64ToArrayBuffer(base64Str) {
-  if (!base64Str) {
-    return { error: null };
-  }
-  try {
-    const decodedStr = atob(base64Str);
-    const arrayBuffer = new ArrayBuffer(decodedStr.length);
-    const dataView = new DataView(arrayBuffer);
-    for (let i = 0; i < decodedStr.length; i++) {
-      dataView.setUint8(i, decodedStr.charCodeAt(i));
+function base64ToArrayBufferWithDataView(base64Str) {
+    if (!base64Str) {
+        return { error: null };
     }
-    return { earlyData: arrayBuffer, error: null };
-  } catch (error) {
-    return { error };
-  }
+    try {
+        const decodedStr = atob(base64Str);
+        const arrayBuffer = new ArrayBuffer(decodedStr.length);
+        const uintArray = new Uint8Array(arrayBuffer);
+        for (let i = 0; i < decodedStr.length; i++) {
+            uintArray[i] = decodedStr.charCodeAt(i);
+        }
+        return { earlyData: arrayBuffer, error: null };
+    } catch (error) {
+        return { error };
+    }
 }
 const WEBSOCKET_READY_STATE = {
     OPEN: 1,
