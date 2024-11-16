@@ -5,7 +5,7 @@ export default {
     async fetch(request, env, ctx) {
         try {
             userID = env.UUID || userID;
-            proxyIP = env.PROXYIP || proxyIP;
+            proxyIP = env.PROXYIP || proxyIP;        
             const upgradeHeader = request.headers.get('Upgrade');
             if (!upgradeHeader || upgradeHeader !== 'websocket') {
                 const url = new URL(request.url);
@@ -14,11 +14,11 @@ export default {
                         return new Response(JSON.stringify(request.cf), { status: 200 });
                     case `/${userID}`: {
                         const config = getConfig(userID, request.headers.get('Host'));
-                        return new Response(`${config}`, {
+                        return new Response(config, {
                             status: 200,
                             headers: {
                                 "Content-Type": "text/plain;charset=utf-8",
-                            }
+                            },
                         });
                     }
                     default:
@@ -109,10 +109,14 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, responseHeader);
     }
-    if (!await tryConnect(addressRemote, portRemote)) {
-        if (!await tryConnect(proxyIP, portRemote)) {
-            closeWebSocket(webSocket);
+    try {
+        if (!await tryConnect(addressRemote, portRemote)) {
+            if (!await tryConnect(proxyIP, portRemote)) {
+                closeWebSocket(webSocket);
+            }
         }
+    } catch (error) {
+        closeWebSocket(webSocket);
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
@@ -120,20 +124,17 @@ function makeWebStream(webSocket, earlyHeader) {
     const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => {
-                if (isCancel) {
-                    return;
-                }
+                if (isCancel) return;
                 const message = event.data;
                 controller.enqueue(message);
             });
             webSocket.addEventListener('close', () => {
                 closeWebSocket(webSocket);
-                if (isCancel) {
-                    return;
-                }
+                if (isCancel) return;
                 controller.close();
             });
             webSocket.addEventListener('error', (err) => {
+                console.error('WebSocket error:', err);
                 controller.error(err);
             });
             const { earlyData, error } = base64ToArrayBuffer(earlyHeader);
@@ -143,11 +144,10 @@ function makeWebStream(webSocket, earlyHeader) {
                 controller.enqueue(earlyData);
             }
         },
-        pull(controller) {},
+        pull(controller) {
+        },
         cancel(reason) {
-            if (isCancel) {
-                return;
-            }
+            if (isCancel) return;
             isCancel = true;
             closeWebSocket(webSocket);
         }
@@ -157,9 +157,7 @@ function makeWebStream(webSocket, earlyHeader) {
 let cachedUserIDBytes;
 function processVlessHeader(vlessBuffer, userID) {
     if (vlessBuffer.byteLength < 24) {
-        return {
-            hasError: true,
-        };
+        return { hasError: true };
     }
     const version = new Uint8Array(vlessBuffer.slice(0, 1));
     let isUDP = false;
@@ -173,13 +171,10 @@ function processVlessHeader(vlessBuffer, userID) {
     }
     const optLength = new Uint8Array(vlessBuffer.slice(17, 18))[0];
     const command = new Uint8Array(vlessBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
-    if (command === 1) {
-    } else if (command === 2) {
+    if (command === 2) {
         isUDP = true;
-    } else {
-        return {
-            hasError: false,
-        };
+    } else if (command !== 1) {
+        return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
     const portBuffer = vlessBuffer.slice(portIndex, portIndex + 2);
@@ -210,14 +205,10 @@ function processVlessHeader(vlessBuffer, userID) {
             addressValue = ipv6.join(':');
             break;
         default:
-            return {
-                hasError: true,
-            };
+            return { hasError: true };
     }
     if (!addressValue) {
-        return {
-            hasError: true,
-        };
+        return { hasError: true };
     }
     return {
         hasError: false,
@@ -246,11 +237,13 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
                     webSocket.send(combinedBuffer.buffer);
                     vlessHeader = null;
                 } else {
-                    webSocket.send(chunk);
+                    webSocket.send(chunk.buffer);
                 }
             },
-            close() {},
-            abort(reason) {}
+            close() {
+            },
+            abort(reason) {
+            }
         })
     ).catch((error) => {
         closeWebSocket(webSocket);
@@ -287,49 +280,48 @@ async function handleUDPOutBound(webSocket, responseHeader) {
     let isHeaderSent = false;
     let partialChunk = null;
     const transformStream = new TransformStream({
-        start(controller) {},
         transform(chunk, controller) {
             if (partialChunk) {
-                chunk = new Uint8Array([...partialChunk, ...new Uint8Array(chunk)]);
+                chunk = new Uint8Array([...partialChunk, ...chunk]);
                 partialChunk = null;
             }
-            for (let index = 0; index < chunk.byteLength;) {
-                if (chunk.byteLength < index + 2) {
-                    partialChunk = chunk.slice(index);
+            let offset = 0;
+            while (offset < chunk.byteLength) {
+                if (chunk.byteLength < offset + 2) {
+                    partialChunk = chunk.slice(offset);
                     break;
                 }
-                const lengthBuffer = chunk.slice(index, index + 2);
-                const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
-                const nextOffset = index + 2 + udpPacketLength;
+                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset, 2).getUint16(0);
+                const nextOffset = offset + 2 + udpPacketLength;
                 if (chunk.byteLength < nextOffset) {
-                    partialChunk = chunk.slice(index);
+                    partialChunk = chunk.slice(offset);
                     break;
                 }
-                const udpData = new Uint8Array(chunk.slice(index + 2, nextOffset));
-                index = nextOffset;
+                const udpData = chunk.slice(offset + 2, nextOffset);
+                offset = nextOffset;
                 controller.enqueue(udpData);
             }
-        },
-        flush(controller) {}
+        }
     });
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
-            const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/dns-message',
-                },
-                body: chunk,
-            });
-            const dnsQueryResult = await resp.arrayBuffer();
-            const udpSize = dnsQueryResult.byteLength;
-            const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-            if (webSocket.readyState === WebSocket.OPEN) {
-                const payload = isHeaderSent ? 
-                    new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]) : 
-                    new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
-                webSocket.send(payload.buffer);
-                isHeaderSent = true;
+            try {
+                const resp = await fetch('https://cloudflare-dns.com/dns-query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/dns-message' },
+                    body: chunk
+                });
+                const dnsQueryResult = await resp.arrayBuffer();
+                const udpSize = dnsQueryResult.byteLength;
+                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+                const payload = isHeaderSent
+                    ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
+                    : new Uint8Array([...responseHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+                if (webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(payload.buffer);
+                    isHeaderSent = true;
+                }
+            } catch (error) {
             }
         }
     })).catch((error) => {
