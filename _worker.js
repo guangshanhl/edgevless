@@ -237,7 +237,7 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
                     webSocket.send(combinedBuffer.buffer);
                     vlessHeader = null;
                 } else {
-                    webSocket.send(chunk.buffer);
+                    webSocket.send(chunk);
                 }
             },
             close() {
