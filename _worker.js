@@ -285,7 +285,7 @@ async function forwardToData(remoteSocket, webSocket, responseHeader) {
   });
   return hasData;
 }
-function base64ToArrayBufferWithDataView(base64Str) {
+function base64ToArrayBuffer(base64Str) {
   if (!base64Str) {
     return { error: null };
   }
