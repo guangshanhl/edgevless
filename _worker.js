@@ -232,7 +232,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             if (resHeader) {
                 bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
                 bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, vlessHeader.byteLength);
+                bufferToSend.set(chunk, resHeader.byteLength);
                 resHeader = null;
             } else {
                 bufferToSend = chunk;
