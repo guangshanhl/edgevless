@@ -62,15 +62,11 @@ async function resOverWSHandler(request) {
                 isUDP,
             } = processResHeader(chunk, userID);
             address = addressRemote;
-            if (hasError) {
+            if (hasError) return;
+            if (isUDP && portRemote === 53) {
+                isDns = true;
+            } else if (isUDP) {
                 return;
-            }
-            if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
-                    return;
-                }
             }
             const resHeader = new Uint8Array([resVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
