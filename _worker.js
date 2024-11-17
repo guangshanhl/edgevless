@@ -222,7 +222,6 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    let ressHeader = resHeader;
     await remoteSocket.readable.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (webSocket.readyState !== WebSocket.OPEN) {
@@ -230,11 +229,11 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 return;
             }
             let bufferToSend;
-            if (ressHeader) {
-                bufferToSend = new Uint8Array(ressHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(ressHeader, 0);
-                bufferToSend.set(chunk, ressHeader.byteLength);
-                ressHeader = null;
+            if (resHeader) {
+                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                bufferToSend.set(resHeader, 0);
+                bufferToSend.set(chunk, resHeader.byteLength);
+                resHeader = null;
             } else {
                 bufferToSend = chunk;
             }
@@ -322,7 +321,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                     payload.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
                 } else {
                     payload = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-                    payload.set(responseHeader, 0);
+                    payload.set(resHeader, 0);
                     payload.set(udpSizeBuffer, resHeader.byteLength);
                     payload.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
                     headerSent = true;
@@ -342,5 +341,5 @@ async function handleUDPOutBound(webSocket, resHeader) {
     };
 }
 function getConfig(userID, hostName) {
-    return `reess://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
