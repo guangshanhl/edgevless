@@ -222,27 +222,45 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    await remoteSocket.readable.pipeTo(new WritableStream({
+    const reader = remoteSocket.readable.getReader();
+    const writer = new WritableStream({
         async write(chunk, controller) {
             if (webSocket.readyState !== WebSocket.OPEN) {
                 controller.error('WebSocket is closed');
                 return;
             }
-            let bufferToSend;
-            if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, resHeader.byteLength);
-                resHeader = null;
-            } else {
-                bufferToSend = chunk;
+            try {
+                if (resHeader) {
+                    webSocket.send(resHeader);
+                    resHeader = null;
+                }
+                webSocket.send(chunk);
+                hasData = true;
+            } catch (error) {
+                controller.error(error);
             }
-            webSocket.send(bufferToSend);
-            hasData = true;
         },
         close() {},
-        abort(reason) {}
-    })).catch((error) => {
+        abort(reason) {
+            closeWebSocket(webSocket);
+        }
+    });
+    const stream = new ReadableStream({
+        async start(controller) {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    controller.close();
+                    break;
+                }
+                controller.enqueue(value);
+            }
+        },
+        cancel(reason) {
+            reader.cancel(reason);
+        }
+    });
+    await stream.pipeTo(writer).catch((error) => {
         closeWebSocket(webSocket);
     });
     return hasData;
