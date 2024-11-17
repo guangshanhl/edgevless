@@ -165,29 +165,18 @@ function processResHeader(resBuffer, userID) {
     const portRemote = new DataView(portBuffer).getUint16(0);
 
     const addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1));
-    const addressType = addressBuffer[0];
+    const addressType = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1))[0];
     const addressValueIndex = addressIndex + 1;
 
-    let addressLength;
-    switch (addressType) {
-        case 1: // IPv4
-            addressLength = 4;
-            break;
-        case 2: // Domain
-            addressLength = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0] + 1;
-            break;
-        case 3: // IPv6
-            addressLength = 16;
-            break;
-        default:
-            return { hasError: true };
-    }
-
+    // 使用 getAddress 方法获取地址值和长度
     const addressValue = cacheManager.getAddress(addressType, resBuffer, addressValueIndex);
     if (!addressValue) {
         return { hasError: true };
     }
+
+    // 根据地址类型计算数据起始位置
+    const addressLength = addressType === 1 ? 4 : addressType === 2 ? 
+        new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0] + 1 : 16;
 
     return {
         hasError: false,
@@ -199,6 +188,7 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
+
 
 // Continue in next message...
 async function resOverWSHandler(request) {
