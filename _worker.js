@@ -220,59 +220,32 @@ function processRessHeader(ressBuffer, userID) {
         isUDP,
     };
 }
-//const { Transform } = require('stream');
-
 async function forwardToData(remoteSocket, webSocket, resHeader) {
-  let hasData = false;
-  let buffer = null;
-  const MAX_BUFFER_SIZE = 1024 * 1024; // 最大缓冲区大小，可根据需要调整
-
-  // 创建一个 Transform Stream，用于处理数据
-  const transformer = new Transform({
-    writableObjectMode: true,
-    transform(chunk, encoding, callback) {
-      if (buffer === null) {
-        buffer = chunk;
-      } else {
-        buffer = Buffer.concat([buffer, chunk], MAX_BUFFER_SIZE);
-      }
-
-      if (buffer.length >= MAX_BUFFER_SIZE) {
-        this.push(buffer);
-        buffer = null;
-      }
-      callback();
-    },
-    flush(callback) {
-      if (buffer) {
-        this.push(buffer);
-        buffer = null;
-      }
-      callback();
-    }
-  });
-
-  // 检查resHeader是否有效
-  if (resHeader && resHeader.byteLength > 0) {
-    transformer.write(resHeader);
-  }
-
-  // 将 remoteSocket 流通过 transformer，然后写入 webSocket
-  remoteSocket.pipe(transformer).pipe(webSocket);
-
-  // 监听 webSocket 的 close 事件
-  webSocket.on('close', () => {
-    transformer.end();
-  });
-
-  // 监听 transformer 的 error 事件
-  transformer.on('error', (err) => {
-    console.error('Error in transformer:', err);
-    // 处理错误，例如关闭连接
-    closeWebSocket(webSocket);
-  });
-
-  return hasData;
+    let hasData = false;
+    await remoteSocket.readable.pipeTo(new WritableStream({
+        async write(chunk, controller) {
+            if (webSocket.readyState !== WebSocket.OPEN) {
+                controller.error('WebSocket is closed');
+                return;
+            }
+            let bufferToSend;
+            if (resHeader) {
+                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                bufferToSend.set(resHeader, 0);
+                bufferToSend.set(chunk, vlessHeader.byteLength);
+                resHeader = null;
+            } else {
+                bufferToSend = chunk;
+            }
+            webSocket.send(bufferToSend);
+            hasData = true;
+        },
+        close() {},
+        abort(reason) {}
+    })).catch((error) => {
+        closeWebSocket(webSocket);
+    });
+    return hasData;
 }
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
