@@ -63,33 +63,29 @@ class CacheManager {
     }
 
     getAddress(addressType, buffer, startIndex) {
-        const keyBuffer = buffer.slice(startIndex, startIndex + (addressType === 2 ? 1 : addressType === 1 ? 4 : 16));
-        const key = `${addressType}:${Array.from(new Uint8Array(keyBuffer)).join(',')}`;    
-        if (!this.addressCache.has(key)) {
-            let result;
-            switch (addressType) {
-                case 1: // IPv4
-                    result = Array.from(new Uint8Array(buffer.slice(startIndex, startIndex + 4))).join('.');
-                    break;
-                case 2: // Domain
-                    const len = new Uint8Array(buffer.slice(startIndex, startIndex + 1))[0];
-                    result = new TextDecoder().decode(buffer.slice(startIndex + 1, startIndex + 1 + len));
-                    break;
-                case 3: // IPv6
-                    const dataView = new DataView(buffer.slice(startIndex, startIndex + 16));
-                    const ipv6 = [];
-                    for (let i = 0; i < 8; i++) {
-                        ipv6.push(dataView.getUint16(i * 2).toString(16).padStart(4, '0'));
-                    }
-                    result = ipv6.join(':');
-                    break;
-            }
-            this.addressCache.set(key, result);
-            this.checkCacheSize(this.addressCache);
-        }
-        return this.addressCache.get(key);
-    }
+    const keyBuffer = buffer.slice(startIndex, startIndex + (addressType === 2 ? 1 : addressType === 1 ? 4 : 16));
+    const key = `${addressType}:${Array.from(new Uint8Array(keyBuffer)).join(',')}`;    
 
+    if (!this.addressCache.has(key)) {
+        let result = '';
+        if (addressType === 1) { // IPv4
+            result = Array.from(new Uint8Array(buffer.slice(startIndex, startIndex + 4))).join('.');
+        } else if (addressType === 2) { // Domain
+            const len = new Uint8Array(buffer.slice(startIndex, startIndex + 1))[0];
+            result = new TextDecoder().decode(buffer.slice(startIndex + 1, startIndex + 1 + len));
+        } else if (addressType === 3) { // IPv6
+            const dataView = new DataView(buffer.slice(startIndex, startIndex + 16));
+            const ipv6 = [];
+            for (let i = 0; i < 8; i++) {
+                ipv6.push(dataView.getUint16(i * 2).toString(16).padStart(4, '0'));
+            }
+            result = ipv6.join(':');
+        }
+        this.addressCache.set(key, result);
+        this.checkCacheSize(this.addressCache);
+    }
+    return this.addressCache.get(key);
+}
     checkCacheSize(cache) {
         if (cache.size > this.MAX_CACHE_SIZE) {
             const iterator = cache.keys();
@@ -137,58 +133,46 @@ export default {
 };
 
 function processResHeader(resBuffer, userID) {
-    if (resBuffer.byteLength < 24) {
-        return { hasError: true };
-    }
+    if (resBuffer.byteLength < 24) return { hasError: true };
 
     const version = new Uint8Array(resBuffer.slice(0, 1));
-    let isUDP = false;
-
     const bufferUserID = cacheManager.getUserID(userID);
-    const hasError = new Uint8Array(resBuffer.slice(1, 17)).some((byte, index) => byte !== bufferUserID[index]);
-
-    if (hasError) {
+    
+    if (new Uint8Array(resBuffer.slice(1, 17)).some((byte, index) => byte !== bufferUserID[index])) {
         return { hasError: true };
     }
 
     const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
     const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
-
-    if (command === 2) {
-        isUDP = true;
-    } else if (command !== 1) {
-        return { hasError: false };
-    }
+    const isUDP = command === 2;
+    
+    if (!isUDP && command !== 1) return { hasError: false };
 
     const portIndex = 18 + optLength + 1;
-    const portBuffer = resBuffer.slice(portIndex, portIndex + 2);
-    const portRemote = new DataView(portBuffer).getUint16(0);
+    const portRemote = new DataView(resBuffer.slice(portIndex, portIndex + 2)).getUint16(0);
 
     const addressIndex = portIndex + 2;
     const addressType = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1))[0];
     const addressValueIndex = addressIndex + 1;
 
-    // 使用 getAddress 方法获取地址值和长度
-    const addressValue = cacheManager.getAddress(addressType, resBuffer, addressValueIndex);
-    if (!addressValue) {
-        return { hasError: true };
-    }
+    if (![1, 2, 3].includes(addressType)) return { hasError: true };
 
-    // 根据地址类型计算数据起始位置
+    const addressRemote = cacheManager.getAddress(addressType, resBuffer, addressValueIndex);
+    if (!addressRemote) return { hasError: true };
+
     const addressLength = addressType === 1 ? 4 : addressType === 2 ? 
         new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0] + 1 : 16;
 
     return {
         hasError: false,
-        addressRemote: addressValue,
+        addressRemote,
         addressType,
         portRemote,
         rawDataIndex: addressValueIndex + addressLength,
         resVersion: version,
-        isUDP,
+        isUDP
     };
 }
-
 
 // Continue in next message...
 async function resOverWSHandler(request) {
