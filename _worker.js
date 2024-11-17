@@ -157,33 +157,55 @@ function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
         return { hasError: true };
     }
+
     const version = new Uint8Array(resBuffer.slice(0, 1));
     let isUDP = false;
+
     const bufferUserID = cacheManager.getUserID(userID);
     const hasError = new Uint8Array(resBuffer.slice(1, 17)).some((byte, index) => byte !== bufferUserID[index]);
+
     if (hasError) {
         return { hasError: true };
     }
+
     const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
     const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
+
     const portIndex = 18 + optLength + 1;
     const portBuffer = resBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
-    let addressIndex = portIndex + 2;
+
+    const addressIndex = portIndex + 2;
     const addressBuffer = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1));
     const addressType = addressBuffer[0];
-    let addressLength = 0;
-    let addressValueIndex = addressIndex + 1;
-    let addressValue = '';
-    addressValue = cacheManager.getAddress(addressType, resBuffer, addressValueIndex);
+    const addressValueIndex = addressIndex + 1;
+
+    let addressLength;
+    switch (addressType) {
+        case 1: // IPv4
+            addressLength = 4;
+            break;
+        case 2: // Domain
+            addressLength = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0] + 1;
+            break;
+        case 3: // IPv6
+            addressLength = 16;
+            break;
+        default:
+            return { hasError: true };
+    }
+
+    const addressValue = cacheManager.getAddress(addressType, resBuffer, addressValueIndex);
     if (!addressValue) {
         return { hasError: true };
     }
+
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -330,22 +352,23 @@ class CacheManager {
         return this.base64Cache.get(base64Str);
     }
     getAddress(addressType, buffer, startIndex) {
-        const key = `${addressType}:${buffer.slice(startIndex, startIndex + 16)}`;    
+        const keyBuffer = buffer.slice(startIndex, startIndex + (addressType === 2 ? 1 : addressType === 1 ? 4 : 16));
+        const key = `${addressType}:${Array.from(new Uint8Array(keyBuffer)).join(',')}`;    
         if (!this.addressCache.has(key)) {
             let result;
             switch (addressType) {
-                case 1:
-                    result = new Uint8Array(buffer.slice(startIndex, startIndex + 4)).join('.');
+                case 1: // IPv4
+                    result = Array.from(new Uint8Array(buffer.slice(startIndex, startIndex + 4))).join('.');
                     break;
-                case 2:
+                case 2: // Domain
                     const len = new Uint8Array(buffer.slice(startIndex, startIndex + 1))[0];
                     result = new TextDecoder().decode(buffer.slice(startIndex + 1, startIndex + 1 + len));
                     break;
-                case 3:
+                case 3: // IPv6
                     const dataView = new DataView(buffer.slice(startIndex, startIndex + 16));
                     const ipv6 = [];
                     for (let i = 0; i < 8; i++) {
-                        ipv6.push(dataView.getUint16(i * 2).toString(16));
+                        ipv6.push(dataView.getUint16(i * 2).toString(16).padStart(4, '0'));
                     }
                     result = ipv6.join(':');
                     break;
