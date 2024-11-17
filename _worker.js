@@ -275,70 +275,59 @@ function closeWebSocket(socket) {
 }
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
-    let partChunk = null;
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            if (partChunk) {
-                const combinedChunk = new Uint8Array(partChunk.byteLength + chunk.byteLength);
-                combinedChunk.set(partChunk, 0);
-                combinedChunk.set(chunk, partChunk.byteLength);
-                chunk = combinedChunk;
-                partChunk = null;
-            }
-            let offset = 0;
-            while (offset < chunk.byteLength) {
-                if (chunk.byteLength < offset + 2) {
-                    partChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset, 2).getUint16(0);
-                const nextOffset = offset + 2 + udpPacketLength;
-                if (chunk.byteLength < nextOffset) {
-                    partChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpData = chunk.slice(offset + 2, nextOffset);
-                offset = nextOffset;
-                controller.enqueue(udpData);
-            }
-        }
-    });
-    transformStream.readable.pipeTo(new WritableStream({
+    const writer = new WritableStream({
         async write(chunk) {
             try {
-                const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/dns-message' },
-                    body: chunk
-                });
-                const dnsQueryResult = await resp.arrayBuffer();
-                const udpSize = dnsQueryResult.byteLength;
-                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);            
-                let payload;
-                if (headerSent) {
-                    payload = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-                    payload.set(udpSizeBuffer, 0);
-                    payload.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
-                } else {
-                    payload = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-                    payload.set(resHeader, 0);
-                    payload.set(udpSizeBuffer, resHeader.byteLength);
-                    payload.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
+                const dnsResponse = await queryDNS(chunk);
+                if (dnsResponse) {
+                    const resPayload = assembleDNSResponse(resHeader, dnsResponse, headerSent);
                     headerSent = true;
-                }
-                if (webSocket.readyState === WebSocket.OPEN) {
-                    webSocket.send(payload);
+                    if (webSocket.readyState === WebSocket.OPEN) {
+                        webSocket.send(resPayload);
+                    }
                 }
             } catch (error) {
+                closeWebSocket(webSocket);
             }
         }
-    })).catch((error) => {});
-    const writer = transformStream.writable.getWriter();   
+    }).getWriter();
     return {
         write(chunk) {
             writer.write(chunk);
         }
     };
+}
+async function queryDNS(dnsRequest) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch('https://cloudflare-dns.com/dns-query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/dns-message' },
+            body: dnsRequest,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return await response.arrayBuffer();
+    } catch (error) {
+        throw error;
+    }
+}
+function assembleDNSResponse(resHeader, dnsResponse, headerSent) {
+    const responseSize = dnsResponse.byteLength;
+    const sizeBuffer = new Uint8Array([(responseSize >> 8) & 0xff, responseSize & 0xff]);
+    if (headerSent) {
+        const resPayload = new Uint8Array(sizeBuffer.byteLength + dnsResponse.byteLength);
+        resPayload.set(sizeBuffer, 0);
+        resPayload.set(new Uint8Array(dnsResponse), sizeBuffer.byteLength);
+        return resPayload;
+    } else {
+        const resPayload = new Uint8Array(resHeader.byteLength + sizeBuffer.byteLength + dnsResponse.byteLength);
+        resPayload.set(resHeader, 0);
+        resPayload.set(sizeBuffer, resHeader.byteLength);
+        resPayload.set(new Uint8Array(dnsResponse), resHeader.byteLength + sizeBuffer.byteLength);
+        return resPayload;
+    }
 }
 function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
