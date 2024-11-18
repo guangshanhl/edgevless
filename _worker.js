@@ -147,11 +147,6 @@ function makeWebStream(webSocket, earlyHeader) {
             }
         },
         pull(controller) {
-            if (controller.desiredSize <= 0) {
-                webSocket.pause();
-            } else {
-                webSocket.resume();
-            }
         }
         cancel(reason) {
             if (isCancel) return;
