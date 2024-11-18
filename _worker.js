@@ -221,28 +221,31 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
-async function forwardToData(remoteSocket, webSocket, resHeader) {
+async function handleDataStream(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    await remoteSocket.readable.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            if (webSocket.readyState !== WebSocket.OPEN) {
-                controller.error('WebSocket is closed');
-            }
-            let bufferToSend;
+    const transform = new TransformStream({
+        transform(chunk, controller) {    
             if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader);
-                bufferToSend.set(chunk, resHeader.byteLength);
+                const data = new Uint8Array(resHeader.length + chunk.length);
+                data.set(resHeader);
+                data.set(chunk, resHeader.length);
                 resHeader = null;
+                controller.enqueue(data);
             } else {
-                bufferToSend = chunk;
+                controller.enqueue(chunk);
             }
-            webSocket.send(bufferToSend);
-            hasData = true;
-        },
-    })).catch((error) => {
-        closeWebSocket(webSocket);
+			hasData = true;
+        }
     });
+    await remoteSocket.readable
+        .pipeThrough(transform)
+        .pipeTo(new WritableStream({
+            write(chunk) {
+                if (webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(chunk);
+                }
+            }
+        }));
     return hasData;
 }
 function fastCompare(a, b) {
