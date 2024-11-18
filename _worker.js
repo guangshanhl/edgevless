@@ -1,15 +1,11 @@
 import { connect } from 'cloudflare:sockets';
-const DEFAULT_CONFIG = {
-    userID: 'd342d11e-d424-4583-b36e-524ab1f0afa4',
-    proxyIP: ''
-};
+let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+let proxyIP = '';
 export default {
     async fetch(request, env, ctx) {
         try {
-            const config = {
-                userID: env.UUID || DEFAULT_CONFIG.userID,
-                proxyIP: env.PROXYIP || DEFAULT_CONFIG.proxyIP
-            };
+            userID = env.UUID || userID;
+            proxyIP = env.PROXYIP || proxyIP;
             const upgradeHeader = request.headers.get('Upgrade');           
             if (!upgradeHeader || upgradeHeader !== 'websocket') {
                 return handleHTTPRequest(request, config.userID);
