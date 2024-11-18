@@ -39,7 +39,7 @@ async function resOverWSHandler(request) {
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
-    let remoteSocketWapper = { value: null };
+    let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
     readableWebStream.pipeTo(new WritableStream({
@@ -47,8 +47,8 @@ async function resOverWSHandler(request) {
             if (isDns && udpWrite) {
                 return udpWrite(chunk);
             }
-            if (remoteSocketWapper.value) {
-                const writer = remoteSocketWapper.value.writable.getWriter();
+            if (remoteSocket.value) {
+                const writer = remoteSocket.value.writable.getWriter();
                 await writer.write(chunk);
                 writer.releaseLock();
                 return;
@@ -80,7 +80,7 @@ async function resOverWSHandler(request) {
                 udpWrite(clientData);
                 return;
             }
-            handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, clientData, webSocket, resHeader);
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
         close() {},
         abort(reason) {},
@@ -92,15 +92,15 @@ async function resOverWSHandler(request) {
         webSocket: client,
     });
 }
-async function handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, clientData, webSocket, resHeader) {
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        const tcpSocket = connect({
+        if (!remoteSocket.value || remoteSocket.value.closed) {
+            remoteSocket.value = connect({
                 hostname: address,
                 port: port
             });
         }
-        remoteSocket.value = tcpSocket;
-        const writer = tcpSocket.writable.getWriter();
+        const writer = remoteSocket.value.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
         return remoteSocket.value;
@@ -221,31 +221,38 @@ function processResHeader(resBuffer, userID) {
     };
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
-    let hasData = false;
-    await remoteSocket.readable.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            if (webSocket.readyState !== WebSocket.OPEN) {
-                controller.error('WebSocket is closed');
-                return;
-            }
-            let bufferToSend;
+	let hasData = false;
+    const transform = new TransformStream({
+        transform(chunk, controller) {
             if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, resHeader.byteLength);
+                const combined = new Uint8Array(resHeader.length + chunk.length);
+                combined.set(resHeader);
+                combined.set(chunk, resHeader.length);
+                controller.enqueue(combined);
                 resHeader = null;
             } else {
-                bufferToSend = chunk;
+                controller.enqueue(chunk);
             }
-            webSocket.send(bufferToSend);
-            hasData = true;
-        },
-        close() {},
-        abort(reason) {}
-    })).catch((error) => {
-        closeWebSocket(webSocket);
+        }
     });
-    return hasData;
+    await remoteSocket.readable
+        .pipeThrough(transform)
+        .pipeTo(new WritableStream({
+            write(chunk) {
+                return backPressure(webSocket, chunk);
+            }
+			hasData = true;
+        }))
+        .catch(() => closeWebSocket(webSocket));
+	return hasData;
+}
+async function backPressure(writer, chunk) {
+    if (writer.desiredSize <= 0) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return writer instanceof WebSocket ? 
+        writer.send(chunk) : 
+        writer.write(chunk);
 }
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
