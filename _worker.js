@@ -220,7 +220,7 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
-async function forwardData(socket, webSocket, resHeader) {
+async function forwardToData(socket, webSocket, resHeader) {
     let hasData = false;
     const transform = new TransformStream({
         transform(chunk, controller) {
