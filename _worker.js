@@ -137,15 +137,22 @@ function makeWebStream(webSocket, earlyHeader) {
                 console.error('WebSocket error:', err);
                 controller.error(err);
             });
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
+            if (earlyHeader) {
+                const { earlyData, error } = base64ToBuffer(earlyHeader);
+                if (error) {
+                    controller.error(error);
+                } else if (earlyData) {
+                    controller.enqueue(earlyData);
+                }
             }
         },
         pull(controller) {
-        },
+            if (controller.desiredSize <= 0) {
+                webSocket.pause();
+            } else {
+                webSocket.resume();
+            }
+        }
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
@@ -220,41 +227,32 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
-async function forwardToData(socket, webSocket, resHeader) {
+async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    const transform = new TransformStream({
-        transform(chunk, controller) {
+    await remoteSocket.readable.pipeTo(new WritableStream({
+        async write(chunk, controller) {
+            if (webSocket.readyState !== WebSocket.OPEN) {
+                controller.error('WebSocket is closed');
+                return;
+            }
+            let bufferToSend;
             if (resHeader) {
-                const combined = new Uint8Array(resHeader.length + chunk.length);
-                combined.set(resHeader);
-                combined.set(chunk, resHeader.length);
-                controller.enqueue(combined);
+                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                bufferToSend.set(resHeader);
+                bufferToSend.set(chunk, resHeader.byteLength);
                 resHeader = null;
             } else {
-                controller.enqueue(chunk);
+                bufferToSend = chunk;
             }
+            webSocket.send(bufferToSend);
             hasData = true;
-        }
+        },
+        close() {},
+        abort(reason) {}
+    })).catch((error) => {
+        closeWebSocket(webSocket);
     });
-
-    await socket.readable
-        .pipeThrough(transform)
-        .pipeTo(new WritableStream({
-            write(chunk) {
-                return writeWithBackpressure(webSocket, chunk);
-            }
-        }))
-        .catch(() => closeWebSocket(webSocket));
-        
     return hasData;
-}
-async function writeWithBackpressure(writer, chunk) {
-    if (writer.desiredSize <= 0) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    return writer instanceof WebSocket ? 
-        writer.send(chunk) : 
-        writer.write(chunk);
 }
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
