@@ -99,7 +99,7 @@ async function handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, 
                 port: port
             });
         }
-        remoteSocket.value = tcpSocket
+        remoteSocket.value = tcpSocket;
         const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
