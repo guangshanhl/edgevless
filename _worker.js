@@ -158,17 +158,19 @@ function makeWebStream(webSocket, earlyHeader) {
     return stream;
 }
 let cachedUserID;
+let cachedUserIDString;
 function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
         return { hasError: true };
     }
     const version = new Uint8Array(resBuffer.slice(0, 1));
     let isUDP = false;
-    if (!cachedUserID) {
+    if (!cachedUserIDString || cachedUserIDString !== userID) {
+        cachedUserIDString = userID;
         cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
     const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
-    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
+    const hasError = !fastCompare(bufferUserID, cachedUserID);  
     if (hasError) return { hasError: true };
     const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
     const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
@@ -242,6 +244,13 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
         closeWebSocket(webSocket);
     });
     return hasData;
+}
+function fastCompare(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
 }
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
