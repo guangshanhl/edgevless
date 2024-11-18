@@ -110,21 +110,36 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
+    const listeners = new Set();
+    const addListener = (type, handler) => {
+        webSocket.addEventListener(type, handler);
+        listeners.add({ type, handler });
+    };
+    const cleanup = () => {
+        for (const { type, handler } of listeners) {
+            webSocket.removeEventListener(type, handler);
+        }
+        listeners.clear();
+        isCancel = true;
+    };
     const stream = new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', (event) => {
+            const messageHandler = (event) => {
                 if (isCancel) return;
-                const message = event.data;
-                controller.enqueue(message);
-            });
-            webSocket.addEventListener('close', () => {
-                closeWebSocket(webSocket);
+                controller.enqueue(event.data);
+            };
+            addListener('message', messageHandler);
+            const closeHandler = () => {
                 if (isCancel) return;
+                cleanup();
                 controller.close();
-            });
-            webSocket.addEventListener('error', (err) => {
+            };
+            addListener('close', closeHandler);
+            const errorHandler = (err) => {
+                cleanup();
                 controller.error(err);
-            });
+            };
+            addListener('error', errorHandler);
             if (earlyHeader) {
                 const { earlyData, error } = base64ToBuffer(earlyHeader);
                 if (error) {
@@ -137,9 +152,7 @@ function makeWebStream(webSocket, earlyHeader) {
         pull(controller) {
         },
         cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
-            closeWebSocket(webSocket);
+            cleanup();
         }
     });
     return stream;
