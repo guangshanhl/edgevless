@@ -224,7 +224,8 @@ function processResHeader(resBuffer, userID) {
 async function handleDataStream(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     const transform = new TransformStream({
-        transform(chunk, controller) {    
+        transform(chunk, controller) {
+	    hasData = true;
             if (resHeader) {
                 const data = new Uint8Array(resHeader.length + chunk.length);
                 data.set(resHeader);
@@ -234,7 +235,6 @@ async function handleDataStream(remoteSocket, webSocket, resHeader) {
             } else {
                 controller.enqueue(chunk);
             }
-			hasData = true;
         }
     });
     await remoteSocket.readable
