@@ -137,11 +137,13 @@ function makeWebStream(webSocket, earlyHeader) {
                 console.error('WebSocket error:', err);
                 controller.error(err);
             });
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
+            if (earlyHeader) {
+                const { earlyData, error } = base64ToBuffer(earlyHeader);
+                if (error) {
+                    controller.error(error);
+                } else if (earlyData) {
+                    controller.enqueue(earlyData);
+                }
             }
         },
         pull(controller) {
