@@ -39,7 +39,7 @@ async function resOverWSHandler(request) {
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
-    let remoteSocket = { value: null };
+    let remoteSocketWapper = { value: null };
     let udpWrite = null;
     let isDns = false;
     readableWebStream.pipeTo(new WritableStream({
@@ -47,8 +47,8 @@ async function resOverWSHandler(request) {
             if (isDns && udpWrite) {
                 return udpWrite(chunk);
             }
-            if (remoteSocket.value) {
-                const writer = remoteSocket.value.writable.getWriter();
+            if (remoteSocketWapper.value) {
+                const writer = remoteSocketWapper.value.writable.getWriter();
                 await writer.write(chunk);
                 writer.releaseLock();
                 return;
@@ -80,7 +80,7 @@ async function resOverWSHandler(request) {
                 udpWrite(clientData);
                 return;
             }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+            handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
         close() {},
         abort(reason) {},
@@ -92,20 +92,17 @@ async function resOverWSHandler(request) {
         webSocket: client,
     });
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
+async function handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        if (!remoteSocket.value || remoteSocket.value.closed) {
-            remoteSocket.value = connect({
+        const tcpSocket = connect({
                 hostname: address,
                 port: port
             });
         }
-        const writer = remoteSocket.value.writable.getWriter();
-        try {
-            await writer.write(clientData);
-        } finally {
-            writer.releaseLock();
-        }
+        remoteSocket.value = tcpSocket
+        const writer = tcpSocket.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
