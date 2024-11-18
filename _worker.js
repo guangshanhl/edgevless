@@ -82,8 +82,6 @@ async function resOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-        close() {},
-        abort(reason) {},
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
@@ -98,7 +96,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
             hostname: address,
             port: port
         });
-		remoteSocket.value = tcpSocket
+	remoteSocket.value = tcpSocket
         const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
@@ -245,9 +243,6 @@ function base64ToBuffer(base64Str) {
         return { error: null };
     }
     const normalStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalStr)) {
-        return { error: 'Invalid base64 string' };
-    }
     const binaryStr = atob(normalStr);
     const length = binaryStr.length;
     const arrayBuffer = new Uint8Array(length);
