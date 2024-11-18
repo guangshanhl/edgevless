@@ -48,14 +48,11 @@ async function resOverWSHandler(request) {
                 return udpWrite(chunk);
             }
             if (remoteSocket.value) {
-				const writer = remoteSocket.value.writable.getWriter();
-				try {
-					await writer.write(chunk);
-				} finally {
-					writer.releaseLock();
-				}
-				return;
-			}
+                const writer = remoteSocket.value.writable.getWriter();
+                await writer.write(chunk);
+                writer.releaseLock();
+                return;
+            }
             const {
                 hasError,
                 portRemote = 443,
@@ -85,6 +82,8 @@ async function resOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
+        close() {},
+        abort(reason) {},
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
@@ -94,50 +93,39 @@ async function resOverWSHandler(request) {
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    const connectAndWrite = async (address, port) => {
-        if (!remoteSocket.value || remoteSocket.value.closed) {
-            remoteSocket.value = connect({
-                hostname: address,
-                port
-            });
-        }
-        const writer = remoteSocket.value.writable.getWriter();
-        try {
-            await writer.write(clientData);
-        } finally {
-            writer.releaseLock();
-        }       
-        return remoteSocket.value;
-    };
-    const tryConnect = async (address, port) => {
+    async function connectAndWrite(address, port) {
+        const tcpSocket = connect({
+            hostname: address,
+            port: port
+        });
+		remoteSocket.value = tcpSocket
+        const writer = tcpSocket.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
+        return tcpSocket;
+    }
+    async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
-    };
-    try {
-        const primaryConn = await tryConnect(addressRemote, portRemote);
-        if (primaryConn) {
-            return;
-        }
-        const fallbackConn = await tryConnect(proxyIP, portRemote);
-        if (!fallbackConn) {
+    }
+    if (!await tryConnect(addressRemote, portRemote)) {
+        if (!await tryConnect(proxyIP, portRemote)) {
             closeWebSocket(webSocket);
         }
-    } catch {
-        closeWebSocket(webSocket);
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-    let isActive = false;
+    let isCancel = false;
     const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => {
-                if (isActive) return;
+                if (isCancel) return;
                 const message = event.data;
                 controller.enqueue(message);
             });
             webSocket.addEventListener('close', () => {
                 closeWebSocket(webSocket);
-                if (isActive) return;
+                if (isCancel) return;
                 controller.close();
             });
             webSocket.addEventListener('error', (err) => {
@@ -155,8 +143,8 @@ function makeWebStream(webSocket, earlyHeader) {
         pull(controller) {
         },
         cancel(reason) {
-            if (isActive) return;
-            isActive = true;
+            if (isCancel) return;
+            isCancel = true;
             closeWebSocket(webSocket);
         }
     });
@@ -256,14 +244,17 @@ function base64ToBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
     }
-    try {
-        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-        const binaryStr = atob(normalizedStr);
-        const arrayBuffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));
-        return { earlyData: arrayBuffer.buffer, error: null };
-    } catch (error) {
-        return { error };
+    const normalStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalStr)) {
+        return { error: 'Invalid base64 string' };
     }
+    const binaryStr = atob(normalStr);
+    const length = binaryStr.length;
+    const arrayBuffer = new Uint8Array(length);
+    for (let i = 0; i < length; i++) {
+        arrayBuffer[i] = binaryStr.charCodeAt(i);
+    }
+    return { earlyData: arrayBuffer.buffer, error: null };
 }
 function closeWebSocket(socket) {
     if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
