@@ -220,8 +220,8 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
-async function forwardToData(remoteSocket, webSocket, resHeader) {
-	let hasData = false;
+async function forwardData(socket, webSocket, resHeader) {
+    let hasData = false;
     const transform = new TransformStream({
         transform(chunk, controller) {
             if (resHeader) {
@@ -233,20 +233,22 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             } else {
                 controller.enqueue(chunk);
             }
+            hasData = true;
         }
     });
-    await remoteSocket.readable
+
+    await socket.readable
         .pipeThrough(transform)
         .pipeTo(new WritableStream({
             write(chunk) {
-                return backPressure(webSocket, chunk);
+                return writeWithBackpressure(webSocket, chunk);
             }
-			hasData = true;
         }))
         .catch(() => closeWebSocket(webSocket));
-	return hasData;
+        
+    return hasData;
 }
-async function backPressure(writer, chunk) {
+async function writeWithBackpressure(writer, chunk) {
     if (writer.desiredSize <= 0) {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
