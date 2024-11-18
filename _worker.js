@@ -137,17 +137,15 @@ function makeWebStream(webSocket, earlyHeader) {
                 console.error('WebSocket error:', err);
                 controller.error(err);
             });
-            if (earlyHeader) {
-                const { earlyData, error } = base64ToBuffer(earlyHeader);
-                if (error) {
-                    controller.error(error);
-                } else if (earlyData) {
-                    controller.enqueue(earlyData);
-                }
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
             }
         },
         pull(controller) {
-        }
+        },
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
@@ -233,7 +231,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             let bufferToSend;
             if (resHeader) {
                 bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader);
+                bufferToSend.set(resHeader, 0);
                 bufferToSend.set(chunk, resHeader.byteLength);
                 resHeader = null;
             } else {
