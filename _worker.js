@@ -141,11 +141,9 @@ function makeWebStream(webSocket, earlyHeader) {
             });
             webSocket.addEventListener('error', (err) => {
                 clearInterval(pingInterval);
-                console.error('WebSocket error:', err);
                 controller.error(err);
             });
             webSocket.addEventListener('pong', () => {
-                console.log('Received pong from client');
             });
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
