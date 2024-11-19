@@ -208,7 +208,6 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
 };
 const base64ToBuffer = (base64Str) => {
   if (!base64Str) return { error: null };
-
   try {
     const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
     const binaryStr = atob(normalizedStr);
