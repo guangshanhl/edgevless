@@ -1,6 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
+let cachedUserID;
 export default {
     async fetch(request, env, ctx) {
         try {
@@ -82,8 +83,6 @@ async function resOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-        close() {},
-        abort(reason) {},
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
@@ -121,11 +120,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
-    const pingInterval = setInterval(() => {
-        if (webSocket.readyState === WebSocket.OPEN) {
-            webSocket.send(new Uint8Array([0x9]));
-        }
-    }, 30000);
     const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => {
@@ -134,16 +128,12 @@ function makeWebStream(webSocket, earlyHeader) {
                 controller.enqueue(message);
             });
             webSocket.addEventListener('close', () => {
-                clearInterval(pingInterval);
                 closeWebSocket(webSocket);
                 if (isCancel) return;
                 controller.close();
             });
             webSocket.addEventListener('error', (err) => {
-                clearInterval(pingInterval);
                 controller.error(err);
-            });
-            webSocket.addEventListener('pong', () => {
             });
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
@@ -157,13 +147,11 @@ function makeWebStream(webSocket, earlyHeader) {
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
-            clearInterval(pingInterval);
             closeWebSocket(webSocket);
         }
     });
     return stream;
 }
-let cachedUserID;
 function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
         return { hasError: true };
@@ -235,12 +223,11 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
         async write(chunk, controller) {
             if (webSocket.readyState !== WebSocket.OPEN) {
                 controller.error('WebSocket is closed');
-                return;
             }
             let bufferToSend;
             if (resHeader) {
                 bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
+                bufferToSend.set(resHeader);
                 bufferToSend.set(chunk, resHeader.byteLength);
                 resHeader = null;
             } else {
@@ -249,8 +236,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             webSocket.send(bufferToSend);
             hasData = true;
         },
-        close() {},
-        abort(reason) {}
     })).catch((error) => {
         closeWebSocket(webSocket);
     });
@@ -274,14 +259,8 @@ function base64ToBuffer(base64Str) {
     }
 }
 function closeWebSocket(socket) {
-    if (socket.readyState === WebSocket.OPEN) {
-        socket.close(1000, 'Normal Closure');
-    } else if (socket.readyState === WebSocket.CLOSING) {
-        setTimeout(() => {
-            if (socket.readyState !== WebSocket.CLOSED) {
-                socket.close(1000, 'Force Closure');
-            }
-        }, 3000);
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+        socket.close();
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
@@ -303,17 +282,13 @@ async function handleUDPOutBound(webSocket, resHeader) {
     return { write: chunk => writer.write(chunk).catch(console.error) };
 }
 async function queryDNS(dnsRequest) {
-    try {
-        const response = await fetch('https://cloudflare-dns.com/dns-query', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/dns-message' },
-            body: dnsRequest,
-            signal: controller.signal
-        });
-        return await response.arrayBuffer();
-    } catch (error) {
-        throw error;
-    }
+    const response = await fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: dnsRequest,
+        signal: controller.signal
+    });
+    return await response.arrayBuffer();
 }
 function queryDNSResponse(resHeader, dnsResponse, headerSent) {
     const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
