@@ -2,7 +2,6 @@ import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
 let cachedUserID;
-
 export default {
     async fetch(request, env, ctx) {
         try {
@@ -34,7 +33,6 @@ export default {
         }
     },
 };
-
 async function resOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
@@ -45,7 +43,6 @@ async function resOverWSHandler(request) {
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
@@ -85,13 +82,11 @@ async function resOverWSHandler(request) {
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
-
     return new Response(null, {
         status: 101,
         webSocket: client,
     });
 }
-
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
         if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -105,19 +100,16 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
-
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-
     if (!await tryConnect(addressRemote, portRemote)) {
         if (!await tryConnect(proxyIP, portRemote)) {
             closeWebSocket(webSocket);
         }
     }
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const stream = new ReadableStream({
@@ -151,7 +143,6 @@ function makeWebStream(webSocket, earlyHeader) {
     });
     return stream;
 }
-
 function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
         return { hasError: true };
@@ -213,7 +204,6 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
-
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     await remoteSocket.readable.pipeTo(new WritableStream({
@@ -238,7 +228,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     });
     return hasData;
 }
-
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
@@ -256,13 +245,11 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-
 function closeWebSocket(socket) {
     if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
         socket.close();
     }
 }
-
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
     const writer = new WritableStream({
@@ -281,7 +268,6 @@ async function handleUDPOutBound(webSocket, resHeader) {
     }).getWriter();
     return { write: chunk => writer.write(chunk).catch(console.error) };
 }
-
 async function queryDNS(dnsRequest) {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
@@ -291,7 +277,6 @@ async function queryDNS(dnsRequest) {
     });
     return await response.arrayBuffer();
 }
-
 function queryDNSResponse(resHeader, dnsResponse, headerSent) {
     const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
     const resPayload = new Uint8Array((headerSent ? 0 : resHeader.byteLength) + sizeBuffer.byteLength + dnsResponse.byteLength);
@@ -304,7 +289,6 @@ function queryDNSResponse(resHeader, dnsResponse, headerSent) {
     resPayload.set(new Uint8Array(dnsResponse), offset + sizeBuffer.byteLength);
     return resPayload;
 }
-
 function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
