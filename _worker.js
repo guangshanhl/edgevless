@@ -63,16 +63,12 @@ async function resOverWSHandler(request) {
                 isUDP,
             } = processResHeader(chunk, userID);
             address = addressRemote;
-            if (hasError) {
-                return;
-            }
-            if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
-                    return;
-                }
-            }
+            if (hasError) return;
+            if (isUDP && portRemote === 53) {
+				isDns = true;
+			} else if (isUDP) {
+				return;
+			}
             const resHeader = new Uint8Array([resVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
             if (isDns) {
@@ -108,14 +104,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    try {
-        if (!await tryConnect(addressRemote, portRemote)) {
-            if (!await tryConnect(proxyIP, portRemote)) {
-                closeWebSocket(webSocket);
-            }
-        }
-    } catch (error) {
-        closeWebSocket(webSocket);
+    if (!await tryConnect(addressRemote, portRemote)) {
+        if (!await tryConnect(proxyIP, portRemote)) {
+            closeWebSocket(webSocket);
+         }
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
@@ -163,9 +155,7 @@ function processResHeader(resBuffer, userID) {
     }
     const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) {
-        return { hasError: true };
-    }
+    if (hasError) return { hasError: true };
     const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
     const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
@@ -204,9 +194,7 @@ function processResHeader(resBuffer, userID) {
         default:
             return { hasError: true };
     }
-    if (!addressValue) {
-        return { hasError: true };
-    }
+    if (!addressValue) return { hasError: true };
     return {
         hasError: false,
         addressRemote: addressValue,
