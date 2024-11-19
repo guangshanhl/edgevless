@@ -119,41 +119,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
-function makesWebStream(webSocket, earlyHeader) {
-    let isCancel = false;
-    const stream = new ReadableStream({
-        start(controller) {
-            webSocket.addEventListener('message', (event) => {
-                if (isCancel) return;
-                const message = event.data;
-                controller.enqueue(message);
-            });
-            webSocket.addEventListener('close', () => {
-                closeWebSocket(webSocket);
-                if (isCancel) return;
-                controller.close();
-            });
-            webSocket.addEventListener('error', (err) => {
-                console.error('WebSocket error:', err);
-                controller.error(err);
-            });
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
-        },
-        pull(controller) {
-        },
-        cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
-            closeWebSocket(webSocket);
-        }
-    });
-    return stream;
-}
 let cachedUserID;
 function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
@@ -264,11 +229,6 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-function closeWebSocket(socket) {
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-        socket.close();
-    }
-}
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     
@@ -342,7 +302,6 @@ function closeWebSocket(socket) {
         }, 3000);
     }
 }
-
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
     const writer = new WritableStream({
