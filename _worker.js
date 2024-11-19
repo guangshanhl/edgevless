@@ -119,6 +119,52 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
+function makeWebStream(webSocket, earlyHeader) {
+    let isCancel = false;
+    const pingInterval = setInterval(() => {
+        if (webSocket.readyState === WebSocket.OPEN) {
+            webSocket.send(new Uint8Array([0x9]));
+        }
+    }, 30000);
+    const stream = new ReadableStream({
+        start(controller) {
+            webSocket.addEventListener('message', (event) => {
+                if (isCancel) return;
+                const message = event.data;
+                controller.enqueue(message);
+            });
+            webSocket.addEventListener('close', () => {
+                clearInterval(pingInterval);
+                closeWebSocket(webSocket);
+                if (isCancel) return;
+                controller.close();
+            });
+            webSocket.addEventListener('error', (err) => {
+                clearInterval(pingInterval);
+                console.error('WebSocket error:', err);
+                controller.error(err);
+            });
+            webSocket.addEventListener('pong', () => {
+                console.log('Received pong from client');
+            });
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
+            }
+        },
+        pull(controller) {
+        },
+        cancel(reason) {
+            if (isCancel) return;
+            isCancel = true;
+            clearInterval(pingInterval);
+            closeWebSocket(webSocket);
+        }
+    });
+    return stream;
+}
 let cachedUserID;
 function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
@@ -228,68 +274,6 @@ function base64ToBuffer(base64Str) {
     } catch (error) {
         return { error };
     }
-}
-function makeWebStream(webSocket, earlyHeader) {
-    let isCancel = false;
-    
-    // 添加心跳检测
-    const pingInterval = setInterval(() => {
-        if (webSocket.readyState === WebSocket.OPEN) {
-            webSocket.send(new Uint8Array([0x9])); // ping frame
-        }
-    }, 30000); // 每30秒发送一次心跳
-
-    const stream = new ReadableStream({
-        start(controller) {
-            // 处理消息
-            webSocket.addEventListener('message', (event) => {
-                if (isCancel) return;
-                const message = event.data;
-                controller.enqueue(message);
-            });
-
-            // 处理连接关闭
-            webSocket.addEventListener('close', () => {
-                clearInterval(pingInterval);
-                closeWebSocket(webSocket);
-                if (isCancel) return;
-                controller.close();
-            });
-
-            // 处理错误
-            webSocket.addEventListener('error', (err) => {
-                clearInterval(pingInterval);
-                console.error('WebSocket error:', err);
-                controller.error(err);
-            });
-
-            // 处理 pong 响应
-            webSocket.addEventListener('pong', () => {
-                console.log('Received pong from client');
-            });
-
-            // 处理早期数据
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
-        },
-
-        pull(controller) {
-            // 可以在这里添加流控制逻辑
-        },
-
-        cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
-            clearInterval(pingInterval);
-            closeWebSocket(webSocket);
-        }
-    });
-
-    return stream;
 }
 function closeWebSocket(socket) {
     if (socket.readyState === WebSocket.OPEN) {
