@@ -250,20 +250,29 @@ function closeWebSocket(socket) {
 }
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
-    const writer = new WritableStream({
-        async write(chunk) {
+    const dnsTransform = new TransformStream({
+        async transform(chunk, controller) {
             try {
                 const dnsResponse = await queryDNS(chunk);
                 if (dnsResponse && webSocket.readyState === WebSocket.OPEN) {
-                    webSocket.send(queryDNSResponse(resHeader, dnsResponse, headerSent));
+                    const response = queryDNSResponse(resHeader, dnsResponse, headerSent);
                     headerSent = true;
+                    controller.enqueue(response);
                 }
-            } catch (error) {
+            } catch {
                 closeWebSocket(webSocket);
             }
         }
-    }).getWriter();
-    return { write: chunk => writer.write(chunk).catch(console.error) };
+    });
+    const outputStream = dnsTransform.readable.pipeTo(new WritableStream({
+        write(chunk) {
+            webSocket.send(chunk);
+        }
+    }));
+    const writer = dnsTransform.writable.getWriter();
+    return { 
+        write: chunk => writer.write(chunk).catch(console.error) 
+    };
 }
 async function queryDNS(dnsRequest) {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
@@ -274,12 +283,18 @@ async function queryDNS(dnsRequest) {
     return response.arrayBuffer();
 }
 function queryDNSResponse(resHeader, dnsResponse, headerSent) {
-    const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
+    const size = dnsResponse.byteLength;
+    const sizeBuffer = new Uint8Array([size >> 8, size & 0xff]);
     const headerLength = headerSent ? 0 : resHeader.byteLength;
-    const resPayload = new Uint8Array(headerLength + sizeBuffer.byteLength + dnsResponse.byteLength);
-    if (!headerSent) resPayload.set(resHeader);
-    resPayload.set(sizeBuffer, headerLength);
-    resPayload.set(new Uint8Array(dnsResponse), headerLength + sizeBuffer.byteLength);
+    const totalLength = headerLength + sizeBuffer.byteLength + size;    
+    const resPayload = new Uint8Array(totalLength);
+    let offset = 0;   
+    if (!headerSent) {
+        resPayload.set(resHeader);
+        offset = headerLength;
+    }    
+    resPayload.set(sizeBuffer, offset);
+    resPayload.set(new Uint8Array(dnsResponse), offset + sizeBuffer.byteLength);    
     return resPayload;
 }
 function getConfig(userID, hostName) {
