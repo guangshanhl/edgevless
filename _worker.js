@@ -29,20 +29,20 @@ export default {
         }
     }
 };
-async function resOverWSHandler(request) {
+async function resOverWSHandler(request, userID) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    let address = '';
-    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);
-    let remoteSocket = { value: null };
+	let address = '';
+	let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-    readableWebStream.pipeTo(new WritableStream({
-        async write(chunk, controller) {
+    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+    const transformer = new TransformStream({
+        async transform(chunk, controller) {
             if (isDns && udpWrite) {
-                return udpWrite(chunk);
+                await udpWrite(chunk);
+                return;
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
@@ -58,7 +58,7 @@ async function resOverWSHandler(request) {
                 resVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processResHeader(chunk, userID);
-            address = addressRemote;
+			address = addressRemote;
             if (hasError) return;
             const resHeader = new Uint8Array([resVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
@@ -66,19 +66,20 @@ async function resOverWSHandler(request) {
                 isDns = true;
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
-                udpWrite(clientData);
+                await udpWrite(clientData);
                 return;
             }
             if (!isUDP) {
                 handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-            }            
-        },
-    })).catch((err) => {
-        closeWebSocket(webSocket);
+            } 
+        }
     });
+    makeWebStream(webSocket, earlyHeader)
+        .pipeThrough(transformer)
+        .catch(() => closeWebSocket(webSocket));
     return new Response(null, {
         status: 101,
-        webSocket: client,
+        webSocket: client
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
