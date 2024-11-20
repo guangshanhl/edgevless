@@ -38,15 +38,14 @@ async function resOverWSHandler(request) {
     webSocket.accept();
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);   
+    const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-    const transformer = new TransformStream({
-        async transform(chunk, controller) {
+    readableWebStream.pipeTo(new WritableStream({
+        async write(chunk, controller) {
             if (isDns && udpWrite) {
-                await udpWrite(chunk);
-                return;
+                return udpWrite(chunk);
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
@@ -62,8 +61,10 @@ async function resOverWSHandler(request) {
                 resVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processResHeader(chunk, userID);
-            address = addressRemote;           
-            if (hasError) return;
+            address = addressRemote;
+            if (hasError) {
+                return;
+            }
             if (isUDP) {
                 if (portRemote === 53) {
                     isDns = true;
@@ -76,18 +77,16 @@ async function resOverWSHandler(request) {
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
-                await udpWrite(clientData);
+                udpWrite(clientData);
                 return;
             }
-            await handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-        }
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+        },
+        close() {},
+        abort(reason) {},
+    })).catch((err) => {
+        closeWebSocket(webSocket);
     });
-    readableWebStream
-        .pipeThrough(transformer)
-        .pipeTo(new WritableStream())
-        .catch((err) => {
-            closeWebSocket(webSocket);
-        });
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -227,16 +226,16 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
         await remoteSocket.readable
             .pipeThrough(new TransformStream({
                 transform(chunk, controller) {
-                    if (!resHeader) {
+                    if (resHeader) {
+                        const combinedData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                        combinedData.set(resHeader);
+                        combinedData.set(chunk, resHeader.byteLength);
+                        resHeader = null;
+                        controller.enqueue(combinedData);
+                    } else {
                         controller.enqueue(chunk);
-                        return;
-                    }                
-                    const data = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                    data.set(resHeader);
-                    data.set(chunk, resHeader.byteLength);
-                    resHeader = null;
-                    controller.enqueue(data);
-                }
+                    }
+                },
             }))
             .pipeTo(new WritableStream({
                 write(chunk) {
@@ -244,9 +243,9 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                         webSocket.send(chunk);
                         hasData = true;
                     }
-                }
+                },
             }));
-    } catch {
+    } catch (error) {
         closeWebSocket(webSocket);
     }
     return hasData;
@@ -292,20 +291,13 @@ async function handleUDPOutBound(webSocket, resHeader) {
     return { write: chunk => writer.write(chunk).catch(console.error) };
 }
 async function queryDNS(dnsRequest) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    try {
-        const response = await fetch('https://cloudflare-dns.com/dns-query', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/dns-message' },
-            body: dnsRequest,
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        return await response.arrayBuffer();
-    } catch (error) {
-        throw error;
-    }
+    const response = await fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: dnsRequest,
+        signal: controller.signal
+    });
+    return await response.arrayBuffer();
 }
 function queryDNSResponse(resHeader, dnsResponse, headerSent) {
     const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
