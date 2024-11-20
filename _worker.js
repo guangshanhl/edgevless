@@ -69,9 +69,7 @@ async function resOverWSHandler(request) {
                 udpWrite(clientData);
                 return;
             }
-            if (!isUDP) {
-                handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-            }            
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);     
         },
     })).catch((err) => {
         closeWebSocket(webSocket);
@@ -254,24 +252,35 @@ async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
     const writer = new WritableStream({
         async write(chunk) {
-            const dnsResponse = await fetch('https://cloudflare-dns.com/dns-query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/dns-message' },
-                body: chunk
-            }).then(r => r.arrayBuffer());
-            if (dnsResponse && webSocket.readyState === WebSocket.OPEN) {
-                const size = dnsResponse.byteLength;
-                const headerLength = headerSent ? 0 : resHeader.byteLength;
-                const payload = new Uint8Array(headerLength + 2 + size);               
-                if (!headerSent) payload.set(resHeader);
-                payload.set([size >> 8, size & 0xff], headerLength);
-                payload.set(new Uint8Array(dnsResponse), headerLength + 2);        
-                webSocket.send(payload);
-                headerSent = true;
+            try {
+                const dnsResponse = await queryDNS(chunk);
+                if (dnsResponse && webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(queryDNSResponse(resHeader, dnsResponse, headerSent));
+                    headerSent = true;
+                }
+            } catch (error) {
+                closeWebSocket(webSocket);
             }
         }
     }).getWriter();
     return { write: chunk => writer.write(chunk).catch(console.error) };
+}
+async function queryDNS(dnsRequest) {
+    const response = await fetch('https://cloudflare-dns.com/dns-query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: dnsRequest
+    });
+    return response.arrayBuffer();
+}
+function queryDNSResponse(resHeader, dnsResponse, headerSent) {
+    const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
+    const headerLength = headerSent ? 0 : resHeader.byteLength;
+    const resPayload = new Uint8Array(headerLength + sizeBuffer.byteLength + dnsResponse.byteLength);
+    if (!headerSent) resPayload.set(resHeader);
+    resPayload.set(sizeBuffer, headerLength);
+    resPayload.set(new Uint8Array(dnsResponse), headerLength + sizeBuffer.byteLength);
+    return resPayload;
 }
 function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
