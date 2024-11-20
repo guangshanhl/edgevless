@@ -29,20 +29,20 @@ export default {
         }
     }
 };
-async function resOverWSHandler(request, userID) {
+async function resOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-	let address = '';
-	let remoteSocket = { value: null };
+    let address = '';
+    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+    const readableWebStream = makeWebStream(webSocket, earlyHeader);
+    let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const transformer = new TransformStream({
-        async transform(chunk, controller) {
+    readableWebStream.pipeTo(new WritableStream({
+        async write(chunk, controller) {
             if (isDns && udpWrite) {
-                await udpWrite(chunk);
-                return;
+                return udpWrite(chunk);
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
@@ -58,7 +58,7 @@ async function resOverWSHandler(request, userID) {
                 resVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processResHeader(chunk, userID);
-			address = addressRemote;
+            address = addressRemote;
             if (hasError) return;
             const resHeader = new Uint8Array([resVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
@@ -66,20 +66,19 @@ async function resOverWSHandler(request, userID) {
                 isDns = true;
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
-                await udpWrite(clientData);
+                udpWrite(clientData);
                 return;
             }
             if (!isUDP) {
                 handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-            } 
-        }
+            }            
+        },
+    })).catch((err) => {
+        closeWebSocket(webSocket);
     });
-    makeWebStream(webSocket, earlyHeader)
-        .pipeThrough(transformer)
-        .catch(() => closeWebSocket(webSocket));
     return new Response(null, {
         status: 101,
-        webSocket: client
+        webSocket: client,
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
@@ -229,36 +228,21 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     }
     return hasData;
 }
-const BASE64_LOOKUP = new Uint8Array(256);
-for (let i = 0; i < 64; i++) {
-    const char = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.charAt(i);
-    BASE64_LOOKUP[char.charCodeAt(0)] = i;
-}
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
-        return { earlyData: null, error: null };
-    }   
+        return { error: null };
+    }
     try {
-        const bytes = new Uint8Array(base64Str.length);
-        for (let i = 0; i < base64Str.length; i++) {
-            const char = base64Str.charCodeAt(i);
-            bytes[i] = char === 45 ? 43 : char === 95 ? 47 : char; // '-' -> '+', '_' -> '/'
+        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+        const binaryStr = atob(normalizedStr);
+        const length = binaryStr.length;
+        const arrayBuffer = new Uint8Array(length);
+        for (let i = 0; i < length; i++) {
+            arrayBuffer[i] = binaryStr.charCodeAt(i);
         }
-        const outputLength = Math.floor((bytes.length * 3) / 4);
-        const result = new Uint8Array(outputLength);
-        let position = 0;
-        for (let i = 0; i < bytes.length; i += 4) {
-            const chunk = (BASE64_LOOKUP[bytes[i]] << 18) |
-                         (BASE64_LOOKUP[bytes[i + 1]] << 12) |
-                         (BASE64_LOOKUP[bytes[i + 2]] << 6) |
-                          BASE64_LOOKUP[bytes[i + 3]];                         
-            result[position++] = (chunk >> 16) & 255;
-            result[position++] = (chunk >> 8) & 255;
-            result[position++] = chunk & 255;
-        }        
-        return { earlyData: result.buffer, error: null };
+        return { earlyData: arrayBuffer.buffer, error: null };
     } catch (error) {
-        return { earlyData: null, error };
+        return { error };
     }
 }
 function closeWebSocket(socket) {
