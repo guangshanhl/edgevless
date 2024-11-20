@@ -82,6 +82,8 @@ async function resOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
+        close() {},
+        abort(reason) {},
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
@@ -132,6 +134,7 @@ function makeWebStream(webSocket, earlyHeader) {
                 controller.close();
             });
             webSocket.addEventListener('error', (err) => {
+                console.error('WebSocket error:', err);
                 controller.error(err);
             });
             const { earlyData, error } = base64ToBuffer(earlyHeader);
@@ -158,14 +161,14 @@ function processResHeader(resBuffer, userID) {
     }
     const version = new Uint8Array(resBuffer.slice(0, 1));
     let isUDP = false;
-    if (stringify(new Uint8Array(resBuffer.slice(1, 17))) === userID) {
-		isValidUser = true;
-	}
-	if (!isValidUser) {
-		return {
-			hasError: true,
-		};
-	}
+    if (!cachedUserID) {
+        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    }
+    const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
+    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
+    if (hasError) {
+        return { hasError: true };
+    }
     const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
     const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
@@ -263,17 +266,6 @@ function base64ToBuffer(base64Str) {
     } catch (error) {
         return { error };
     }
-}
-const byteToHex = [];
-for (let i = 0; i < 256; ++i) {
-	byteToHex.push((i + 256).toString(16).slice(1));
-}
-function unsafeStringify(arr, offset = 0) {
-	return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
-}
-function stringify(arr, offset = 0) {
-	const uuid = unsafeStringify(arr, offset);
-	return uuid;
 }
 function closeWebSocket(socket) {
     if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
