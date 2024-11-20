@@ -93,30 +93,33 @@ async function resOverWSHandler(request) {
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    async function connectAndWrite(address, port) {
-        if (!remoteSocket.value || remoteSocket.value.closed) {
-            remoteSocket.value = connect({
+    const connectionPool = new Map();    
+    async function getConnection(address, port) {
+        const key = `${address}:${port}`;
+        if (!connectionPool.has(key)) {
+            connectionPool.set(key, connect({
                 hostname: address,
                 port: port
-            });
+            }));
         }
-        const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
-        return remoteSocket.value;
-    }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        return connectionPool.get(key);
     }
     try {
-        if (!await tryConnect(addressRemote, portRemote)) {
-            if (!await tryConnect(proxyIP, portRemote)) {
-                closeWebSocket(webSocket);
-            }
-        }
+        const connection = await getConnection(addressRemote, portRemote);
+        const writer = connection.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
+        return forwardToData(connection, webSocket, resHeader);
     } catch (error) {
-        closeWebSocket(webSocket);
+        try {
+            const proxyConnection = await getConnection(proxyIP, portRemote);
+            const writer = proxyConnection.writable.getWriter();
+            await writer.write(clientData);
+            writer.releaseLock();
+            return forwardToData(proxyConnection, webSocket, resHeader);
+        } catch {
+            closeWebSocket(webSocket);
+        }
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
