@@ -93,35 +93,51 @@ async function resOverWSHandler(request) {
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    const connectionPool = new Map();    
-    async function getConnection(address, port) {
-        const key = `${address}:${port}`;
-        if (!connectionPool.has(key)) {
-            connectionPool.set(key, connect({
-                hostname: address,
-                port: port
-            }));
-        }
-        return connectionPool.get(key);
-    }
-    try {
-        const connection = await getConnection(addressRemote, portRemote);
-        const writer = connection.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
-        return forwardToData(connection, webSocket, resHeader);
-    } catch (error) {
+    async function connectAndWrite(address, port) {
         try {
-            const proxyConnection = await getConnection(proxyIP, portRemote);
-            const writer = proxyConnection.writable.getWriter();
-            await writer.write(clientData);
-            writer.releaseLock();
-            return forwardToData(proxyConnection, webSocket, resHeader);
+            // Create new connection only if needed
+            if (!remoteSocket.value || remoteSocket.value.closed) {
+                remoteSocket.value = await connect({
+                    hostname: address,
+                    port: port,
+                    allowHalfOpen: false, // Explicitly close both ends
+                    secureTransport: false // Faster for plain TCP
+                });
+            }
+
+            // Get writer and write in one go
+            await remoteSocket.value.writable
+                .getWriter()
+                .write(clientData)
+                .finally(() => writer.releaseLock());
+    
+            return remoteSocket.value;
         } catch {
-            closeWebSocket(webSocket);
+            // Clean up on error
+            if (remoteSocket.value) {
+                remoteSocket.value = null;
+            }
+            throw new Error('Connection failed');
         }
+    }
+
+
+    async function tryConnect(address, port) {
+        const tcpSocket = await connectAndWrite(address, port);
+        return forwardToData(tcpSocket, webSocket, resHeader);
+    }
+
+    try {
+        if (!await tryConnect(addressRemote, portRemote)) {
+            if (!await tryConnect(proxyIP, portRemote)) {
+                closeWebSocket(webSocket);
+            }
+        }
+    } catch (error) {
+        closeWebSocket(webSocket);
     }
 }
+
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const stream = new ReadableStream({
