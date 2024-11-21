@@ -143,46 +143,59 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
-    const stream = new ReadableStream({
-        start(controller) {
-            // 监听 WebSocket 消息并传递给流控制器
-            webSocket.addEventListener('message', (event) => {
-                if (isCancel) return;
-                const message = event.data;
-                controller.enqueue(message); // 将消息加入流
-            });
 
-            // 监听 WebSocket 关闭事件，关闭流
-            webSocket.addEventListener('close', () => {
-                closeWebSocket(webSocket);
-                if (isCancel) return;
-                controller.close(); // 关闭流
-            });
-
-            // 监听 WebSocket 错误事件，流出错时传递错误
-            webSocket.addEventListener('error', (err) => {
-                console.error('WebSocket error:', err);
-                controller.error(err); // 将错误传递给流
-            });
-
-            // 处理初始 header 数据（如果存在）
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error); // 如果错误，终止流
-            } else if (earlyData) {
-                controller.enqueue(earlyData); // 将早期数据加入流
-            }
-        },
-        pull(controller) {},
-        cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
-            closeWebSocket(webSocket); // 在取消时关闭 WebSocket
+    // 初始化 TransformStream，用于处理 WebSocket 消息
+    const transformStream = new TransformStream({
+        transform(chunk, controller) {
+            // 对每个 WebSocket 消息进行处理（可加入解码、转换等逻辑）
+            controller.enqueue(chunk); // 简单透传，或添加实际处理逻辑
         }
     });
 
-    return stream;
+    // 初始化 ReadableStream，接收 WebSocket 消息并传递到 TransformStream
+    const readableStream = new ReadableStream({
+        start(controller) {
+            webSocket.addEventListener('message', (event) => {
+                if (isCancel) return;
+                controller.enqueue(event.data); // 将 WebSocket 消息送入 ReadableStream
+            });
+
+            webSocket.addEventListener('close', () => {
+                closeWebSocket(webSocket);
+                if (isCancel) return;
+                controller.close();
+            });
+
+            webSocket.addEventListener('error', (err) => {
+                console.error('WebSocket error:', err);
+                controller.error(err);
+            });
+
+            // 将 earlyHeader 数据作为初始消息发送
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
+            }
+        },
+        cancel(reason) {
+            if (isCancel) return;
+            isCancel = true;
+            closeWebSocket(webSocket);
+        }
+    });
+
+    // 将 ReadableStream 的输出连接到 TransformStream
+    readableStream.pipeTo(transformStream.writable).catch((err) => {
+        console.error('Stream pipe error:', err);
+        closeWebSocket(webSocket);
+    });
+
+    // 返回处理后的流
+    return transformStream.readable;
 }
+
 let cachedUserID;
 function processResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
@@ -302,64 +315,72 @@ function closeWebSocket(socket) {
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
-    // 创建 TransformStream 管道
-    const udpTransformStream = new TransformStream({
-        async transform(chunk, controller) {
-            try {
-                // 将请求转发到远程 DNS 服务器
-                const dnsResponse = await queryDNS(chunk);
-
-                // 构造响应数据
-                const resPayload = queryDNSResponse(resHeader, dnsResponse);
-
-                // 发送给 WebSocket 客户端
-                if (webSocket.readyState === WebSocket.OPEN) {
-                    webSocket.send(resPayload);
-                }
-
-                // 将数据发送到下游流（如果需要）
-                controller.enqueue(resPayload);
-            } catch (error) {
-                console.error('UDP Transform Error:', error);
-                closeWebSocket(webSocket);
-                controller.error(error);
+    let headerSent = false;
+    let partChunk = null;
+    const transformStream = new TransformStream({
+        transform(chunk, controller) {
+            if (partChunk) {
+                const combinedChunk = new Uint8Array(partChunk.byteLength + chunk.byteLength);
+                combinedChunk.set(partChunk, 0);
+                combinedChunk.set(chunk, partChunk.byteLength);
+                chunk = combinedChunk;
+                partChunk = null;
             }
-        },
-
-        flush(controller) {
-            // 在流关闭时，清理资源
-            closeWebSocket(webSocket);
+            let offset = 0;
+            while (offset < chunk.byteLength) {
+                if (chunk.byteLength < offset + 2) {
+                    partChunk = chunk.slice(offset);
+                    break;
+                }
+                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset, 2).getUint16(0);
+                const nextOffset = offset + 2 + udpPacketLength;
+                if (chunk.byteLength < nextOffset) {
+                    partChunk = chunk.slice(offset);
+                    break;
+                }
+                const udpData = chunk.slice(offset + 2, nextOffset);
+                offset = nextOffset;
+                controller.enqueue(udpData);
+            }
         }
     });
-
-    // 返回流写入器以便在其他部分使用
-    const writable = udpTransformStream.writable.getWriter();
+    transformStream.readable.pipeTo(new WritableStream({
+        async write(chunk) {
+            try {
+                const resp = await fetch('https://cloudflare-dns.com/dns-query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/dns-message' },
+                    body: chunk
+                });
+                const dnsQueryResult = await resp.arrayBuffer();
+                const udpSize = dnsQueryResult.byteLength;
+                const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);            
+                let payload;
+                if (headerSent) {
+                    payload = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+                    payload.set(udpSizeBuffer, 0);
+                    payload.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+                } else {
+                    payload = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+                    payload.set(resHeader, 0);
+                    payload.set(udpSizeBuffer, resHeader.byteLength);
+                    payload.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
+                    headerSent = true;
+                }
+                if (webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(payload);
+                }
+            } catch (error) {
+            }
+        }
+    })).catch((error) => {});
+    const writer = transformStream.writable.getWriter();   
     return {
-        write: chunk => writable.write(chunk).catch(console.error),
+        write(chunk) {
+            writer.write(chunk);
+        }
     };
 }
-
-async function queryDNS(dnsRequest) {
-    const response = await fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/dns-message' },
-        body: dnsRequest,
-    });
-    return await response.arrayBuffer();
-}
-
-function queryDNSResponse(resHeader, dnsResponse) {
-    const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
-    const resPayload = new Uint8Array(resHeader.byteLength + sizeBuffer.byteLength + dnsResponse.byteLength);
-
-    // 拼接响应头和 DNS 响应数据
-    resPayload.set(resHeader, 0);
-    resPayload.set(sizeBuffer, resHeader.byteLength);
-    resPayload.set(new Uint8Array(dnsResponse), resHeader.byteLength + sizeBuffer.byteLength);
-
-    return resPayload;
-}
-
 function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
