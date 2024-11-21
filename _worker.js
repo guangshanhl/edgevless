@@ -233,8 +233,8 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                     const data = new Uint8Array(resHeader.byteLength + chunk.byteLength);
                     data.set(resHeader);
                     data.set(chunk, resHeader.byteLength);
-                    resHeader = null;
                     controller.enqueue(data);
+                    resHeader = null;
                 }
             }))
             .pipeTo(new WritableStream({
