@@ -5,27 +5,26 @@ export default {
     async fetch(request, env, ctx) {
         try {
             userID = env.UUID || userID;
-            proxyIP = env.PROXYIP || proxyIP;
+            proxyIP = env.PROXYIP || proxyIP; 
             const upgradeHeader = request.headers.get('Upgrade');
-            if (!upgradeHeader || upgradeHeader !== 'websocket') {
-                const url = new URL(request.url);
-                switch (url.pathname) {
-                    case '/':
-                        return new Response(JSON.stringify(request.cf), { status: 200 });
-                    case `/${userID}`: {
-                        const config = getConfig(userID, request.headers.get('Host'));
-                        return new Response(config, {
-                            status: 200,
-                            headers: {
-                                "Content-Type": "text/plain;charset=utf-8"
-                            },
-                        });
-                    }
-                    default:
-                        return new Response('Not found', { status: 404 });
-                }
-            } else {
+            if (upgradeHeader && upgradeHeader === 'websocket') {
                 return await ressOverWSHandler(request);
+            }                       
+            const url = new URL(request.url);
+            switch (url.pathname) {
+                case '/':
+                    return new Response(JSON.stringify(request.cf), { status: 200 });
+                case `/${userID}`: {
+                    const config = getConfig(userID, request.headers.get('Host'));
+                    return new Response(config, {
+                        status: 200,
+                        headers: {
+                            "Content-Type": "text/plain;charset=utf-8"
+                        },
+                    });
+                }
+                default:
+                    return new Response('Not found', { status: 404 });
             }
         } catch (err) {
             return new Response(err.toString());
@@ -82,8 +81,6 @@ async function ressOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-        close() {},
-        abort(reason) {},
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
