@@ -25,86 +25,68 @@ export default {
                         return new Response('Not found', { status: 404 });
                 }
             } else {
-                return await resOverWSHandler(request);
+                return await ressOverWSHandler(request);
             }
         } catch (err) {
             return new Response(err.toString());
         }
     },
 };
-async function resOverWSHandler(request) {
+async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
-    // 使用 TransformStream 处理 WebSocket 数据流
-    const transformedStream = new TransformStream({
-        async transform(chunk, controller) {
-            // 在这里处理从 WebSocket 获取的数据
-            let isDns = false;
-            let udpWrite = null;
-
-            // 解析响应头等操作
+    let udpWrite = null;
+    let isDns = false;
+    readableWebStream.pipeTo(new WritableStream({
+        async write(chunk, controller) {
+            if (isDns && udpWrite) {
+                return udpWrite(chunk);
+            }
+            if (remoteSocket.value) {
+                const writer = remoteSocket.value.writable.getWriter();
+                await writer.write(chunk);
+                writer.releaseLock();
+                return;
+            }
             const {
                 hasError,
                 portRemote = 443,
                 addressRemote = '',
                 rawDataIndex,
-                resVersion = new Uint8Array([0, 0]),
+                ressVersion = new Uint8Array([0, 0]),
                 isUDP,
-            } = processResHeader(chunk, userID);
+            } = processRessHeader(chunk, userID);
             address = addressRemote;
-
             if (hasError) {
                 return;
             }
-
-            // 如果是 DNS 请求
             if (isUDP) {
                 if (portRemote === 53) {
                     isDns = true;
+                } else {
+                    return;
                 }
-                return; // 不进行数据流处理
             }
-
-            const resHeader = new Uint8Array([resVersion[0], 0]);
+            const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
-            
-            // 处理 DNS 请求
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
-                udpWrite(clientData); // 将 DNS 请求转发出去
+                udpWrite(clientData);
                 return;
             }
-
-            // 处理 TCP 请求：确保 remoteSocket 已连接
-            await handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-            controller.enqueue(chunk); // 将处理后的数据加入输出流
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-        async flush(controller) {
-            // 清理工作，如关闭 WebSocket 或其他清理操作
-            closeWebSocket(webSocket);
-        }
+        close() {},
+        abort(reason) {},
+    })).catch((err) => {
+        closeWebSocket(webSocket);
     });
-
-    // 将 WebSocket 数据流传输至 TransformStream
-    readableWebStream.pipeThrough(transformedStream).pipeTo(new WritableStream({
-        write(chunk) {
-            // 将转换后的数据发送给客户端
-            if (webSocket.readyState === WebSocket.OPEN) {
-                webSocket.send(chunk);
-            }
-        },
-        close() {
-            console.log('WebSocket closed.');
-        }
-    }));
-
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -113,10 +95,9 @@ async function resOverWSHandler(request) {
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
         if (!remoteSocket.value || remoteSocket.value.closed) {
-            // 如果没有连接，或者连接已经关闭，重新建立连接
             remoteSocket.value = connect({
                 hostname: address,
-                port: port,
+                port: port
             });
         }
         const writer = remoteSocket.value.writable.getWriter();
@@ -124,14 +105,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
-
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-
     try {
-        // 尝试连接远程地址，如果失败则连接到代理 IP
         if (!await tryConnect(addressRemote, portRemote)) {
             if (!await tryConnect(proxyIP, portRemote)) {
                 closeWebSocket(webSocket);
@@ -143,35 +121,22 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
-
-    // 初始化 TransformStream，用于处理 WebSocket 消息
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            // 对每个 WebSocket 消息进行处理（可加入解码、转换等逻辑）
-            controller.enqueue(chunk); // 简单透传，或添加实际处理逻辑
-        }
-    });
-
-    // 初始化 ReadableStream，接收 WebSocket 消息并传递到 TransformStream
-    const readableStream = new ReadableStream({
+    const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => {
                 if (isCancel) return;
-                controller.enqueue(event.data); // 将 WebSocket 消息送入 ReadableStream
+                const message = event.data;
+                controller.enqueue(message);
             });
-
             webSocket.addEventListener('close', () => {
                 closeWebSocket(webSocket);
                 if (isCancel) return;
                 controller.close();
             });
-
             webSocket.addEventListener('error', (err) => {
                 console.error('WebSocket error:', err);
                 controller.error(err);
             });
-
-            // 将 earlyHeader 数据作为初始消息发送
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
@@ -179,50 +144,43 @@ function makeWebStream(webSocket, earlyHeader) {
                 controller.enqueue(earlyData);
             }
         },
+        pull(controller) {
+        },
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
             closeWebSocket(webSocket);
         }
     });
-
-    // 将 ReadableStream 的输出连接到 TransformStream
-    readableStream.pipeTo(transformStream.writable).catch((err) => {
-        console.error('Stream pipe error:', err);
-        closeWebSocket(webSocket);
-    });
-
-    // 返回处理后的流
-    return transformStream.readable;
+    return stream;
 }
-
 let cachedUserID;
-function processResHeader(resBuffer, userID) {
-    if (resBuffer.byteLength < 24) {
+function processRessHeader(ressBuffer, userID) {
+    if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
-    const version = new Uint8Array(resBuffer.slice(0, 1));
+    const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
     if (!cachedUserID) {
         cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
-    const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
+    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
     if (hasError) {
         return { hasError: true };
     }
-    const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
-    const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
+    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
-    const portBuffer = resBuffer.slice(portIndex, portIndex + 2);
+    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
     let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1));
+    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
     const addressType = addressBuffer[0];
     let addressLength = 0;
     let addressValueIndex = addressIndex + 1;
@@ -230,16 +188,16 @@ function processResHeader(resBuffer, userID) {
     switch (addressType) {
         case 1:
             addressLength = 4;
-            addressValue = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
             break;
         case 2:
-            addressLength = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
             addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             break;
         case 3:
             addressLength = 16;
-            const dataView = new DataView(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             const ipv6 = [];
             for (let i = 0; i < 8; i++) {
                 ipv6.push(dataView.getUint16(i * 2).toString(16));
@@ -258,7 +216,7 @@ function processResHeader(resBuffer, userID) {
         addressType,
         portRemote,
         rawDataIndex: addressValueIndex + addressLength,
-        resVersion: version,
+        ressVersion: version,
         isUDP,
     };
 }
@@ -268,16 +226,16 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
         await remoteSocket.readable
             .pipeThrough(new TransformStream({
                 transform(chunk, controller) {
-                    if (resHeader) {
-                        const combinedData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                        combinedData.set(resHeader);
-                        combinedData.set(chunk, resHeader.byteLength);
-                        resHeader = null;
-                        controller.enqueue(combinedData);
-                    } else {
+                    if (!resHeader) {
                         controller.enqueue(chunk);
-                    }
-                },
+                        return;
+                    }                
+                    const data = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                    data.set(resHeader);
+                    data.set(chunk, resHeader.byteLength);
+                    resHeader = null;
+                    controller.enqueue(data);
+                }
             }))
             .pipeTo(new WritableStream({
                 write(chunk) {
@@ -285,9 +243,9 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                         webSocket.send(chunk);
                         hasData = true;
                     }
-                },
+                }
             }));
-    } catch (error) {
+    } catch {
         closeWebSocket(webSocket);
     }
     return hasData;
@@ -309,8 +267,12 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
+const WEBSOCKET_READY_STATE = {
+    OPEN: 1,
+    CLOSING: 2
+};
 function closeWebSocket(socket) {
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+    if (socket.readyState === WEBSOCKET_READY_STATE.OPEN || socket.readyState === WEBSOCKET_READY_STATE.CLOSING) {
         socket.close();
     }
 }
