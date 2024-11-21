@@ -40,7 +40,7 @@ async function resOverWSHandler(request) {
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
-
+    let remoteSocket = { value: null };
     // 使用 TransformStream 处理 WebSocket 数据流
     const transformedStream = new TransformStream({
         async transform(chunk, controller) {
