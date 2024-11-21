@@ -36,23 +36,19 @@ async function resOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
+
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
-    let remoteSocket = { value: null };
-    let udpWrite = null;
-    let isDns = false;
-    readableWebStream.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            if (isDns && udpWrite) {
-                return udpWrite(chunk);
-            }
-            if (remoteSocket.value) {
-                const writer = remoteSocket.value.writable.getWriter();
-                await writer.write(chunk);
-                writer.releaseLock();
-                return;
-            }
+
+    // 使用 TransformStream 处理 WebSocket 数据流
+    const transformedStream = new TransformStream({
+        async transform(chunk, controller) {
+            // 在这里处理从 WebSocket 获取的数据
+            let isDns = false;
+            let udpWrite = null;
+
+            // 解析响应头等操作
             const {
                 hasError,
                 portRemote = 443,
@@ -62,31 +58,53 @@ async function resOverWSHandler(request) {
                 isUDP,
             } = processResHeader(chunk, userID);
             address = addressRemote;
+
             if (hasError) {
                 return;
             }
+
+            // 如果是 DNS 请求
             if (isUDP) {
                 if (portRemote === 53) {
                     isDns = true;
-                } else {
-                    return;
                 }
+                return; // 不进行数据流处理
             }
+
             const resHeader = new Uint8Array([resVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
+            
+            // 处理 DNS 请求
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
-                udpWrite(clientData);
+                udpWrite(clientData); // 将 DNS 请求转发出去
                 return;
             }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+
+            // 处理 TCP 请求：确保 remoteSocket 已连接
+            await handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+            controller.enqueue(chunk); // 将处理后的数据加入输出流
         },
-        close() {},
-        abort(reason) {},
-    })).catch((err) => {
-        closeWebSocket(webSocket);
+        async flush(controller) {
+            // 清理工作，如关闭 WebSocket 或其他清理操作
+            closeWebSocket(webSocket);
+        }
     });
+
+    // 将 WebSocket 数据流传输至 TransformStream
+    readableWebStream.pipeThrough(transformedStream).pipeTo(new WritableStream({
+        write(chunk) {
+            // 将转换后的数据发送给客户端
+            if (webSocket.readyState === WebSocket.OPEN) {
+                webSocket.send(chunk);
+            }
+        },
+        close() {
+            console.log('WebSocket closed.');
+        }
+    }));
+
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -95,9 +113,10 @@ async function resOverWSHandler(request) {
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
         if (!remoteSocket.value || remoteSocket.value.closed) {
+            // 如果没有连接，或者连接已经关闭，重新建立连接
             remoteSocket.value = connect({
                 hostname: address,
-                port: port
+                port: port,
             });
         }
         const writer = remoteSocket.value.writable.getWriter();
@@ -105,11 +124,14 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
+
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
+
     try {
+        // 尝试连接远程地址，如果失败则连接到代理 IP
         if (!await tryConnect(addressRemote, portRemote)) {
             if (!await tryConnect(proxyIP, portRemote)) {
                 closeWebSocket(webSocket);
@@ -123,35 +145,42 @@ function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const stream = new ReadableStream({
         start(controller) {
+            // 监听 WebSocket 消息并传递给流控制器
             webSocket.addEventListener('message', (event) => {
                 if (isCancel) return;
                 const message = event.data;
-                controller.enqueue(message);
+                controller.enqueue(message); // 将消息加入流
             });
+
+            // 监听 WebSocket 关闭事件，关闭流
             webSocket.addEventListener('close', () => {
                 closeWebSocket(webSocket);
                 if (isCancel) return;
-                controller.close();
+                controller.close(); // 关闭流
             });
+
+            // 监听 WebSocket 错误事件，流出错时传递错误
             webSocket.addEventListener('error', (err) => {
                 console.error('WebSocket error:', err);
-                controller.error(err);
+                controller.error(err); // 将错误传递给流
             });
+
+            // 处理初始 header 数据（如果存在）
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
-                controller.error(error);
+                controller.error(error); // 如果错误，终止流
             } else if (earlyData) {
-                controller.enqueue(earlyData);
+                controller.enqueue(earlyData); // 将早期数据加入流
             }
         },
-        pull(controller) {
-        },
+        pull(controller) {},
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
-            closeWebSocket(webSocket);
+            closeWebSocket(webSocket); // 在取消时关闭 WebSocket
         }
     });
+
     return stream;
 }
 let cachedUserID;
@@ -273,44 +302,64 @@ function closeWebSocket(socket) {
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
-    let headerSent = false;
-    const writer = new WritableStream({
-        async write(chunk) {
+    // 创建 TransformStream 管道
+    const udpTransformStream = new TransformStream({
+        async transform(chunk, controller) {
             try {
+                // 将请求转发到远程 DNS 服务器
                 const dnsResponse = await queryDNS(chunk);
-                if (dnsResponse && webSocket.readyState === WebSocket.OPEN) {
-                    const resPayload = queryDNSResponse(resHeader, dnsResponse, headerSent);
+
+                // 构造响应数据
+                const resPayload = queryDNSResponse(resHeader, dnsResponse);
+
+                // 发送给 WebSocket 客户端
+                if (webSocket.readyState === WebSocket.OPEN) {
                     webSocket.send(resPayload);
-                    headerSent = true;
                 }
+
+                // 将数据发送到下游流（如果需要）
+                controller.enqueue(resPayload);
             } catch (error) {
+                console.error('UDP Transform Error:', error);
                 closeWebSocket(webSocket);
+                controller.error(error);
             }
+        },
+
+        flush(controller) {
+            // 在流关闭时，清理资源
+            closeWebSocket(webSocket);
         }
-    }).getWriter();
-    return { write: chunk => writer.write(chunk).catch(console.error) };
+    });
+
+    // 返回流写入器以便在其他部分使用
+    const writable = udpTransformStream.writable.getWriter();
+    return {
+        write: chunk => writable.write(chunk).catch(console.error),
+    };
 }
+
 async function queryDNS(dnsRequest) {
     const response = await fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/dns-message' },
         body: dnsRequest,
-        signal: controller.signal
     });
     return await response.arrayBuffer();
 }
-function queryDNSResponse(resHeader, dnsResponse, headerSent) {
+
+function queryDNSResponse(resHeader, dnsResponse) {
     const sizeBuffer = new Uint8Array([(dnsResponse.byteLength >> 8) & 0xff, dnsResponse.byteLength & 0xff]);
-    const resPayload = new Uint8Array((headerSent ? 0 : resHeader.byteLength) + sizeBuffer.byteLength + dnsResponse.byteLength);
-    let offset = 0;
-    if (!headerSent) {
-        resPayload.set(resHeader, offset);
-        offset += resHeader.byteLength;
-    }
-    resPayload.set(sizeBuffer, offset);
-    resPayload.set(new Uint8Array(dnsResponse), offset + sizeBuffer.byteLength);
+    const resPayload = new Uint8Array(resHeader.byteLength + sizeBuffer.byteLength + dnsResponse.byteLength);
+
+    // 拼接响应头和 DNS 响应数据
+    resPayload.set(resHeader, 0);
+    resPayload.set(sizeBuffer, resHeader.byteLength);
+    resPayload.set(new Uint8Array(dnsResponse), resHeader.byteLength + sizeBuffer.byteLength);
+
     return resPayload;
 }
+
 function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
