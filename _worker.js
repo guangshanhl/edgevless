@@ -1,7 +1,6 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
-let cachedUserID = null;
 export default {
     async fetch(request, env, ctx) {
         try {
@@ -158,6 +157,7 @@ function makeWebStream(webSocket, earlyHeader) {
     });
     return stream;
 }
+let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
@@ -168,51 +168,57 @@ function processRessHeader(ressBuffer, userID) {
         cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    for (let i = 0; i < 16; i++) {
-        if (bufferUserID[i] !== cachedUserID[i]) {
-            return { hasError: true };
-        }
+    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
+    if (hasError) {
+        return { hasError: true };
     }
-    const optLength = ressBuffer[17];
-    const command = ressBuffer[18 + optLength];
+    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
+    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
-    const portRemote = new DataView(ressBuffer.slice(18 + optLength + 1, 20 + optLength)).getUint16(0);
+    const portIndex = 18 + optLength + 1;
+    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
+    const portRemote = new DataView(portBuffer).getUint16(0);
+    let addressIndex = portIndex + 2;
+    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
+    const addressType = addressBuffer[0];
+    let addressLength = 0;
+    let addressValueIndex = addressIndex + 1;
     let addressValue = '';
-    let addressType = ressBuffer[18 + optLength + 3];
-    let addressValueIndex = 18 + optLength + 4;
     switch (addressType) {
         case 1:
-            addressValue = `${ressBuffer[addressValueIndex]}.${ressBuffer[addressValueIndex + 1]}.${ressBuffer[addressValueIndex + 2]}.${ressBuffer[addressValueIndex + 3]}`;
-            addressValueIndex += 4;
+            addressLength = 4;
+            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
             break;
         case 2:
-            const domainLength = ressBuffer[addressValueIndex];
+            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
             addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + domainLength));
-            addressValueIndex += domainLength;
+            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             break;
         case 3:
+            addressLength = 16;
+            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             const ipv6 = [];
             for (let i = 0; i < 8; i++) {
-                ipv6.push(ressBuffer.getUint16(addressValueIndex + i * 2).toString(16));
+                ipv6.push(dataView.getUint16(i * 2).toString(16));
             }
             addressValue = ipv6.join(':');
-            addressValueIndex += 16;
             break;
         default:
             return { hasError: true };
     }
-    if (!addressValue) return { hasError: true };
+    if (!addressValue) {
+        return { hasError: true };
+    }
     return {
         hasError: false,
         addressRemote: addressValue,
         addressType,
         portRemote,
-        rawDataIndex: addressValueIndex,
+        rawDataIndex: addressValueIndex + addressLength,
         ressVersion: version,
         isUDP,
     };
@@ -264,8 +270,10 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-const WEBSOCKET_READY_STATE_OPEN = 1;
-const WEBSOCKET_READY_STATE_CLOSING = 2;
+const WEBSOCKET_READY_STATE = {
+    OPEN: 1,
+    CLOSING: 2
+};
 function closeWebSocket(socket) {
     if (socket.readyState === WEBSOCKET_READY_STATE.OPEN || socket.readyState === WEBSOCKET_READY_STATE.CLOSING) {
         socket.close();
