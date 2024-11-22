@@ -35,55 +35,86 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
+
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
+
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-    readableWebStream.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            if (isDns && udpWrite) {
-                return udpWrite(chunk);
-            }
-            if (remoteSocket.value) {
-                const writer = remoteSocket.value.writable.getWriter();
-                await writer.write(chunk);
-                writer.releaseLock();
-                return;
-            }
-            const {
-                hasError,
-                portRemote = 443,
-                addressRemote = '',
-                rawDataIndex,
-                ressVersion = new Uint8Array([0, 0]),
-                isUDP,
-            } = processRessHeader(chunk, userID);
-            address = addressRemote;
-            if (hasError) {
-                return;
-            }
-            if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
-                    return;
+
+    // 使用 TransformStream 处理 WebSocket 数据流
+    const transformStream = new TransformStream({
+        async start(controller) {
+            readableWebStream.pipeTo(new WritableStream({
+                async write(chunk, controller) {
+                    if (isDns && udpWrite) {
+                        return udpWrite(chunk); // 处理 DNS 数据
+                    }
+                    if (remoteSocket.value) {
+                        const writer = remoteSocket.value.writable.getWriter();
+                        await writer.write(chunk); // 将数据写入远程 Socket
+                        writer.releaseLock();
+                        return;
+                    }
+
+                    // 处理 ressHeader
+                    const {
+                        hasError,
+                        portRemote = 443,
+                        addressRemote = '',
+                        rawDataIndex,
+                        ressVersion = new Uint8Array([0, 0]),
+                        isUDP,
+                    } = processRessHeader(chunk, userID);
+                    address = addressRemote;
+
+                    if (hasError) {
+                        return;
+                    }
+
+                    // UDP 数据处理
+                    if (isUDP) {
+                        if (portRemote === 53) {
+                            isDns = true;
+                        } else {
+                            return;
+                        }
+                    }
+
+                    // 拼接 header
+                    const resHeader = new Uint8Array([ressVersion[0], 0]);
+                    const clientData = chunk.slice(rawDataIndex);
+
+                    // DNS 请求处理
+                    if (isDns) {
+                        const { write } = await handleUDPOutBound(webSocket, resHeader);
+                        udpWrite = write;
+                        udpWrite(clientData);
+                        return;
+                    }
+
+                    // TCP 数据转发处理
+                    handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
                 }
-            }
-            const resHeader = new Uint8Array([ressVersion[0], 0]);
-            const clientData = chunk.slice(rawDataIndex);
-            if (isDns) {
-                const { write } = await handleUDPOutBound(webSocket, resHeader);
-                udpWrite = write;
-                udpWrite(clientData);
-                return;
-            }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+            })).catch((err) => {
+                closeWebSocket(webSocket);
+            });
         },
-    })).catch((err) => {
-        closeWebSocket(webSocket);
+
+        async transform(chunk, controller) {
+            // 这里不做额外的数据处理，直接将数据传递
+            controller.enqueue(chunk); // 将数据传递下去，不做修改
+        },
+
+        cancel(reason) {
+            closeWebSocket(webSocket); // 如果流被取消，关闭 WebSocket
+        }
     });
+
+    // 创建一个可读流来传输 WebSocket 数据
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -146,6 +177,11 @@ function makeWebStream(webSocket, earlyHeader) {
             } else if (earlyData) {
                 controller.enqueue(earlyData); // 如果有早期数据，先行发送
             }
+        },
+
+        async transform(chunk, controller) {
+            // 这里可以对 WebSocket 数据进行流处理和修改（如压缩、加密等），目前直接传递数据
+            controller.enqueue(chunk); // 直接将数据传递到下游
         },
 
         cancel(reason) {
