@@ -35,6 +35,49 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
+
+    let isDns = false;
+    let udpWrite = null;
+    const remoteSocket = { value: null };
+
+    const readableWebStream = makeWebStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+    readableWebStream
+        .pipeThrough(new TransformStream({
+            async transform(chunk, controller) {
+                    const { hasError, portRemote, addressRemote, rawDataIndex, ressVersion, isUDP } = processRessHeader(chunk, userID);
+                    if (hasError) return;
+                    
+                    const clientData = chunk.slice(rawDataIndex);
+                    const resHeader = new Uint8Array([ressVersion[0], 0]);
+
+                    if (isUDP) {
+                        if (!udpWrite) {
+                            const { write } = await handleUDPOutBound(webSocket, resHeader);
+                            udpWrite = write;
+                        }
+                        udpWrite(clientData);
+                        isDns = portRemote === 53;
+                    } else {
+                        handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+                    }
+                controller.enqueue(chunk);
+            }
+        }))
+        .pipeTo(new WritableStream({
+            close() {
+                closeWebSocket(webSocket);
+            }
+        }))
+        .catch((err) => {
+            closeWebSocket(webSocket);
+        });
+    return new Response(null, { status: 101, webSocket: client });
+}
+
+async function rsessOverWSHandler(request) {
+    const webSocketPair = new WebSocketPair();
+    const [client, webSocket] = Object.values(webSocketPair);
+    webSocket.accept();
     let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
