@@ -35,7 +35,6 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    let address = '';
     const readableWebStream = makeWebStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
     let remoteSocket = { value: null };
     let udpWrite = null;
@@ -56,10 +55,9 @@ async function ressOverWSHandler(request) {
                 portRemote = 443,
                 addressRemote = '',
                 rawDataIndex,
-                ressVersion,
+                ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            address = addressRemote;
             if (hasError) {
                 return;
             }
