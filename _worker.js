@@ -35,82 +35,8 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-
-    let udpWrite = null;
-    const remoteSocket = { value: null };
-    let isDns = false;
-
-    const readableWebStream = makeWebStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
-
-    const reader = readableWebStream.getReader();
-    const writer = new WritableStream({
-        async write(chunk) {
-            try {
-                if (isDns && udpWrite) {
-                    udpWrite(chunk);
-                    return;
-                }
-                if (remoteSocket.value) {
-                    await remoteSocket.value.writable.write(chunk);
-                    return;
-                }
-
-                const {
-                    hasError,
-                    portRemote = 443,
-                    addressRemote = '',
-                    rawDataIndex,
-                    ressVersion = new Uint8Array([0, 0]),
-                    isUDP,
-                } = processRessHeader(chunk, userID);
-                if (hasError) return;
-
-                const clientData = chunk.slice(rawDataIndex);
-                const resHeader = new Uint8Array([ressVersion[0], 0]);
-
-                if (isUDP) {
-                    if (!udpWrite) {
-                        const { write } = await handleUDPOutBound(webSocket, resHeader);
-                        udpWrite = write;
-                    }
-                    udpWrite(clientData);
-                    isDns = portRemote === 53;
-                } else {
-                    await handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-                }
-            } catch (err) {
-                console.error('Error processing chunk:', err);
-                closeWebSocket(webSocket);
-            }
-        },
-    });
-
-    async function manualPipe() {
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                await writer.write(value);
-            }
-        } catch (err) {
-            console.error('Error in manual pipe:', err);
-            closeWebSocket(webSocket);
-        }
-    }
-
-    manualPipe();
-
-    return new Response(null, { status: 101, webSocket: client });
-}
-
-
-async function rsessOverWSHandler(request) {
-    const webSocketPair = new WebSocketPair();
-    const [client, webSocket] = Object.values(webSocketPair);
-    webSocket.accept();
     let address = '';
-    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);
+    const readableWebStream = makeWebStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
@@ -130,7 +56,7 @@ async function rsessOverWSHandler(request) {
                 portRemote = 443,
                 addressRemote = '',
                 rawDataIndex,
-                ressVersion = new Uint8Array([0, 0]),
+                ressVersion,
                 isUDP,
             } = processRessHeader(chunk, userID);
             address = addressRemote;
