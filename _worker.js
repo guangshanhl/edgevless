@@ -158,59 +158,55 @@ function processRessHeader(ressBuffer, userID) {
     }
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
-    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    const userIDBuffer = getCachedUserID(userID);
-    const hasError = bufferUserID.some((byte, index) => byte !== userIDBuffer[index]);
-    if (hasError) {
-        return { hasError: true };
+    if (!cachedUserID) {
+        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
-    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
-    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
+    for (let i = 0; i < 16; i++) {
+        if (bufferUserID[i] !== cachedUserID[i]) {
+            return { hasError: true };
+        }
+    }
+    const optLength = ressBuffer[17];  // 获取可选长度
+    const command = ressBuffer[18 + optLength];  // 获取命令字节
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
-    const portIndex = 18 + optLength + 1;
-    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
-    const portRemote = new DataView(portBuffer).getUint16(0);
-    let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
-    const addressType = addressBuffer[0];
-    let addressLength = 0;
-    let addressValueIndex = addressIndex + 1;
+    const portRemote = new DataView(ressBuffer.slice(18 + optLength + 1, 20 + optLength)).getUint16(0);
     let addressValue = '';
+    let addressType = ressBuffer[18 + optLength + 3];
+    let addressValueIndex = 18 + optLength + 4;
     switch (addressType) {
         case 1:
-            addressLength = 4;
-            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = `${ressBuffer[addressValueIndex]}.${ressBuffer[addressValueIndex + 1]}.${ressBuffer[addressValueIndex + 2]}.${ressBuffer[addressValueIndex + 3]}`;
+            addressValueIndex += 4;
             break;
         case 2:
-            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            const domainLength = ressBuffer[addressValueIndex];
             addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + domainLength));
+            addressValueIndex += domainLength;
             break;
         case 3:
-            addressLength = 16;
-            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             const ipv6 = [];
             for (let i = 0; i < 8; i++) {
-                ipv6.push(dataView.getUint16(i * 2).toString(16));
+                ipv6.push(ressBuffer.getUint16(addressValueIndex + i * 2).toString(16));
             }
             addressValue = ipv6.join(':');
+            addressValueIndex += 16;
             break;
         default:
             return { hasError: true };
     }
-    if (!addressValue) {
-        return { hasError: true };
-    }
+    if (!addressValue) return { hasError: true };
     return {
         hasError: false,
         addressRemote: addressValue,
         addressType,
         portRemote,
-        rawDataIndex: addressValueIndex + addressLength,
+        rawDataIndex: addressValueIndex,
         ressVersion: version,
         isUDP,
     };
@@ -245,12 +241,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     }
     return hasData;
 }
-function getCachedUserID(userID) {
-    if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-    }
-    return cachedUserID;
-}
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
@@ -271,11 +261,8 @@ function base64ToBuffer(base64Str) {
 const WEBSOCKET_READY_STATE_OPEN = 1;
 const WEBSOCKET_READY_STATE_CLOSING = 2;
 function closeWebSocket(socket) {
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+    if (socket.readyState === WEBSOCKET_READY_STATE.OPEN || socket.readyState === WEBSOCKET_READY_STATE.CLOSING) {
         socket.close();
-        socket.removeEventListener('message', handleMessage);
-        socket.removeEventListener('close', handleClose);
-        socket.removeEventListener('error', handleError);
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
