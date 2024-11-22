@@ -44,9 +44,15 @@ async function ressOverWSHandler(request) {
     readableWebStream
         .pipeThrough(new TransformStream({
             async transform(chunk, controller) {
-                    const { hasError, portRemote, addressRemote, rawDataIndex, ressVersion, isUDP } = processRessHeader(chunk, userID);
-                    if (hasError) return;
-                    
+                    const {
+                        hasError,
+                        portRemote = 443,
+                        addressRemote = '',
+                        rawDataIndex,
+                        ressVersion = new Uint8Array([0, 0]),
+                        isUDP,
+                    } = processRessHeader(chunk, userID);
+                    if (hasError) return;             
                     const clientData = chunk.slice(rawDataIndex);
                     const resHeader = new Uint8Array([ressVersion[0], 0]);
 
