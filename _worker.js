@@ -148,11 +148,6 @@ function makeWebStream(webSocket, earlyHeader) {
             }
         },
 
-        async transform(chunk, controller) {
-            // 这里可以对 WebSocket 数据进行流处理和修改（如压缩、加密等）
-            controller.enqueue(chunk); // 将每次接收到的 WebSocket 数据发送到管道
-        },
-
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
