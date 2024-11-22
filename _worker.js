@@ -152,7 +152,6 @@ function makeWebStream(webSocket, earlyHeader) {
     });
     return stream;
 }
-let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
