@@ -117,45 +117,45 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-    let isCancel = false;
-    const handleWebSocketMessage = (event, controller) => {
-        if (isCancel) return;
-        const message = event.data;
-        controller.enqueue(message);
-    };
-    const handleWebSocketClose = (webSocket, controller) => {
-        if (isCancel) return;
-        closeWebSocket(webSocket);
-        controller.close();
-    };
-    const handleWebSocketError = (err, controller) => {
-        console.error('WebSocket error:', err);
-        controller.error(err);
-    };
-    const processEarlyHeader = (earlyHeader, controller) => {
-        const { earlyData, error } = base64ToBuffer(earlyHeader);
-        if (error) {
-            controller.error(error);
-        } else if (earlyData) {
-            controller.enqueue(earlyData);
-        }
-    };
-    const stream = new ReadableStream({
-        start(controller) {
-            webSocket.addEventListener('message', (event) => handleWebSocketMessage(event, controller));
-            webSocket.addEventListener('close', () => handleWebSocketClose(webSocket, controller));
-            webSocket.addEventListener('error', (err) => handleWebSocketError(err, controller));
-            processEarlyHeader(earlyHeader, controller);
-        },
-        pull(controller) {
-        },
-        cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
-            closeWebSocket(webSocket);
-        }
-    });
-    return stream;
+  let isCancel = false;
+  const processEarlyHeader = (earlyHeader, controller) => {
+    const { earlyData, error } = base64ToBuffer(earlyHeader);
+    if (error) {
+      controller.error(error);
+    } else if (earlyData) {
+      controller.enqueue(earlyData);
+    }
+  };
+  const handleWebSocketMessage = event => {
+    if (isCancel) return;
+    const message = event.data;
+    controller.enqueue(message);
+  };
+  const handleWebSocketClose = () => {
+    if (isCancel) return;
+    closeWebSocket(webSocket);
+    controller.close();
+  };
+  const handleWebSocketError = err => {
+    controller.error(err);
+  };
+  const stream = new ReadableStream({
+    start(controller) {
+      if (isCancel) return;
+      webSocket.addEventListener('message', handleWebSocketMessage);
+      webSocket.addEventListener('close', handleWebSocketClose);
+      webSocket.addEventListener('error', handleWebSocketError);
+      processEarlyHeader(earlyHeader, controller);
+    },
+    pull(controller) {
+    },
+    cancel(reason) {
+      if (isCancel) return;
+      isCancel = true;
+      closeWebSocket(webSocket);
+    }
+  });
+  return stream;
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
