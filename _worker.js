@@ -118,38 +118,49 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
-    const stream = new ReadableStream({
-        start(controller) {
+
+    const transformStream = new TransformStream({
+        async start(controller) {
+            // WebSocket 数据接收
             webSocket.addEventListener('message', (event) => {
                 if (isCancel) return;
                 const message = event.data;
-                controller.enqueue(message);
+                controller.enqueue(message); // 将接收到的 WebSocket 消息发送到管道
             });
+
             webSocket.addEventListener('close', () => {
                 closeWebSocket(webSocket);
                 if (isCancel) return;
-                controller.close();
+                controller.close(); // 关闭流
             });
+
             webSocket.addEventListener('error', (err) => {
                 console.error('WebSocket error:', err);
-                controller.error(err);
+                controller.error(err); // 错误时流出错
             });
+
+            // 将早期数据处理成 Buffer
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
-                controller.error(error);
+                controller.error(error); // 错误处理
             } else if (earlyData) {
-                controller.enqueue(earlyData);
+                controller.enqueue(earlyData); // 如果有早期数据，先行发送
             }
         },
-        pull(controller) {
+
+        async transform(chunk, controller) {
+            // 这里可以对 WebSocket 数据进行流处理和修改（如压缩、加密等）
+            controller.enqueue(chunk); // 将每次接收到的 WebSocket 数据发送到管道
         },
+
         cancel(reason) {
             if (isCancel) return;
             isCancel = true;
-            closeWebSocket(webSocket);
+            closeWebSocket(webSocket); // 取消流时关闭 WebSocket
         }
     });
-    return stream;
+
+    return new ReadableStream(transformStream);
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
