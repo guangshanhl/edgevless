@@ -58,15 +58,10 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            if (hasError) {
-                return;
-            }
+            if (hasError) return;
             if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
-                    return;
-                }
+            isDns = (portRemote === 53);
+            if (!isDns) return;
             }
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
@@ -81,10 +76,7 @@ async function ressOverWSHandler(request) {
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
-    return new Response(null, {
-        status: 101,
-        webSocket: client,
-    });
+    return new Response(null, { status: 101, webSocket: client });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
@@ -154,16 +146,11 @@ function processRessHeader(ressBuffer, userID) {
     }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) {
-        return { hasError: true };
-    }
+    if (hasError) return { hasError: true };
     const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
     const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
-    if (command === 2) {
-        isUDP = true;
-    } else if (command !== 1) {
-        return { hasError: false };
-    }
+    if (command === 2) isUDP = true;
+    else if (command !== 1) return { hasError: false };
     const portIndex = 18 + optLength + 1;
     const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
@@ -195,9 +182,7 @@ function processRessHeader(ressBuffer, userID) {
         default:
             return { hasError: true };
     }
-    if (!addressValue) {
-        return { hasError: true };
-    }
+    if (!addressValue) return { hasError: true };
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -240,9 +225,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     return hasData;
 }
 function base64ToBuffer(base64Str) {
-    if (!base64Str) {
-        return { error: null };
-    }
+    if (!base64Str) return { error: null };
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
@@ -266,16 +249,14 @@ function closeWebSocket(socket) {
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
-    let headerSent = false;
-    let partChunk = null;
+    let headerSent = false, partChunk = null;    
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partChunk) {
                 chunk = new Uint8Array([...partChunk, ...chunk]);
                 partChunk = null;
             }
-            let offset = 0;
-            while (offset < chunk.byteLength) {
+            for (let offset = 0; offset < chunk.byteLength;) {
                 if (chunk.byteLength < offset + 2) {
                     partChunk = chunk.slice(offset);
                     break;
