@@ -1,6 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
+let cachedUserID = null;
 export default {
     async fetch(request, env, ctx) {
         try {
@@ -158,11 +159,9 @@ function processRessHeader(ressBuffer, userID) {
     }
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
-    if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-    }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
+    const userIDBuffer = getCachedUserID(userID);
+    const hasError = bufferUserID.some((byte, index) => byte !== userIDBuffer[index]);
     if (hasError) {
         return { hasError: true };
     }
@@ -247,6 +246,12 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     }
     return hasData;
 }
+function getCachedUserID(userID) {
+    if (!cachedUserID) {
+        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    }
+    return cachedUserID;
+}
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
         return { error: null };
@@ -264,13 +269,14 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-const WEBSOCKET_READY_STATE = {
-    OPEN: 1,
-    CLOSING: 2
-};
+const WEBSOCKET_READY_STATE_OPEN = 1;
+const WEBSOCKET_READY_STATE_CLOSING = 2;
 function closeWebSocket(socket) {
-    if (socket.readyState === WEBSOCKET_READY_STATE.OPEN || socket.readyState === WEBSOCKET_READY_STATE.CLOSING) {
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
         socket.close();
+        socket.removeEventListener('message', handleMessage);
+        socket.removeEventListener('close', handleClose);
+        socket.removeEventListener('error', handleError);
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
