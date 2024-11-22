@@ -167,8 +167,8 @@ function processRessHeader(ressBuffer, userID) {
             return { hasError: true };
         }
     }
-    const optLength = ressBuffer[17];  // 获取可选长度
-    const command = ressBuffer[18 + optLength];  // 获取命令字节
+    const optLength = ressBuffer[17];
+    const command = ressBuffer[18 + optLength];
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
