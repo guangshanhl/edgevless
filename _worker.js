@@ -79,27 +79,69 @@ async function ressOverWSHandler(request) {
     return new Response(null, { status: 101, webSocket: client });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    async function connectAndWrite(address, port) {
-        if (!remoteSocket.value || remoteSocket.value.closed) {
-            remoteSocket.value = connect({ hostname: address, port });
+    const backupAddress = { address: proxyIP, port: portRemote };
+
+    // 创建连接并写入数据
+    async function connectAndWrite(addressInfo) {
+        try {
+            const { address, port } = addressInfo;
+
+            console.log(`Connecting to ${address}:${port}`);
+            const socket = connect({ hostname: address, port });
+            const writer = socket.writable.getWriter();
+            await writer.write(clientData);
+            writer.releaseLock();
+            return socket; // 返回连接成功的 socket
+        } catch (error) {
+            console.error(`Failed to connect to ${addressInfo.address}:${addressInfo.port}`, error);
+            return null;
         }
-        const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
-        return remoteSocket.value;
     }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+
+    // 转发数据
+    async function handleConnection(socket) {
+        try {
+            await forwardToData(socket, webSocket, resHeader);
+            return true; // 成功
+        } catch (error) {
+            console.error(`Data forwarding failed`, error);
+            return false;
+        }
     }
+
     try {
-        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-            closeWebSocket(webSocket);
+        // 同时尝试主地址和备用地址
+        const promises = [
+            connectAndWrite({ address: addressRemote, port: portRemote }),
+            connectAndWrite(backupAddress),
+        ];
+
+        const result = await Promise.race(promises);
+
+        if (result) {
+            // 成功连接，进行数据转发
+            if (await handleConnection(result)) return;
+
+            console.warn(`Data forwarding failed after successful connection.`);
+        } else {
+            console.warn('Both primary and proxy connections failed.');
         }
+
+        // 关闭未使用的连接
+        promises.forEach(async (promise) => {
+            const socket = await promise;
+            if (socket && socket !== result) {
+                socket.close(); // 关闭未使用的 socket
+            }
+        });
+
+        closeWebSocket(webSocket);
     } catch (error) {
+        console.error('Unexpected error in handleTCPOutBound:', error);
         closeWebSocket(webSocket);
     }
 }
+
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const stream = new ReadableStream({
