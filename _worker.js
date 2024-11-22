@@ -119,28 +119,34 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
+    const handleWebSocketMessage = (event, controller) => {
+        if (isCancel) return;
+        const message = event.data;
+        controller.enqueue(message);
+    };
+    const handleWebSocketClose = (webSocket, controller) => {
+        if (isCancel) return;
+        closeWebSocket(webSocket);
+        controller.close();
+    };
+    const handleWebSocketError = (err, controller) => {
+        console.error('WebSocket error:', err);
+        controller.error(err);
+    };
+    const processEarlyHeader = (earlyHeader, controller) => {
+        const { earlyData, error } = base64ToBuffer(earlyHeader);
+        if (error) {
+            controller.error(error);
+        } else if (earlyData) {
+            controller.enqueue(earlyData);
+        }
+    };
     const stream = new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', (event) => {
-                if (isCancel) return;
-                const message = event.data;
-                controller.enqueue(message);
-            });
-            webSocket.addEventListener('close', () => {
-                closeWebSocket(webSocket);
-                if (isCancel) return;
-                controller.close();
-            });
-            webSocket.addEventListener('error', (err) => {
-                console.error('WebSocket error:', err);
-                controller.error(err);
-            });
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
+            webSocket.addEventListener('message', (event) => handleWebSocketMessage(event, controller));
+            webSocket.addEventListener('close', () => handleWebSocketClose(webSocket, controller));
+            webSocket.addEventListener('error', (err) => handleWebSocketError(err, controller));
+            processEarlyHeader(earlyHeader, controller);
         },
         pull(controller) {
         },
