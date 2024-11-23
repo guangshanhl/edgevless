@@ -35,7 +35,8 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    const readableWebStream = makeWebStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+    const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
@@ -58,10 +59,15 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            if (hasError) return;
+            if (hasError) {
+                return;
+            }
             if (isUDP) {
-            isDns = (portRemote === 53);
-            if (!isDns) return;
+                if (portRemote === 53) {
+                    isDns = true;
+                } else {
+                    return;
+                }
             }
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
@@ -76,72 +82,33 @@ async function ressOverWSHandler(request) {
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
-    return new Response(null, { status: 101, webSocket: client });
+    return new Response(null, {
+        status: 101,
+        webSocket: client,
+    });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    const backupAddress = { address: proxyIP, port: portRemote };
-
-    // 创建连接并写入数据
-    async function connectAndWrite(addressInfo) {
-        try {
-            const { address, port } = addressInfo;
-
-            console.log(`Connecting to ${address}:${port}`);
-            const socket = connect({ hostname: address, port });
-            const writer = socket.writable.getWriter();
-            await writer.write(clientData);
-            writer.releaseLock();
-            return socket; // 返回连接成功的 socket
-        } catch (error) {
-            console.error(`Failed to connect to ${addressInfo.address}:${addressInfo.port}`, error);
-            return null;
+    async function connectAndWrite(address, port) {
+        if (!remoteSocket.value || remoteSocket.value.closed) {
+            remoteSocket.value = connect({ hostname: address, port });
         }
+        const writer = remoteSocket.value.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
+        return remoteSocket.value;
     }
-
-    // 转发数据
-    async function handleConnection(socket) {
-        try {
-            await forwardToData(socket, webSocket, resHeader);
-            return true; // 成功
-        } catch (error) {
-            console.error(`Data forwarding failed`, error);
-            return false;
-        }
+    async function tryConnect(address, port) {
+        const tcpSocket = await connectAndWrite(address, port);
+        return forwardToData(tcpSocket, webSocket, resHeader);
     }
-
     try {
-        // 同时尝试主地址和备用地址
-        const promises = [
-            connectAndWrite({ address: addressRemote, port: portRemote }),
-            connectAndWrite(backupAddress),
-        ];
-
-        const result = await Promise.race(promises);
-
-        if (result) {
-            // 成功连接，进行数据转发
-            if (await handleConnection(result)) return;
-
-            console.warn(`Data forwarding failed after successful connection.`);
-        } else {
-            console.warn('Both primary and proxy connections failed.');
+        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
+            closeWebSocket(webSocket);
         }
-
-        // 关闭未使用的连接
-        promises.forEach(async (promise) => {
-            const socket = await promise;
-            if (socket && socket !== result) {
-                socket.close(); // 关闭未使用的 socket
-            }
-        });
-
-        closeWebSocket(webSocket);
     } catch (error) {
-        console.error('Unexpected error in handleTCPOutBound:', error);
         closeWebSocket(webSocket);
     }
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const stream = new ReadableStream({
@@ -188,11 +155,16 @@ function processRessHeader(ressBuffer, userID) {
     }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) return { hasError: true };
+    if (hasError) {
+        return { hasError: true };
+    }
     const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
     const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
-    if (command === 2) isUDP = true;
-    else if (command !== 1) return { hasError: false };
+    if (command === 2) {
+        isUDP = true;
+    } else if (command !== 1) {
+        return { hasError: false };
+    }
     const portIndex = 18 + optLength + 1;
     const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
@@ -224,7 +196,9 @@ function processRessHeader(ressBuffer, userID) {
         default:
             return { hasError: true };
     }
-    if (!addressValue) return { hasError: true };
+    if (!addressValue) {
+        return { hasError: true };
+    }
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -255,7 +229,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             .pipeThrough(transformStream)
             .pipeTo(new WritableStream({
                 write(chunk) {
-                    if (webSocket.readyState === WEBSOCKET_READY_STATE.OPEN) {
+                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         webSocket.send(chunk);
                         hasData = true;
                     }
@@ -267,7 +241,9 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     return hasData;
 }
 function base64ToBuffer(base64Str) {
-    if (!base64Str) return { error: null };
+    if (!base64Str) {
+        return { error: null };
+    }
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
@@ -281,24 +257,24 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-const WEBSOCKET_READY_STATE = {
-    OPEN: 1,
-    CLOSING: 2
-};
+const WS_READY_STATE_OPEN = 1;
+const WS_READY_STATE_CLOSING = 2;
 function closeWebSocket(socket) {
-    if (socket.readyState === WEBSOCKET_READY_STATE.OPEN || socket.readyState === WEBSOCKET_READY_STATE.CLOSING) {
+    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
         socket.close();
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
-    let headerSent = false, partChunk = null;    
+    let headerSent = false;
+    let partChunk = null;
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partChunk) {
                 chunk = new Uint8Array([...partChunk, ...chunk]);
                 partChunk = null;
             }
-            for (let offset = 0; offset < chunk.byteLength;) {
+            let offset = 0;
+            while (offset < chunk.byteLength) {
                 if (chunk.byteLength < offset + 2) {
                     partChunk = chunk.slice(offset);
                     break;
@@ -328,7 +304,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                 : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
             headerSent = true;
-            if (webSocket.readyState === WEBSOCKET_READY_STATE.OPEN) {
+            if (webSocket.readyState === WS_READY_STATE_OPEN) {
                 webSocket.send(payload);
             }
         }
