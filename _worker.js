@@ -1,56 +1,5 @@
 import { connect } from 'cloudflare:sockets';
-const WS_READY_STATE_OPEN = 1;
-const WS_READY_STATE_CLOSING = 2;
-const STREAM_OPTS = {
-    highWaterMark: 65535,
-    size(chunk) {
-        return chunk.byteLength;
-    }
-};
-const createOptimizedTransform = (resHeader) => {
-    let pendingChunks = [];
-    let totalSize = 0;
-    const BATCH_SIZE = 64 * 1024;  
-    return new TransformStream({
-        transform(chunk, controller) {
-            if (resHeader) {
-                const data = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                data.set(resHeader);
-                data.set(chunk, resHeader.byteLength);
-                controller.enqueue(data);
-                resHeader = null;
-            } else {
-                pendingChunks.push(chunk);
-                totalSize += chunk.byteLength;
-                
-                if (totalSize >= BATCH_SIZE) {
-                    const combinedData = new Uint8Array(totalSize);
-                    let offset = 0;
-                    for (const chunk of pendingChunks) {
-                        combinedData.set(chunk, offset);
-                        offset += chunk.byteLength;
-                    }
-                    controller.enqueue(combinedData);
-                    pendingChunks = [];
-                    totalSize = 0;
-                }
-            }
-        },
-        flush(controller) {
-            if (pendingChunks.length > 0) {
-                const combinedData = new Uint8Array(totalSize);
-                let offset = 0;
-                for (const chunk of pendingChunks) {
-                    combinedData.set(chunk, offset);
-                    offset += chunk.byteLength;
-                }
-                controller.enqueue(combinedData);
-            }
-        }
-    }, STREAM_OPTS);
-};
 
-let cachedUserID;
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
 
@@ -60,98 +9,105 @@ export default {
             userID = env.UUID || userID;
             proxyIP = env.PROXYIP || proxyIP;
             
-            if (request.headers.get('Upgrade') === 'websocket') {
+            const upgradeHeader = request.headers.get('Upgrade');
+            if (upgradeHeader && upgradeHeader === 'websocket') {
                 return await handleWebSocket(request);
             }
             
             const url = new URL(request.url);
-            const routes = new Map([
-                ['/', () => new Response(JSON.stringify(request.cf), {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cache-Control': 'public, max-age=1800'
-                    }
-                })],
-                [`/${userID}`, () => new Response(
-                    getConfig(userID, request.headers.get('Host')), {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'text/plain;charset=utf-8',
-                        'Cache-Control': 'private, no-cache'
-                    }
-                })]
-            ]);
-
-            const handler = routes.get(url.pathname);
-            return handler ? handler() : new Response('Not found', { status: 404 });
+            switch (url.pathname) {
+                case '/':
+                    return new Response(JSON.stringify(request.cf), { status: 200 });
+                case `/${userID}`: {
+                    const config = getConfig(userID, request.headers.get('Host'));
+                    return new Response(config, {
+                        status: 200,
+                        headers: {
+                            "Content-Type": "text/plain;charset=utf-8"
+                        },
+                    });
+                }
+                default:
+                    return new Response('Not found', { status: 404 });
+            }
         } catch (err) {
-            return new Response(err.toString(), { status: 500 });
+            return new Response(err.toString());
         }
-    }
+    },
 };
 
 async function handleWebSocket(request) {
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
+    const webSocketPair = new WebSocketPair();
+    const [client, webSocket] = Object.values(webSocketPair);
+    webSocket.accept();
 
-    const state = {
-        remoteSocket: null,
-        udpWrite: null,
-        isDns: false,
-        chunks: []
-    };
+    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+    let remoteSocket = null;
+    let udpTransformer = null;
 
-    setupWebSocketStream(server, request.headers.get('sec-websocket-protocol') || '', state);
+    // 创建处理入站数据的 TransformStream
+    const inboundTransform = new TransformStream({
+        async transform(chunk, controller) {
+            if (udpTransformer) {
+                await udpTransformer.write(chunk);
+                return;
+            }
+
+            const {
+                hasError,
+                portRemote = 443,
+                addressRemote = '',
+                rawDataIndex,
+                ressVersion = new Uint8Array([0, 0]),
+                isUDP,
+            } = processRessHeader(chunk, userID);
+
+            if (hasError) return;
+
+            const clientData = chunk.slice(rawDataIndex);
+            const resHeader = new Uint8Array([ressVersion[0], 0]);
+
+            if (isUDP && portRemote === 53) {
+                udpTransformer = await createUDPTransformer(webSocket, resHeader);
+                await udpTransformer.write(clientData);
+                return;
+            }
+
+            if (!isUDP) {
+                await handleTCPData(addressRemote, portRemote, clientData, webSocket, resHeader);
+            }
+        }
+    });
+
+    // 创建 WebSocket 到 TransformStream 的管道
+    const webSocketStream = makeWebSocketStream(webSocket, earlyHeader);
+    webSocketStream
+        .pipeTo(inboundTransform.writable)
+        .catch((err) => {
+            closeWebSocket(webSocket);
+        });
 
     return new Response(null, {
         status: 101,
-        webSocket: client
+        webSocket: client,
     });
 }
 
-function setupWebSocketStream(webSocket, earlyHeader, state) {
-    const stream = makeOptimizedWebStream(webSocket, earlyHeader);
-    
-    stream.pipeTo(new WritableStream({
-        async write(chunk) {
-            if (state.isDns && state.udpWrite) {
-                return state.udpWrite(chunk);
-            }
-
-            if (state.remoteSocket) {
-                const writer = state.remoteSocket.writable.getWriter();
-                await writer.write(chunk);
-                writer.releaseLock();
-                return;
-            }
-
-            const header = processRessHeader(chunk, userID);
-            if (header.hasError) return;
-
-            if (header.isUDP && header.portRemote === 53) {
-                state.isDns = true;
-                const { write } = await handleOptimizedUDPOutBound(webSocket, header.ressVersion);
-                state.udpWrite = write;
-                state.udpWrite(chunk.slice(header.rawDataIndex));
-                return;
-            }
-
-            handleOptimizedTCPOutBound(state, header, chunk, webSocket);
-        }
-    }, STREAM_OPTS)).catch(() => closeWebSocket(webSocket));
-}
-
-function makeOptimizedWebStream(webSocket, earlyHeader) {
+function makeWebSocketStream(webSocket, earlyHeader) {
     return new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', event => controller.enqueue(event.data));
+            webSocket.addEventListener('message', (event) => {
+                controller.enqueue(event.data);
+            });
+
             webSocket.addEventListener('close', () => {
                 controller.close();
                 closeWebSocket(webSocket);
             });
-            webSocket.addEventListener('error', err => controller.error(err));
+
+            webSocket.addEventListener('error', (err) => {
+                controller.error(err);
+            });
 
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
@@ -163,38 +119,82 @@ function makeOptimizedWebStream(webSocket, earlyHeader) {
         cancel() {
             closeWebSocket(webSocket);
         }
-    }, STREAM_OPTS);
+    });
 }
 
-async function handleOptimizedTCPOutBound(state, header, chunk, webSocket) {
-    try {
-        if (!state.remoteSocket || state.remoteSocket.closed) {
-            state.remoteSocket = await connect({
-                hostname: header.addressRemote,
-                port: header.portRemote
-            });
+async function createUDPTransformer(webSocket, resHeader) {
+    let headerSent = false;
+
+    const transformer = new TransformStream({
+        transform(chunk, controller) {
+            if (chunk.byteLength < 2) return;
+            
+            const length = new DataView(chunk.buffer, chunk.byteOffset, 2).getUint16(0);
+            if (chunk.byteLength < length + 2) return;
+            
+            controller.enqueue(chunk.slice(2, length + 2));
         }
+    });
 
-        const writer = state.remoteSocket.writable.getWriter();
-        await writer.write(chunk.slice(header.rawDataIndex));
-        writer.releaseLock();
+    transformer.readable.pipeTo(new WritableStream({
+        async write(chunk) {
+            const response = await fetch('https://cloudflare-dns.com/dns-query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/dns-message' },
+                body: chunk
+            });
 
-        const transform = createOptimizedTransform(new Uint8Array([header.ressVersion[0], 0]));
-        
-        await state.remoteSocket.readable
-            .pipeThrough(transform)
-            .pipeTo(new WritableStream({
-                write(chunk) {
-                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                        webSocket.send(chunk);
-                    }
-                }
-            }, STREAM_OPTS));
+            const dnsResult = await response.arrayBuffer();
+            const sizeBuffer = new Uint8Array([(dnsResult.byteLength >> 8) & 0xff, dnsResult.byteLength & 0xff]);
+            
+            const payload = headerSent
+                ? new Uint8Array([...sizeBuffer, ...new Uint8Array(dnsResult)])
+                : new Uint8Array([...resHeader, ...sizeBuffer, ...new Uint8Array(dnsResult)]);
+            
+            headerSent = true;
+            
+            if (webSocket.readyState === 1) {
+                webSocket.send(payload);
+            }
+        }
+    }));
 
-    } catch {
-        closeWebSocket(webSocket);
-    }
+    return transformer.writable.getWriter();
 }
+
+async function handleTCPData(address, port, data, webSocket, resHeader) {
+    const socket = await connect({ hostname: address, port });
+    
+    const transformStream = new TransformStream({
+        transform(chunk, controller) {
+            if (resHeader) {
+                controller.enqueue(new Uint8Array([...resHeader, ...chunk]));
+                resHeader = null;
+            } else {
+                controller.enqueue(chunk);
+            }
+        }
+    });
+
+    // 发送初始数据
+    const writer = socket.writable.getWriter();
+    await writer.write(data);
+    writer.releaseLock();
+
+    // 建立双向数据流
+    socket.readable
+        .pipeThrough(transformStream)
+        .pipeTo(new WritableStream({
+            write(chunk) {
+                if (webSocket.readyState === 1) {
+                    webSocket.send(chunk);
+                }
+            }
+        }))
+        .catch(() => closeWebSocket(webSocket));
+}
+
+let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
@@ -260,40 +260,6 @@ function processRessHeader(ressBuffer, userID) {
         isUDP,
     };
 }
-async function handleOptimizedUDPOutBound(webSocket, ressVersion) {
-    let headerSent = false;
-    const transform = new TransformStream({
-        transform(chunk, controller) {
-            const size = new DataView(new ArrayBuffer(2));
-            size.setUint16(0, chunk.byteLength);
-            controller.enqueue(new Uint8Array([...new Uint8Array(size.buffer), ...chunk]));
-        }
-    }, STREAM_OPTS);
-
-    transform.readable.pipeTo(new WritableStream({
-        async write(chunk) {
-            const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/dns-message' },
-                body: chunk
-            });
-
-            const result = await resp.arrayBuffer();
-            const payload = headerSent
-                ? new Uint8Array(result)
-                : new Uint8Array([ressVersion[0], 0, ...new Uint8Array(result)]);
-            
-            headerSent = true;
-
-            if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                webSocket.send(payload);
-            }
-        }
-    }, STREAM_OPTS));
-
-    const writer = transform.writable.getWriter();
-    return { write: chunk => writer.write(chunk) };
-}
 
 function base64ToBuffer(base64Str) {
     if (!base64Str) {
@@ -312,13 +278,13 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-const WS_READY_STATE_OPEN = 1;
-const WS_READY_STATE_CLOSING = 2;
+
 function closeWebSocket(socket) {
-    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
+    if (socket.readyState === 1 || socket.readyState === 2) {
         socket.close();
     }
 }
+
 function getConfig(userID, hostName) {
-    return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `vless://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
