@@ -227,7 +227,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             .pipeThrough(transformStream)
             .pipeTo(new WritableStream({
                 write(chunk) {
-                    if (webSocket.readyState === 1) {
+                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         webSocket.send(chunk);
                         hasData = true;
                     }
