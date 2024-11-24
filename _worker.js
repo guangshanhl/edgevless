@@ -91,28 +91,54 @@ async function ressOverWSHandler(request) {
         webSocket: client,
     });
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    async function connectAndWrite(address, port) {
+async function handleTCPOutBound(
+    remoteSocket: { value: any },
+    addressRemote: string,
+    portRemote: number,
+    clientData: Uint8Array,
+    webSocket: WebSocket,
+    resHeader: any
+) {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000; // 1 second
+
+    async function connectAndWrite(address: string, port: number) {
         if (!remoteSocket.value || remoteSocket.value.closed) {
             remoteSocket.value = connect({ hostname: address, port });
         }
+
         const writer = remoteSocket.value.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
+        
         return remoteSocket.value;
     }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+
+    async function tryConnectWithRetry(address: string, port: number): Promise<boolean> {
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                const tcpSocket = await connectAndWrite(address, port);
+                return await forwardToData(tcpSocket, webSocket, resHeader);
+            } catch (error) {
+                if (attempt < MAX_RETRIES - 1) {
+                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                    continue;
+                }
+                return false;
+            }
+        }
+        return false;
     }
+
     try {
-        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
+        if (!(await tryConnectWithRetry(addressRemote, portRemote))) {
             closeWebSocket(webSocket);
         }
     } catch (error) {
         closeWebSocket(webSocket);
     }
 }
+
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const handleMessage = (event, controller) => {
