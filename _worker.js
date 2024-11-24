@@ -76,12 +76,7 @@ async function ressOverWSHandler(request) {
                 }
                 handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
             }
-        }))
-        .pipeTo(new WritableStream({
-            async write(chunk, controller) {
-            }
-        }))
-        .catch((err) => {
+        })).catch((err) => {
             closeWebSocket(webSocket);
         });
     return new Response(null, {
@@ -113,19 +108,26 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
+    const handleMessage = (event, controller) => {
+        if (!isCancel) {
+            controller.enqueue(event.data);
+        }
+    };
+    const handleClose = (controller) => {
+        if (!isCancel) {
+            controller.close();
+            closeWebSocket(webSocket);
+        }
+    };
+    const handleError = (err, controller) => {
+        controller.error(err);
+        closeWebSocket(webSocket);
+    };
     const stream = new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', (event) => {
-                if (isCancel) return;
-                controller.enqueue(event.data);
-            });
-            webSocket.addEventListener('close', () => {
-                closeWebSocket(webSocket);
-                if (!isCancel) controller.close();
-            });
-            webSocket.addEventListener('error', (err) => {
-                controller.error(err);
-            });
+            webSocket.addEventListener('message', (event) => handleMessage(event, controller));
+            webSocket.addEventListener('close', () => handleClose(controller));
+            webSocket.addEventListener('error', (err) => handleError(err, controller));
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
@@ -134,9 +136,10 @@ function makeWebStream(webSocket, earlyHeader) {
             }
         },
         cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
-            closeWebSocket(webSocket);
+            if (!isCancel) {
+                isCancel = true;
+                closeWebSocket(webSocket);
+            }
         }
     });
     return stream;
