@@ -11,25 +11,29 @@ export default {
                 return await ressOverWSHandler(request);
             }                       
             const url = new URL(request.url);
-            switch (url.pathname) {
-                case '/':
-                    return new Response(JSON.stringify(request.cf), { status: 200 });
-                case `/${userID}`: {
-                    const config = getConfig(userID, request.headers.get('Host'));
-                    return new Response(config, {
-                        status: 200,
-                        headers: {
-                            "Content-Type": "text/plain;charset=utf-8"
-                        },
-                    });
-                }
-                default:
-                    return new Response('Not found', { status: 404 });
-            }
+            const routes = new Map([
+                ['/', () => new Response(JSON.stringify(request.cf), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'public, max-age=1800'
+                    }
+                })],
+                [`/${userID}`, () => new Response(
+                    getConfig(userID, request.headers.get('Host')), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8',
+                        'Cache-Control': 'private, no-cache'
+                    }
+                })]
+            ]);
+            const handler = routes.get(url.pathname);
+            return handler ? handler() : new Response('Not found', { status: 404 });
         } catch (err) {
             return new Response(err.toString());
         }
-    },
+    }
 };
 async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
