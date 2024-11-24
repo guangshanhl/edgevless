@@ -40,7 +40,7 @@ async function ressOverWSHandler(request) {
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);
+    const readableWebStream = makeTransformStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
