@@ -77,10 +77,6 @@ async function ressOverWSHandler(request) {
                 handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
             }
         }))
-        .pipeTo(new WritableStream({
-            async write(chunk, controller) {
-            }
-        }))
         .catch((err) => {
             closeWebSocket(webSocket);
         });
