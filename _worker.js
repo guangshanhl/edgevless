@@ -91,54 +91,28 @@ async function ressOverWSHandler(request) {
         webSocket: client,
     });
 }
-async function handleTCPOutBound(
-    remoteSocket: { value: any },
-    addressRemote: string,
-    portRemote: number,
-    clientData: Uint8Array,
-    webSocket: WebSocket,
-    resHeader: any
-) {
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 1000; // 1 second
-
-    async function connectAndWrite(address: string, port: number) {
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
+    async function connectAndWrite(address, port) {
         if (!remoteSocket.value || remoteSocket.value.closed) {
             remoteSocket.value = connect({ hostname: address, port });
         }
-
         const writer = remoteSocket.value.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
-        
         return remoteSocket.value;
     }
-
-    async function tryConnectWithRetry(address: string, port: number): Promise<boolean> {
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            try {
-                const tcpSocket = await connectAndWrite(address, port);
-                return await forwardToData(tcpSocket, webSocket, resHeader);
-            } catch (error) {
-                if (attempt < MAX_RETRIES - 1) {
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                    continue;
-                }
-                return false;
-            }
-        }
-        return false;
+    async function tryConnect(address, port) {
+        const tcpSocket = await connectAndWrite(address, port);
+        return forwardToData(tcpSocket, webSocket, resHeader);
     }
-
     try {
-        if (!(await tryConnectWithRetry(addressRemote, portRemote))) {
+        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
             closeWebSocket(webSocket);
         }
     } catch (error) {
         closeWebSocket(webSocket);
     }
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const handleMessage = (event, controller) => {
@@ -247,21 +221,18 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     await remoteSocket.readable.pipeTo(new WritableStream({
         async write(chunk, controller) {
-            if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+            if (webSocket.readyState !== WebSocket.OPEN) {
                 controller.error('WebSocket is closed');
             }
-            let bufferToSend;
             if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, resHeader.byteLength);
+                const combinedBuffer = await new Blob([resHeader, chunk]).arrayBuffer();
+                webSocket.send(combinedBuffer);
                 resHeader = null;
             } else {
-                bufferToSend = chunk;
+                webSocket.send(chunk);
             }
-            webSocket.send(bufferToSend);
             hasData = true;
-        },
+        }
     })).catch((error) => {
         closeWebSocket(webSocket);
     });
@@ -292,52 +263,45 @@ function closeWebSocket(socket) {
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
     let partChunk = null;
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            if (partChunk) {
-                chunk = new Uint8Array([...partChunk, ...chunk]);
-                partChunk = null;
-            }
-            let offset = 0;
-            while (offset < chunk.byteLength) {
-                if (chunk.byteLength < offset + 2) {
-                    partChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset, 2).getUint16(0);
-                const nextOffset = offset + 2 + udpPacketLength;
-                if (chunk.byteLength < nextOffset) {
-                    partChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpData = chunk.slice(offset + 2, nextOffset);
-                offset = nextOffset;
-                controller.enqueue(udpData);
-            }
+    async function processChunk(chunk) {
+        if (partChunk) {
+            chunk = new Uint8Array([...partChunk, ...chunk]);
+            partChunk = null;
         }
-    });
-    transformStream.readable.pipeTo(new WritableStream({
-        async write(chunk) {
+        let offset = 0;
+        while (offset < chunk.byteLength) {
+            if (chunk.byteLength < offset + 2) {
+                partChunk = chunk.slice(offset);
+                break;
+            }
+            const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset, 2).getUint16(0);
+            const nextOffset = offset + 2 + udpPacketLength;
+            if (chunk.byteLength < nextOffset) {
+                partChunk = chunk.slice(offset);
+                break;
+            }
+            const udpData = chunk.slice(offset + 2, nextOffset);
+            offset = nextOffset;
+
             const resp = await fetch('https://cloudflare-dns.com/dns-query', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/dns-message' },
-                body: chunk
+                body: udpData
             });
             const dnsQueryResult = await resp.arrayBuffer();
             const udpSizeBuffer = new Uint8Array([(dnsQueryResult.byteLength >> 8) & 0xff, dnsQueryResult.byteLength & 0xff]);
             const payload = headerSent
-                ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-                : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+                ? await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer()
+                : await new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer();
             headerSent = true;
-            if (webSocket.readyState === WS_READY_STATE_OPEN) {
+            if (webSocket.readyState === WebSocket.OPEN) {
                 webSocket.send(payload);
             }
         }
-    }));
-    const writer = transformStream.writable.getWriter();
+    }
     return {
         write(chunk) {
-            writer.write(chunk);
+            processChunk(chunk);
         }
     };
 }
