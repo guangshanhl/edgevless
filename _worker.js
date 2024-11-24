@@ -111,9 +111,9 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
-function makeWebStream(webSocket, earlyHeader) {
+function makeTransformStream(webSocket, earlyHeader) {
     let isCancel = false;
-    const stream = new ReadableStream({
+    const stream = new TransformStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => {
                 if (isCancel) return;
@@ -121,7 +121,7 @@ function makeWebStream(webSocket, earlyHeader) {
             });
             webSocket.addEventListener('close', () => {
                 closeWebSocket(webSocket);
-                if (!isCancel) controller.close();
+                if (!isCancel) controller.terminate();
             });
             webSocket.addEventListener('error', (err) => {
                 controller.error(err);
@@ -137,7 +137,7 @@ function makeWebStream(webSocket, earlyHeader) {
             if (isCancel) return;
             isCancel = true;
             closeWebSocket(webSocket);
-        }
+        },
     });
     return stream;
 }
