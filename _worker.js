@@ -11,57 +11,48 @@ export default {
                 return await ressOverWSHandler(request);
             }                       
             const url = new URL(request.url);
-            const routes = new Map([
-                ['/', () => new Response(JSON.stringify(request.cf), {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cache-Control': 'public, max-age=1800'
-                    }
-                })],
-                [`/${userID}`, () => new Response(
-                    getConfig(userID, request.headers.get('Host')), {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'text/plain;charset=utf-8',
-                        'Cache-Control': 'private, no-cache'
-                    }
-                })]
-            ]);
-            const handler = routes.get(url.pathname);
-            return handler ? handler() : new Response('Not found', { status: 404 });
+            switch (url.pathname) {
+                case '/':
+                    return new Response(JSON.stringify(request.cf), { status: 200 });
+                case `/${userID}`: {
+                    const config = getConfig(userID, request.headers.get('Host'));
+                    return new Response(config, {
+                        status: 200,
+                        headers: {
+                            "Content-Type": "text/plain;charset=utf-8"
+                        },
+                    });
+                }
+                default:
+                    return new Response('Not found', { status: 404 });
+            }
         } catch (err) {
             return new Response(err.toString());
         }
-    }
+    },
 };
 async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const transformStream = makeTransformStream(webSocket, earlyHeader);
-
+    const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-
-    transformStream
+    readableWebStream
         .pipeThrough(new TransformStream({
             async transform(chunk, controller) {
                 if (isDns && udpWrite) {
                     udpWrite(chunk);
                     return;
                 }
-
                 if (remoteSocket.value) {
                     const writer = remoteSocket.value.writable.getWriter();
                     await writer.write(chunk);
                     writer.releaseLock();
                     return;
                 }
-
                 const {
                     hasError,
                     portRemote = 443,
@@ -70,72 +61,34 @@ async function ressOverWSHandler(request) {
                     ressVersion = new Uint8Array([0, 0]),
                     isUDP,
                 } = processRessHeader(chunk, userID);
-
                 if (hasError) return;
-
                 if (isUDP) {
                     isDns = (portRemote === 53);
                     if (!isDns) return;
                 }
-
                 const resHeader = new Uint8Array([ressVersion[0], 0]);
                 const clientData = chunk.slice(rawDataIndex);
-
                 if (isDns) {
                     const { write } = await handleUDPOutBound(webSocket, resHeader);
                     udpWrite = write;
                     udpWrite(clientData);
                     return;
                 }
-
                 handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+            }
+        }))
+        .pipeTo(new WritableStream({
+            async write(chunk, controller) {
             }
         }))
         .catch((err) => {
             closeWebSocket(webSocket);
         });
-
     return new Response(null, {
         status: 101,
         webSocket: client,
     });
 }
-
-function makeTransformStream(webSocket, earlyHeader) {
-    const { readable, writable } = new TransformStream();
-
-    const writer = writable.getWriter();
-    const reader = readable.getReader();
-
-    let isCancel = false;
-
-    webSocket.addEventListener('message', (event) => {
-        if (isCancel) return;
-        writer.write(event.data);
-    });
-
-    webSocket.addEventListener('close', () => {
-        closeWebSocket(webSocket);
-        if (!isCancel) writer.close();
-    });
-
-    webSocket.addEventListener('error', (err) => {
-        writer.abort(err);
-    });
-
-    const { earlyData, error } = base64ToBuffer(earlyHeader);
-    if (error) {
-        writer.abort(error);
-    } else if (earlyData) {
-        writer.write(earlyData);
-    }
-
-    reader.releaseLock();
-    writer.releaseLock();
-
-    return readable;
-}
-
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
         if (!remoteSocket.value || remoteSocket.value.closed) {
@@ -146,12 +99,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
-
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-
     try {
         if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
             closeWebSocket(webSocket);
@@ -160,7 +111,36 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
-
+function makeWebStream(webSocket, earlyHeader) {
+    let isCancel = false;
+    const stream = new ReadableStream({
+        start(controller) {
+            webSocket.addEventListener('message', (event) => {
+                if (isCancel) return;
+                controller.enqueue(event.data);
+            });
+            webSocket.addEventListener('close', () => {
+                closeWebSocket(webSocket);
+                if (!isCancel) controller.close();
+            });
+            webSocket.addEventListener('error', (err) => {
+                controller.error(err);
+            });
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
+            }
+        },
+        cancel(reason) {
+            if (isCancel) return;
+            isCancel = true;
+            closeWebSocket(webSocket);
+        }
+    });
+    return stream;
+}
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
