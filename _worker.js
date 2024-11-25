@@ -109,37 +109,82 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-    let isCancel = false;
+    const BUFFER_SIZE = 262144; // 256KB optimal buffer size
+    let isActive = true;
+
     const stream = new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', (event) => {
-                if (isCancel) return;
+            // Message handler
+            const messageHandler = (event) => {
+                if (!isActive) return;
+                
                 const message = event.data;
-                controller.enqueue(message);
-            });
-            webSocket.addEventListener('close', () => {
+                if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
+                    // Process binary data in chunks
+                    for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
+                        const chunk = new Uint8Array(
+                            message.slice(offset, offset + BUFFER_SIZE)
+                        );
+                        controller.enqueue(chunk);
+                    }
+                } else {
+                    controller.enqueue(message);
+                }
+            };
+
+            // Close handler
+            const closeHandler = () => {
+                if (!isActive) return;
                 closeWebSocket(webSocket);
-                if (isCancel) return;
                 controller.close();
-            });
-            webSocket.addEventListener('error', (err) => {
+                isActive = false;
+            };
+
+            // Error handler
+            const errorHandler = (err) => {
+                if (!isActive) return;
                 controller.error(err);
-            });
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
+                isActive = false;
+            };
+
+            // Add event listeners
+            webSocket.addEventListener('message', messageHandler);
+            webSocket.addEventListener('close', closeHandler);
+            webSocket.addEventListener('error', errorHandler);
+
+            // Handle early data if present
+            if (earlyHeader) {
+                const { earlyData, error } = base64ToBuffer(earlyHeader);
+                if (error) {
+                    controller.error(error);
+                } else if (earlyData) {
+                    controller.enqueue(earlyData);
+                }
             }
+            return () => {
+                isActive = false;
+                webSocket.removeEventListener('message', messageHandler);
+                webSocket.removeEventListener('close', closeHandler);
+                webSocket.removeEventListener('error', errorHandler);
+                closeWebSocket(webSocket);
+            };
         },
+
         pull(controller) {
+            return Promise.resolve();
         },
+
         cancel(reason) {
-            if (isCancel) return;
-            isCancel = true;
+            isActive = false;
             closeWebSocket(webSocket);
         }
+    }, {
+        highWaterMark: BUFFER_SIZE,
+        size(chunk) {
+            return chunk.byteLength || 1;
+        }
     });
+
     return stream;
 }
 let cachedUserID;
