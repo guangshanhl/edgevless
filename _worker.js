@@ -1,6 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
+const BUFFER_SIZE = 262144;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
@@ -45,8 +46,14 @@ async function ressOverWSHandler(request) {
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
-                await writer.write(chunk);
-                writer.releaseLock();
+                try {
+                    for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
+                        const slice = chunk.slice(offset, offset + BUFFER_SIZE);
+                        await writer.write(slice);
+                    }
+                } finally {
+                    writer.releaseLock();
+                }
                 return;
             }
             const {
@@ -92,8 +99,14 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
             remoteSocket.value = connect({ hostname: address, port });
         }
         const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
+        try {
+            for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
+                const chunk = clientData.slice(offset, offset + BUFFER_SIZE);
+                await writer.write(chunk);
+            }
+        } finally {
+            writer.releaseLock();
+        }
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
@@ -109,7 +122,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-    const BUFFER_SIZE = 262144;
     let isActive = true;
     const stream = new ReadableStream({
         start(controller) {
@@ -240,7 +252,6 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    const BUFFER_SIZE = 262144;
     try {
         await remoteSocket.readable.pipeTo(new WritableStream({
             async write(chunk, controller) {
@@ -292,7 +303,6 @@ function closeWebSocket(socket) {
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
-    const CHUNK_SIZE = 16384;
     let headerSent = false;
     let partialChunk = null;    
     const transformStream = new TransformStream({
@@ -356,8 +366,8 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            for (let i = 0; i < chunk.length; i += CHUNK_SIZE) {
-                const slice = chunk.slice(i, Math.min(i + CHUNK_SIZE, chunk.length));
+            for (let i = 0; i < chunk.length; i += BUFFER_SIZE) {
+                const slice = chunk.slice(i, Math.min(i + BUFFER_SIZE, chunk.length));
                 writer.write(slice).catch(error => {
                     closeWebSocket(webSocket);
                 });
