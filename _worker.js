@@ -143,14 +143,24 @@ function makeWebStream(webSocket, earlyHeader) {
     return stream;
 }
 let cachedUserID;
+const ADDRESS_TYPES = {
+    IPV4: 1,
+    DOMAIN: 2,
+    IPV6: 3
+};
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
+    const dataView = new DataView(ressBuffer.buffer);
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
     if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+        cachedUserID = new Uint8Array(
+            userID.replace(/-/g, '')
+                 .match(/[0-9a-f]{2}/g)
+                 .map(byte => parseInt(byte, 16))
+        );
     }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
@@ -165,32 +175,35 @@ function processRessHeader(ressBuffer, userID) {
         return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
-    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
-    const portRemote = new DataView(portBuffer).getUint16(0);
+    const portRemote = dataView.getUint16(portIndex);
     let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
-    const addressType = addressBuffer[0];
+    const addressType = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1))[0];
     let addressLength = 0;
     let addressValueIndex = addressIndex + 1;
     let addressValue = '';
     switch (addressType) {
-        case 1:
+        case ADDRESS_TYPES.IPV4:
             addressLength = 4;
-            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = new Uint8Array(
+                ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+            ).join('.');
             break;
-        case 2:
+        case ADDRESS_TYPES.DOMAIN:
             addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
             addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            addressValue = new TextDecoder().decode(
+                ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+            );
             break;
-        case 3:
+        case ADDRESS_TYPES.IPV6:
             addressLength = 16;
-            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
-            const ipv6 = [];
-            for (let i = 0; i < 8; i++) {
-                ipv6.push(dataView.getUint16(i * 2).toString(16));
-            }
-            addressValue = ipv6.join(':');
+            const ipv6Data = new DataView(
+                ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+            );
+            const ipv6Parts = new Array(8).fill(0)
+                .map((_, i) => ipv6Data.getUint16(i * 2).toString(16))
+                .map(part => part.padStart(4, '0'));
+            addressValue = ipv6Parts.join(':');
             break;
         default:
             return { hasError: true };
@@ -210,7 +223,7 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    const BUFFER_SIZE = 16384;
+    const BUFFER_SIZE = 131072;
     try {
         await remoteSocket.readable.pipeTo(new WritableStream({
             async write(chunk, controller) {
@@ -262,54 +275,76 @@ function closeWebSocket(socket) {
     }
 }
 async function handleUDPOutBound(webSocket, resHeader) {
+    const CHUNK_SIZE = 16384;
     let headerSent = false;
-    let partChunk = null;
+    let partialChunk = null;    
     const transformStream = new TransformStream({
         transform(chunk, controller) {
-            if (partChunk) {
-                chunk = new Uint8Array([...partChunk, ...chunk]);
-                partChunk = null;
-            }
+            if (partialChunk) {
+                chunk = new Uint8Array([...partialChunk, ...chunk]);
+                partialChunk = null;
+            }            
             let offset = 0;
             while (offset < chunk.byteLength) {
                 if (chunk.byteLength < offset + 2) {
-                    partChunk = chunk.slice(offset);
+                    partialChunk = chunk.slice(offset);
                     break;
                 }
-                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset, 2).getUint16(0);
+                const dataView = new DataView(chunk.buffer, chunk.byteOffset + offset);
+                const udpPacketLength = dataView.getUint16(0);
                 const nextOffset = offset + 2 + udpPacketLength;
                 if (chunk.byteLength < nextOffset) {
-                    partChunk = chunk.slice(offset);
+                    partialChunk = chunk.slice(offset);
                     break;
                 }
                 const udpData = chunk.slice(offset + 2, nextOffset);
-                offset = nextOffset;
+                offset = nextOffset;               
                 controller.enqueue(udpData);
             }
         }
     });
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
-            const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/dns-message' },
-                body: chunk
-            });
-            const dnsQueryResult = await resp.arrayBuffer();
-            const udpSizeBuffer = new Uint8Array([(dnsQueryResult.byteLength >> 8) & 0xff, dnsQueryResult.byteLength & 0xff]);
-            const payload = headerSent
-                ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-                : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
-            headerSent = true;
-            if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                webSocket.send(payload);
+            try {
+                const response = await fetch('https://cloudflare-dns.com/dns-query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/dns-message',
+                        'Accept': 'application/dns-message'
+                    },
+                    body: chunk
+                });
+                if (!response.ok) {
+                    throw new Error(`DNS query failed: ${response.status}`);
+                }
+                const dnsQueryResult = await response.arrayBuffer();
+                const udpSizeBuffer = new Uint8Array([
+                    (dnsQueryResult.byteLength >> 8) & 0xff,
+                    dnsQueryResult.byteLength & 0xff
+                ]);
+                const payload = headerSent 
+                    ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
+                    : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);               
+                headerSent = true;
+                if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                    webSocket.send(payload);
+                }
+            } catch (error) {
+                closeWebSocket(webSocket);
             }
         }
-    }));
+    })).catch(error => {
+        closeWebSocket(webSocket);
+    });
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            writer.write(chunk);
+            for (let i = 0; i < chunk.length; i += CHUNK_SIZE) {
+                const slice = chunk.slice(i, Math.min(i + CHUNK_SIZE, chunk.length));
+                writer.write(slice).catch(error => {
+                    closeWebSocket(webSocket);
+                });
+            }
         }
     };
 }
