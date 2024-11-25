@@ -210,26 +210,33 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-        return hasData;
-    }
-    await remoteSocket.readable.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            let bufferToSend;
-            if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, resHeader.byteLength);
-                resHeader = null;
-            } else {
-                bufferToSend = chunk;
-            }
-            webSocket.send(bufferToSend);
-            hasData = true;
-        },
-    })).catch((error) => {
+    const BUFFER_SIZE = 16384;
+    try {
+        await remoteSocket.readable.pipeTo(new WritableStream({
+            async write(chunk, controller) {
+                let bufferToSend;               
+                if (resHeader) {
+                    bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                    bufferToSend.set(resHeader, 0);
+                    bufferToSend.set(chunk, resHeader.byteLength);
+                    resHeader = null;
+                } else {
+                    bufferToSend = chunk;
+                }
+                for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
+                    const slice = bufferToSend.slice(offset, offset + BUFFER_SIZE);                   
+                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                        webSocket.send(slice);
+                        hasData = true;
+                    } else {
+                        controller.error(new Error('WebSocket closed'));
+                    }
+                }
+            },
+        }));
+    } catch (error) {
         closeWebSocket(webSocket);
-    });
+    }
     return hasData;
 }
 function base64ToBuffer(base64Str) {
