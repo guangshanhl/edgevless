@@ -127,7 +127,7 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (!isActive) return;
                 const message = event.data;                
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    await processStreamData(message, {
+                    await processChunkedData(message, {
                         write: (chunk) => controller.enqueue(chunk),
                         desiredSize: controller.desiredSize
                     });
@@ -269,21 +269,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     }
     return hasData;
 }
-export async function processStreamData(chunk, writer) {
-    const buffer = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-    for (let offset = 0; offset < buffer.byteLength;) {
-        const end = Math.min(offset + bufferSize, buffer.byteLength);
-        const slice = buffer.subarray(offset, end);
-        await writer.write(slice);
-        offset = end;
-        
-        if (writer.desiredSize < 0) {
-            await new Promise(resolve => setTimeout(resolve, 1));
-        }
-    }
-}
-
-export async function processWebSocketData(buffer, webSocket) {
+async function processWebSocketData(buffer, webSocket) {
     for (let offset = 0; offset < buffer.byteLength;) {
         const end = Math.min(offset + bufferSize, buffer.byteLength);
         const slice = buffer.subarray(offset, end);        
@@ -298,7 +284,6 @@ export async function processWebSocketData(buffer, webSocket) {
         }
     }
 }
-
 async function processChunkedData(chunk, writer) {
     const buffer = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
     for (let offset = 0; offset < buffer.byteLength;) {
