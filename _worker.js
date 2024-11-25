@@ -4,34 +4,29 @@ let proxyIP = '';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
-    async fetch(request, env, ctx) {
-        try {
-            userID = env.UUID || userID;
-            proxyIP = env.PROXYIP || proxyIP; 
-            const upgradeHeader = request.headers.get('Upgrade');
-            if (upgradeHeader && upgradeHeader === 'websocket') {
-                return await ressOverWSHandler(request);
-            }                       
-            const url = new URL(request.url);
-            switch (url.pathname) {
-                case '/':
-                    return new Response(JSON.stringify(request.cf), { status: 200 });
-                case `/${userID}`: {
-                    const config = getConfig(userID, request.headers.get('Host'));
-                    return new Response(config, {
-                        status: 200,
-                        headers: {
-                            "Content-Type": "text/plain;charset=utf-8"
-                        },
-                    });
-                }
-                default:
-                    return new Response('Not found', { status: 404 });
-            }
-        } catch (err) {
-            return new Response(err.toString());
-        }
-    },
+  async fetch(request, env, ctx) {
+    userID = env.UUID || userID;
+    proxyIP = env.PROXYIP || proxyIP;   
+    try {
+      if(request.headers.get('Upgrade') === 'websocket') {
+        return await ressOverWSHandler(request);
+      }
+      const url = new URL(request.url);
+      const routes = new Map([
+        ['/', () => new Response(JSON.stringify(request.cf))],
+        [`/${userID}`, () => {
+          const config = getConfig(userID, request.headers.get('Host'));
+          return new Response(config, {
+            headers: {'Content-Type': 'text/plain;charset=utf-8'}
+          });
+        }]
+      ]);
+      const handler = routes.get(url.pathname);
+      return handler ? handler() : new Response('Not found', {status: 404});
+    } catch (err) {
+      return new Response(err.toString());
+    }
+  }
 };
 async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
