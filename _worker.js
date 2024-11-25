@@ -42,7 +42,11 @@ async function ressOverWSHandler(request) {
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                return udpWrite(chunk);
+                for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
+                    const slice = chunk.slice(offset, offset + BUFFER_SIZE);
+                    udpWrite(slice);
+                }
+                return;
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
