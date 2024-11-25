@@ -109,18 +109,14 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-    const BUFFER_SIZE = 262144; // 256KB optimal buffer size
+    const BUFFER_SIZE = 262144;
     let isActive = true;
-
     const stream = new ReadableStream({
         start(controller) {
-            // Message handler
             const messageHandler = (event) => {
-                if (!isActive) return;
-                
+                if (!isActive) return;           
                 const message = event.data;
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    // Process binary data in chunks
                     for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
                         const chunk = new Uint8Array(
                             message.slice(offset, offset + BUFFER_SIZE)
@@ -131,28 +127,20 @@ function makeWebStream(webSocket, earlyHeader) {
                     controller.enqueue(message);
                 }
             };
-
-            // Close handler
             const closeHandler = () => {
                 if (!isActive) return;
                 closeWebSocket(webSocket);
                 controller.close();
                 isActive = false;
             };
-
-            // Error handler
             const errorHandler = (err) => {
                 if (!isActive) return;
                 controller.error(err);
                 isActive = false;
             };
-
-            // Add event listeners
             webSocket.addEventListener('message', messageHandler);
             webSocket.addEventListener('close', closeHandler);
             webSocket.addEventListener('error', errorHandler);
-
-            // Handle early data if present
             if (earlyHeader) {
                 const { earlyData, error } = base64ToBuffer(earlyHeader);
                 if (error) {
@@ -169,11 +157,9 @@ function makeWebStream(webSocket, earlyHeader) {
                 closeWebSocket(webSocket);
             };
         },
-
         pull(controller) {
             return Promise.resolve();
         },
-
         cancel(reason) {
             isActive = false;
             closeWebSocket(webSocket);
@@ -184,7 +170,6 @@ function makeWebStream(webSocket, earlyHeader) {
             return chunk.byteLength || 1;
         }
     });
-
     return stream;
 }
 let cachedUserID;
