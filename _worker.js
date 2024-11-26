@@ -1,5 +1,5 @@
 import { connect } from 'cloudflare:sockets';
-const BUFFER_SIZE = 32768;
+const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
@@ -47,11 +47,8 @@ async function handleWebSocket(request) {
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
-                try {
-                    await writer.write(chunk);
-                } finally {
-                    writer.releaseLock();
-                }
+                await writer.write(chunk);
+                writer.releaseLock();
                 return;
             }
             const {
@@ -97,11 +94,8 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
             remoteSocket.value = connect({ hostname: address, port });
         }
         const writer = remoteSocket.value.writable.getWriter();
-        try {
-            await writer.write(clientData);
-        } finally {
-            writer.releaseLock();
-        }
+        await writer.write(clientData);
+        writer.releaseLock();
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
@@ -116,21 +110,15 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
     return new ReadableStream({
         start(controller) {
-            const messageHandler = (event) => {
-                if (!isActive) return;           
-                const message = event.data;
-                if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    controller.enqueue(new Uint8Array(message));
-                } else {
-                    controller.enqueue(message);
-                }
-            };
-            webSocket.addEventListener('message', messageHandler);
+             webSocket.addEventListener('message', (event) => {
+				if (!isActive) return;
+				const message = event.data;
+				controller.enqueue(message);
+			});
             webSocket.addEventListener('close', () => {
                 if (!isActive) return;
                 closeWebSocket(webSocket);
@@ -153,12 +141,7 @@ function makeWebStream(webSocket, earlyHeader) {
             isActive = false;
             closeWebSocket(webSocket);
         }
-    }, {
-        highWaterMark: BUFFER_SIZE,
-        size(chunk) {
-            return chunk.byteLength || 1;
-        }
-    });
+    }, { highWaterMark: BUFFER_SIZE });
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
@@ -234,7 +217,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 let bufferToSend;               
                 if (resHeader) {
                     bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                    bufferToSend.set(resHeader, 0);
+                    bufferToSend.set(resHeader);
                     bufferToSend.set(chunk, resHeader.byteLength);
                     resHeader = null;
                 } else {
