@@ -135,7 +135,7 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
                     for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
                         const chunk = new Uint8Array(
-                            message.slice(offset, offset + BUFFER_SIZE)
+                            message.subarray(offset, offset + BUFFER_SIZE)
                         );
                         controller.enqueue(chunk);
                     }
