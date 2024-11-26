@@ -80,7 +80,7 @@ async function ressOverWSHandler(request) {
                 }
             }
             const resHeader = new Uint8Array([ressVersion[0], 0]);
-            const clientData = chunk.slice(rawDataIndex);
+            const clientData = chunk.subarray(rawDataIndex);
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
@@ -203,18 +203,18 @@ function processRessHeader(ressBuffer, userID) {
     if (hasError) {
         return { hasError: true };
     }
-    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
-    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    const optLength = new Uint8Array(ressBuffer.subarray(17, 18))[0];
+    const command = new Uint8Array(ressBuffer.subarray(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
-    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
+    const portBuffer = ressBuffer.subarray(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
     let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
+    const addressBuffer = new Uint8Array(ressBuffer.subarray(addressIndex, addressIndex + 1));
     const addressType = addressBuffer[0];
     let addressLength = 0;
     let addressValueIndex = addressIndex + 1;
@@ -222,16 +222,16 @@ function processRessHeader(ressBuffer, userID) {
     switch (addressType) {
         case 1:
             addressLength = 4;
-            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = new Uint8Array(ressBuffer.subarray(addressValueIndex, addressValueIndex + addressLength)).join('.');
             break;
         case 2:
-            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            addressLength = new Uint8Array(ressBuffer.subarray(addressValueIndex, addressValueIndex + 1))[0];
             addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            addressValue = new TextDecoder().decode(ressBuffer.subarray(addressValueIndex, addressValueIndex + addressLength));
             break;
         case 3:
             addressLength = 16;
-            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            const dataView = new DataView(ressBuffer.subarray(addressValueIndex, addressValueIndex + addressLength));
             const ipv6 = [];
             for (let i = 0; i < 8; i++) {
                 ipv6.push(dataView.getUint16(i * 2).toString(16));
@@ -318,17 +318,17 @@ async function handleUDPOutBound(webSocket, resHeader) {
             let offset = 0;
             while (offset < chunk.byteLength) {
                 if (chunk.byteLength < offset + 2) {
-                    partialChunk = chunk.slice(offset);
+                    partialChunk = chunk.subarray(offset);
                     break;
                 }
                 const dataView = new DataView(chunk.buffer, chunk.byteOffset + offset);
                 const udpPacketLength = dataView.getUint16(0);
                 const nextOffset = offset + 2 + udpPacketLength;
                 if (chunk.byteLength < nextOffset) {
-                    partialChunk = chunk.slice(offset);
+                    partialChunk = chunk.subarray(offset);
                     break;
                 }
-                const udpData = chunk.slice(offset + 2, nextOffset);
+                const udpData = chunk.subarray(offset + 2, nextOffset);
                 offset = nextOffset;               
                 controller.enqueue(udpData);
             }
