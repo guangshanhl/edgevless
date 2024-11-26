@@ -43,7 +43,7 @@ async function ressOverWSHandler(request) {
         async write(chunk, controller) {
             if (isDns && udpWrite) {
                 for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                    const subdata = chunk.subarray(offset, offset + BUFFER_SIZE);
+                    const subdata = chunk.slice(offset, offset + BUFFER_SIZE);
                     udpWrite(subdata);
                 }
                 return;
@@ -52,7 +52,7 @@ async function ressOverWSHandler(request) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
                     for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                        const subdata = chunk.subarray(offset, offset + BUFFER_SIZE);
+                        const subdata = chunk.slice(offset, offset + BUFFER_SIZE);
                         await writer.write(subdata);
                     }
                 } finally {
@@ -135,7 +135,7 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
                     for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
                         const chunk = new Uint8Array(
-                            message.subarray(offset, offset + BUFFER_SIZE)
+                            message.slice(offset, offset + BUFFER_SIZE)
                         );
                         controller.enqueue(chunk);
                     }
@@ -269,7 +269,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                     bufferToSend = chunk;
                 }
                 for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                    const subdata = bufferToSend.subarray(offset, offset + BUFFER_SIZE);                   
+                    const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);                   
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         webSocket.send(subdata);
                         hasData = true;
@@ -371,7 +371,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     return {
         write(chunk) {
             for (let i = 0; i < chunk.length; i += BUFFER_SIZE) {
-                const subdata = chunk.subarray(i, Math.min(i + BUFFER_SIZE, chunk.length));
+                const subdata = chunk.slice(i, Math.min(i + BUFFER_SIZE, chunk.length));
                 writer.write(subdata).catch(error => {
                     closeWebSocket(webSocket);
                 });
