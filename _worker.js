@@ -126,67 +126,65 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-    let isActive = true;
-    const stream = new ReadableStream({
-        start(controller) {
-            const messageHandler = (event) => {
-                if (!isActive) return;           
-                const message = event.data;
-                if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
-                        const chunk = new Uint8Array(
-                            message.slice(offset, offset + BUFFER_SIZE)
-                        );
-                        controller.enqueue(chunk);
-                    }
-                } else {
-                    controller.enqueue(message);
-                }
-            };
-            const closeHandler = () => {
-                if (!isActive) return;
-                closeWebSocket(webSocket);
-                controller.close();
-                isActive = false;
-            };
-            const errorHandler = (err) => {
-                if (!isActive) return;
-                controller.error(err);
-                isActive = false;
-            };
-            webSocket.addEventListener('message', messageHandler);
-            webSocket.addEventListener('close', closeHandler);
-            webSocket.addEventListener('error', errorHandler);
-            if (earlyHeader) {
-                const { earlyData, error } = base64ToBuffer(earlyHeader);
-                if (error) {
-                    controller.error(error);
-                } else if (earlyData) {
-                    controller.enqueue(earlyData);
-                }
-            }
-            return () => {
-                isActive = false;
-                webSocket.removeEventListener('message', messageHandler);
-                webSocket.removeEventListener('close', closeHandler);
-                webSocket.removeEventListener('error', errorHandler);
-                closeWebSocket(webSocket);
-            };
-        },
-        pull(controller) {
-            return Promise.resolve();
-        },
-        cancel(reason) {
-            isActive = false;
-            closeWebSocket(webSocket);
+  let isActive = true;
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const messageHandler = (event) => {
+        if (!isActive) return;
+        const message = event.data;
+        const chunk = message instanceof ArrayBuffer || message instanceof Uint8Array
+          ? new Uint8Array(message.slice(0, BUFFER_SIZE))
+          : message;
+        controller.enqueue(chunk);
+      };
+
+      const handleError = (error) => {
+        if (!isActive) return;
+        controller.error(error);
+        isActive = false;
+      };
+
+      webSocket.addEventListener('message', messageHandler);
+      webSocket.addEventListener('close', () => {
+        if (!isActive) return;
+        closeWebSocket(webSocket);
+        controller.close();
+        isActive = false;
+      });
+      webSocket.addEventListener('error', handleError);
+
+      if (earlyHeader) {
+        const { earlyData, error } = base64ToBuffer(earlyHeader);
+        if (error) {
+          handleError(error);
+        } else if (earlyData) {
+          controller.enqueue(earlyData);
         }
-    }, {
-        highWaterMark: BUFFER_SIZE,
-        size(chunk) {
-            return chunk.byteLength || 1;
-        }
-    });
-    return stream;
+      }
+
+      return () => {
+        isActive = false;
+        webSocket.removeEventListener('message', messageHandler);
+        webSocket.removeEventListener('close', () => {});
+        webSocket.removeEventListener('error', handleError);
+        closeWebSocket(webSocket);
+      };
+    },
+    pull(controller) {
+      return Promise.resolve();
+    },
+    cancel(reason) {
+      isActive = false;
+      closeWebSocket(webSocket);
+    }
+  }, {
+    highWaterMark: BUFFER_SIZE,
+    size(chunk) {
+      return chunk.byteLength || 1;
+    }
+  });
+  return stream;
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
