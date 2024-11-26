@@ -1,5 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
@@ -115,10 +114,10 @@ function makeWebStream(webSocket, earlyHeader) {
     return new ReadableStream({
         start(controller) {
              webSocket.addEventListener('message', (event) => {
-				if (!isActive) return;
-				const message = event.data;
-				controller.enqueue(message);
-			});
+		if (!isActive) return;
+		const message = event.data;
+		controller.enqueue(message);
+	    });
             webSocket.addEventListener('close', () => {
                 if (!isActive) return;
                 closeWebSocket(webSocket);
@@ -141,7 +140,7 @@ function makeWebStream(webSocket, earlyHeader) {
             isActive = false;
             closeWebSocket(webSocket);
         }
-    }, { highWaterMark: BUFFER_SIZE });
+    });
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
@@ -226,8 +225,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 if (webSocket.readyState === WS_READY_STATE_OPEN) {
                     webSocket.send(bufferToSend);
                     hasData = true;
-                } else {
-                    return false;
                 }
             },
         }));
@@ -306,9 +303,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            writer.write(chunk).catch(() => {
-                closeWebSocket(webSocket);
-            });
+            writer.write(chunk);
         }
     };
 }
