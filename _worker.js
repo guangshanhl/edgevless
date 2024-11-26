@@ -43,8 +43,8 @@ async function ressOverWSHandler(request) {
         async write(chunk, controller) {
             if (isDns && udpWrite) {
                 for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                    const slice = chunk.slice(offset, offset + BUFFER_SIZE);
-                    udpWrite(slice);
+                    const subdata = chunk.subarray(offset, offset + BUFFER_SIZE);
+                    udpWrite(subdata);
                 }
                 return;
             }
@@ -52,8 +52,8 @@ async function ressOverWSHandler(request) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
                     for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                        const slice = chunk.slice(offset, offset + BUFFER_SIZE);
-                        await writer.write(slice);
+                        const subdata = chunk.subarray(offset, offset + BUFFER_SIZE);
+                        await writer.write(subdata);
                     }
                 } finally {
                     writer.releaseLock();
@@ -105,7 +105,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const writer = remoteSocket.value.writable.getWriter();
         try {
             for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
-                const chunk = clientData.slice(offset, offset + BUFFER_SIZE);
+                const chunk = clientData.subarray(offset, offset + BUFFER_SIZE);
                 await writer.write(chunk);
             }
         } finally {
@@ -135,7 +135,7 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
                     for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
                         const chunk = new Uint8Array(
-                            message.slice(offset, offset + BUFFER_SIZE)
+                            message.subarray(offset, offset + BUFFER_SIZE)
                         );
                         controller.enqueue(chunk);
                     }
