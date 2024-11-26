@@ -43,7 +43,7 @@ async function ressOverWSHandler(request) {
         async write(chunk, controller) {
             if (isDns && udpWrite) {
                 for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                    const slice = chunk.slice(offset, offset + BUFFER_SIZE);
+                    const slice = chunk.subarray(offset, offset + BUFFER_SIZE);
                     udpWrite(slice);
                 }
                 return;
@@ -52,7 +52,7 @@ async function ressOverWSHandler(request) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
                     for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                        const slice = chunk.slice(offset, offset + BUFFER_SIZE);
+                        const slice = chunk.subarray(offset, offset + BUFFER_SIZE);
                         await writer.write(slice);
                     }
                 } finally {
@@ -105,7 +105,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const writer = remoteSocket.value.writable.getWriter();
         try {
             for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
-                const chunk = clientData.slice(offset, offset + BUFFER_SIZE);
+                const chunk = clientData.subarray(offset, offset + BUFFER_SIZE);
                 await writer.write(chunk);
             }
         } finally {
@@ -135,7 +135,7 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
                     for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
                         const chunk = new Uint8Array(
-                            message.slice(offset, offset + BUFFER_SIZE)
+                            message.subarray(offset, offset + BUFFER_SIZE)
                         );
                         controller.enqueue(chunk);
                     }
@@ -193,12 +193,12 @@ function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
-    const version = new Uint8Array(ressBuffer.slice(0, 1));
+    const version = ressBuffer.subarray(0, 1);
     let isUDP = false;
     if (!cachedUserID) {
         cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
-    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
+    const bufferUserID = ressBuffer.subarray(1, 17);
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
     if (hasError) {
         return { hasError: true };
@@ -261,15 +261,15 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             async write(chunk, controller) {
                 let bufferToSend;               
                 if (resHeader) {
-                    bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                    bufferToSend.set(resHeader, 0);
-                    bufferToSend.set(chunk, resHeader.byteLength);
+                    const bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                    bufferToSend.set(resHeader.subarray(0));
+                    bufferToSend.set(chunk.subarray(0), resHeader.byteLength);
                     resHeader = null;
                 } else {
                     bufferToSend = chunk;
                 }
                 for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                    const slice = bufferToSend.slice(offset, offset + BUFFER_SIZE);                   
+                    const slice = bufferToSend.subarray(offset, offset + BUFFER_SIZE);                   
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         webSocket.send(slice);
                         hasData = true;
@@ -371,7 +371,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     return {
         write(chunk) {
             for (let i = 0; i < chunk.length; i += BUFFER_SIZE) {
-                const slice = chunk.slice(i, Math.min(i + BUFFER_SIZE, chunk.length));
+                const slice = chunk.subarray(i, Math.min(i + BUFFER_SIZE, chunk.length));
                 writer.write(slice).catch(error => {
                     closeWebSocket(webSocket);
                 });
