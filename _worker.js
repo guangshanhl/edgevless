@@ -105,7 +105,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const writer = remoteSocket.value.writable.getWriter();
         try {
             for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
-                const chunk = clientData.subarray(offset, offset + BUFFER_SIZE);
+                const chunk = clientData.slice(offset, offset + BUFFER_SIZE);
                 await writer.write(chunk);
             }
         } finally {
