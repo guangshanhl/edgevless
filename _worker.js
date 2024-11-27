@@ -88,11 +88,8 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
   async function connectAndWrite(address, port) {
     remoteSocket.value = await connect({ hostname: address, port });
     const writer = remoteSocket.value.writable.getWriter();
-    try {
-      await writer.write(clientData);
-    } finally {
-      writer.releaseLock();
-    }
+    await writer.write(clientData);
+    writer.releaseLock();
     return remoteSocket.value;
   }
   async function handleToData(remoteSocket, webSocket, resHeader) {
