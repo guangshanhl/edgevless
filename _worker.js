@@ -30,7 +30,6 @@ async function handleWebSocket(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
@@ -56,7 +55,6 @@ async function handleWebSocket(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            address = addressRemote;
             if (hasError) {
                 return;
             }
@@ -150,7 +148,7 @@ function processRessHeader(ressBuffer, userID) {
     if (!cachedUserID) {
         cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
-    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
+    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));	
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
     if (hasError) {
         return { hasError: true };
