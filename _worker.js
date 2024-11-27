@@ -39,8 +39,7 @@ async function handleWebSocket(request) {
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                udpWrite(chunk);
-                return;
+                return udpWrite(chunk);
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
@@ -56,9 +55,7 @@ async function handleWebSocket(request) {
                 resVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = handleResHeader(chunk, userID);
-            if (hasError) {
-                return;
-            }
+            if (hasError) return;
             if (isUDP) {
                 if (portRemote === 53) {
                     isDns = true;
@@ -79,10 +76,7 @@ async function handleWebSocket(request) {
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
-    return new Response(null, {
-        status: 101,
-        webSocket: client,
-    });
+    return new Response(null, { status: 101, webSocket: client });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
@@ -230,9 +224,7 @@ async function handleToData(remoteSocket, webSocket, resHeader) {
     return hasData;
 }
 function base64ToBuffer(base64Str) {
-    if (!base64Str) {
-        return { error: null };
-    }
+    return base64Str ? undefined : { error: null };
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
