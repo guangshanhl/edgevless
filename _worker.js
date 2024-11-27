@@ -1,6 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-const WS_READY_STATE_OPEN = 1;
-const WS_READY_STATE_CLOSING = 2;
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
 export default {
@@ -101,13 +99,13 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    try {
-        if (!(await tryConnect(addressRemote, portRemote)) && proxyIP && !(await tryConnect(proxyIP, portRemote))) {
-            closeWebSocket(webSocket);
-        }
-    } catch (error) {
-        closeWebSocket(webSocket);
+    if (await tryConnect(addressRemote, portRemote)) {
+        return;
     }
+    if (await tryConnect(proxyIP, portRemote)) {
+        return;
+    }
+    closeWebSocket(webSocket);
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
@@ -222,7 +220,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 } else {
                     bufferToSend = chunk;
                 }
-                if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                if (webSocket.readyState === 1) {
                     webSocket.send(bufferToSend);
                     hasData = true;
                 }
@@ -251,7 +249,7 @@ function base64ToBuffer(base64Str) {
     }
 }
 function closeWebSocket(socket) {
-    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
+    if (socket.readyState === 1 || socket.readyState === 2) {
         socket.close();
     }
 }
@@ -290,7 +288,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                     ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                     : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);               
                 headerSent = true;
-                if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                if (webSocket.readyState === 1) {
                     webSocket.send(payload);
                 }
             } catch (error) {
