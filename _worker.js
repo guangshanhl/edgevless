@@ -96,6 +96,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     if (await tryConnect(proxyIP)) {
         return;
     }
+    closeWebSocket(webSocket);
 }
 function handleWebStream(webSocket, earlyHeader) {
     let isActive = true;
