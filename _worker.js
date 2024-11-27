@@ -260,7 +260,7 @@ function parseVLESSHeader(buffer, userID) {
         addressRemote: addr,
         portRemote: port,
         rawDataIndex: offset,
-        resHeader: version,
+        resHeader: new Uint8Array([version, 0]),
         isUDP: command === 2
     };
 }
