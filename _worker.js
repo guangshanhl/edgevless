@@ -95,14 +95,14 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
+    async function tryConnect(address) {
+        const tcpSocket = await connectAndWrite(address, portRemote);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    if (await tryConnect(addressRemote, portRemote)) {
+    if (await tryConnect(addressRemote)) {
         return;
     }
-    if (await tryConnect(proxyIP, portRemote)) {
+    if (await tryConnect(proxyIP)) {
         return;
     }
     closeWebSocket(webSocket);
