@@ -32,7 +32,7 @@ async function handleWebSocket(request) {
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);
+    const readableWebStream = handleWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
@@ -55,7 +55,7 @@ async function handleWebSocket(request) {
                 rawDataIndex,
                 resVersion = new Uint8Array([0, 0]),
                 isUDP,
-            } = processResHeader(chunk, userID);
+            } = handleResHeader(chunk, userID);
             if (hasError) {
                 return;
             }
@@ -96,7 +96,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
     async function tryConnect(address) {
         const tcpSocket = await connectAndWrite(address, portRemote);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        return handleToData(tcpSocket, webSocket, resHeader);
     }
     if (await tryConnect(addressRemote)) {
         return;
@@ -106,7 +106,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
     closeWebSocket(webSocket);
 }
-function makeWebStream(webSocket, earlyHeader) {
+function handleWebStream(webSocket, earlyHeader) {
     let isActive = true;
     return new ReadableStream({
         start(controller) {
@@ -139,7 +139,7 @@ function makeWebStream(webSocket, earlyHeader) {
         }
     });
 }
-function processResHeader(resBuffer, userID) {
+function handleResHeader(resBuffer, userID) {
     if (resBuffer.byteLength < 24) {
         return { hasError: true };
     }
@@ -204,7 +204,7 @@ function processResHeader(resBuffer, userID) {
         isUDP,
     };
 }
-async function forwardToData(remoteSocket, webSocket, resHeader) {
+async function handleToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     try {
         await remoteSocket.readable.pipeTo(new WritableStream({
