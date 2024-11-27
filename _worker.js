@@ -169,43 +169,37 @@ function handleResHeader(resBuffer, userID) {
   if (!cachedUserID) {
     cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
   }
-  const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));	
+  const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
   const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
   if (hasError) {
     return { hasError: true };
   }
-  const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
-  const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+  const optLength = resBuffer[17];
+  const command = resBuffer[18 + optLength]; 
   if (command === 2) {
     isUDP = true;
   } else if (command !== 1) {
     return { hasError: false };
   }
   const portIndex = 18 + optLength + 1;
-  const portBuffer = resBuffer.slice(portIndex, portIndex + 2);
-  const portRemote = new DataView(portBuffer).getUint16(0);
-  let addressIndex = portIndex + 2;
-  const addressBuffer = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1));
-  const addressType = addressBuffer[0];
-  let addressLength = 0;
-  let addressValueIndex = addressIndex + 1;
-  let addressValue = '';
+  const portRemote = new DataView(resBuffer.slice(portIndex, portIndex + 2)).getUint16(0);
+  const addressIndex = portIndex + 2;
+  const addressType = resBuffer[addressIndex];
+  let addressValue, addressLength;
   switch (addressType) {
     case 1:
       addressLength = 4;
-      addressValue = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+      addressValue = Array.from(new Uint8Array(resBuffer.slice(addressIndex + 1, addressIndex + 1 + addressLength))).join('.');
       break;
     case 2:
-      addressLength = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
-      addressValueIndex += 1;
-      addressValue = new TextDecoder().decode(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+      addressLength = resBuffer[addressIndex + 1];
+      addressValue = new TextDecoder().decode(resBuffer.slice(addressIndex + 2, addressIndex + 2 + addressLength));
       break;
     case 3:
       addressLength = 16;
-      const dataView = new DataView(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       const ipv6 = [];
       for (let i = 0; i < 8; i++) {
-        ipv6.push(dataView.getUint16(i * 2).toString(16));
+        ipv6.push(resBuffer.slice(addressIndex + 1, addressIndex + 1 + addressLength).readUInt16BE(i * 2).toString(16));
       }
       addressValue = ipv6.join(':');
       break;
@@ -220,7 +214,7 @@ function handleResHeader(resBuffer, userID) {
     addressRemote: addressValue,
     addressType,
     portRemote,
-    rawDataIndex: addressValueIndex + addressLength,
+    rawDataIndex: addressIndex + 1 + addressLength,
     resVersion: version,
     isUDP,
   };
