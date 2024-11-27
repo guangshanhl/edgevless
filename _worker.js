@@ -73,9 +73,7 @@ async function handleWebSocket(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-    })).catch((err) => {
-        closeWebSocket(webSocket);
-    });
+    }));
     return new Response(null, { status: 101, webSocket: client });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
@@ -98,7 +96,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     if (await tryConnect(proxyIP)) {
         return;
     }
-    closeWebSocket(webSocket);
 }
 function handleWebStream(webSocket, earlyHeader) {
     let isActive = true;
