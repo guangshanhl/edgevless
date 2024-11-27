@@ -127,23 +127,26 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function handleWebStream(webSocket, earlyHeader) {
   let isActive = true;
+  const handleClose = () => {
+    if (!isActive) return;
+    closeWebSocket(webSocket);
+    controller.close();
+    isActive = false;
+  };
+  const handleError = (error) => {
+    if (!isActive) return;
+    controller.error(error);
+    isActive = false;
+  };
   return new ReadableStream({
     start(controller) {
       webSocket.addEventListener('message', (event) => {
-        if (!isActive) return;
-        controller.enqueue(event.data);
+        if (isActive) {
+          controller.enqueue(event.data);
+        }
       });
-      webSocket.addEventListener('close', () => {
-        if (!isActive) return;
-        closeWebSocket(webSocket);
-        controller.close();
-        isActive = false;
-      });
-      webSocket.addEventListener('error', (error) => {
-        if (!isActive) return;
-        controller.error(error);
-        isActive = false;
-      });
+      webSocket.addEventListener('close', handleClose);
+      webSocket.addEventListener('error', handleError);
       if (earlyHeader) {
         const { earlyData, error } = base64ToBuffer(earlyHeader);
         if (!error && earlyData) {
