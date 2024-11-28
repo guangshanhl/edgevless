@@ -5,33 +5,30 @@ let proxyIP = '';
 
 export default {
   async fetch(request, env, ctx) {
-    const userID = env.UUID;
-    const proxyIP = env.PROXYIP;
-    const upgradeHeader = request.headers.get('Upgrade');
-
     try {
-      if (upgradeHeader === 'websocket') {
-        return await vlessOverWSHandler(request);
-      }
+      userID = env.UUID || userID;
+      proxyIP = env.PROXYIP || proxyIP;
+      const upgradeHeader = request.headers.get('Upgrade');
 
-      const url = new URL(request.url);
-      
-      switch (url.pathname) {
-        case '/':
-          return new Response(JSON.stringify(request.cf), { status: 200 });
-
-        case `/${userID}`: {
-          const vlessConfig = getVLESSConfig(userID, request.headers.get('Host'));
-          return new Response(`${vlessConfig}`, {
-            status: 200,
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            }
-          });
+      if (!upgradeHeader || upgradeHeader !== 'websocket') {
+        const url = new URL(request.url);
+        switch (url.pathname) {
+          case '/':
+            return new Response(JSON.stringify(request.cf), { status: 200 });
+          case `/${userID}`: {
+            const vlessConfig = getVLESSConfig(userID, request.headers.get('Host'));
+            return new Response(`${vlessConfig}`, {
+              status: 200,
+              headers: {
+                "Content-Type": "text/plain;charset=utf-8",
+              }
+            });
+          }
+          default:
+            return new Response('Not found', { status: 404 });
         }
-
-        default:
-          return new Response('Not found', { status: 404 });
+      } else {
+        return await vlessOverWSHandler(request);
       }
     } catch (err) {
       return new Response(err.toString());
@@ -302,6 +299,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader) {
       close() {
       },
       abort(reason) {
+        safeCloseWebSocket(webSocket);
       }
     })
   ).catch((error) => {
