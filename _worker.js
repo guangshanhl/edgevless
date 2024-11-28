@@ -299,7 +299,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader) {
       close() {
       },
       abort(reason) {
-        safeCloseWebSocket(webSocket);
       }
     })
   ).catch((error) => {
