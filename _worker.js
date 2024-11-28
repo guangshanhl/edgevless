@@ -181,7 +181,6 @@ function processVlessHeader(vlessBuffer, userID) {
   if (vlessBuffer.byteLength < 24) {
     return {
       hasError: true,
-      message: 'invalid data',
     };
   }
 
@@ -196,7 +195,6 @@ function processVlessHeader(vlessBuffer, userID) {
   if (!isValidUser) {
     return {
       hasError: true,
-      message: 'invalid user',
     };
   }
 
@@ -211,7 +209,6 @@ function processVlessHeader(vlessBuffer, userID) {
   } else {
     return {
       hasError: false,
-      message: `command ${command} is not support, command 01-tcp,02-udp,03-mux`,
     };
   }
 
@@ -258,14 +255,12 @@ function processVlessHeader(vlessBuffer, userID) {
     default:
       return {
         hasError: true,
-        message: `invild  addressType is ${addressType}`,
       };
   }
 
   if (!addressValue) {
     return {
       hasError: true,
-      message: `addressValue is empty, addressType is ${addressType}`,
     };
   }
 
@@ -304,7 +299,6 @@ async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader) {
       close() {
       },
       abort(reason) {
-        safeCloseWebSocket(webSocket);
       }
     })
   ).catch((error) => {
