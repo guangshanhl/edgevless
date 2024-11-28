@@ -98,8 +98,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
       remoteSocket.value = ({
         hostname: address,
         port: port,
-        secureTransport：on,
-        allowHalfOpen: true
       });
     }
     const writer = remoteSocket.value.writable.getWriter();
