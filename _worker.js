@@ -202,55 +202,26 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    const CHUNK_SIZE = 64 * 1024;
     try {
-        const transformer = new TransformStream({
-            transform(chunk, controller) {
-                if (chunk.byteLength > CHUNK_SIZE) {
-                    for (let i = 0; i < chunk.byteLength; i += CHUNK_SIZE) {
-                        controller.enqueue(chunk.slice(i, i + CHUNK_SIZE));
-                    }
+        await remoteSocket.readable.pipeTo(new WritableStream({
+            async write(chunk) {
+                let bufferToSend;               
+                if (resHeader) {
+                    bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                    bufferToSend.set(resHeader);
+                    bufferToSend.set(chunk, resHeader.byteLength);
+                    resHeader = null;
                 } else {
-                    controller.enqueue(chunk);
+                    bufferToSend = chunk;
                 }
-            }
-        });
-        const queue = [];
-        let processing = false;
-        await remoteSocket.readable
-            .pipeThrough(transformer)
-            .pipeTo(new WritableStream({
-                async write(chunk) {
-                    if (!webSocket || webSocket.readyState !== WS_READY_STATE_OPEN) {
-                        return;
-                    }
-                    let bufferToSend;                
-                    if (resHeader) {
-                        bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                        bufferToSend.set(new Uint8Array(resHeader));
-                        bufferToSend.set(new Uint8Array(chunk), resHeader.byteLength);
-                        resHeader = null;
-                    } else {
-                        bufferToSend = chunk;
-                    }
-                    queue.push(bufferToSend);
-                    if (!processing) {
-                        processing = true;
-                        while (queue.length > 0) {
-                            const data = queue.shift();
-                            await new Promise(resolve => {
-                                webSocket.send(data, resolve);
-                            });
-                            hasData = true;
-                        }
-                        processing = false;
-                    }
+                if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                    webSocket.send(bufferToSend);
+                    hasData = true;
                 }
-            }));
+            },
+        }));
     } catch (error) {
-        if (webSocket?.readyState === WS_READY_STATE_OPEN) {
-            webSocket.close(1006, 'Connection error');
-        }
+        closeWebSocket(webSocket);
     }
     return hasData;
 }
