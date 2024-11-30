@@ -91,41 +91,16 @@ async function ressOverWSHandler(request) {
         webSocket: client,
     });
 }
-const connectionStates = new Map();
-
-async function getConnection(address, port, connectFn) {
-    const key = `${address}:${port}`;
-    if (connectionStates.has(key)) {
-        return connectionStates.get(key);
-    }
-    const connection = await connectFn(address, port);
-    connectionStates.set(key, connection);
-    return connection;
-}
-
-async function releaseConnection(address, port) {
-    const key = `${address}:${port}`;
-    if (connectionStates.has(key)) {
-        const connection = connectionStates.get(key);
-        try {
-            connection.close();
-        } catch (e) {
-            console.error('Failed to close connection:', e);
-        }
-        connectionStates.delete(key);
-    }
-}
-
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-		const tcpSocket = await getConnection(address, port, async (address, port) => {
-			return connect({ hostname: address, port });
-		});
-		const writer = tcpSocket.writable.getWriter();
-		await writer.write(clientData);
-		writer.releaseLock();
-		return tcpSocket;
-	}
+        if (!remoteSocket.value || remoteSocket.value.closed) {
+            remoteSocket.value = connect({ hostname: address, port });
+        }
+        const writer = remoteSocket.value.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
+        return remoteSocket.value;
+    }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
@@ -249,16 +224,13 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             if (webSocket.readyState !== WS_READY_STATE_OPEN) {
                 controller.error('WebSocket is closed');
             }
-            let bufferToSend;
             if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, resHeader.byteLength);
-                resHeader = null;
-            } else {
-                bufferToSend = chunk;
-            }
-            webSocket.send(bufferToSend);
+				webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
+				resHeader = null;
+			} else {
+					
+				webSocket.send(chunk);
+			}
             hasData = true;
         },
     })).catch((error) => {
@@ -324,13 +296,14 @@ async function handleUDPOutBound(webSocket, resHeader) {
             });
             const dnsQueryResult = await resp.arrayBuffer();
             const udpSizeBuffer = new Uint8Array([(dnsQueryResult.byteLength >> 8) & 0xff, dnsQueryResult.byteLength & 0xff]);
-            const payload = headerSent
-                ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-                : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
-            headerSent = true;
             if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                webSocket.send(payload);
-            }
+				if (headerSent) {
+					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+				} else {
+					webSocket.send(await new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+					headerSent = true;
+				}
+			}
         }
     }));
     const writer = transformStream.writable.getWriter();
