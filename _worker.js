@@ -225,12 +225,11 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 controller.error('WebSocket is closed');
             }
             if (resHeader) {
-				webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
-				resHeader = null;
-			} else {
-					
-				webSocket.send(chunk);
-			}
+		webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
+		resHeader = null;
+	    } else {					
+		webSocket.send(chunk);
+	    }
             hasData = true;
         },
     })).catch((error) => {
@@ -297,13 +296,13 @@ async function handleUDPOutBound(webSocket, resHeader) {
             const dnsQueryResult = await resp.arrayBuffer();
             const udpSizeBuffer = new Uint8Array([(dnsQueryResult.byteLength >> 8) & 0xff, dnsQueryResult.byteLength & 0xff]);
             if (webSocket.readyState === WS_READY_STATE_OPEN) {
-				if (headerSent) {
-					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-				} else {
-					webSocket.send(await new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-					headerSent = true;
-				}
-			}
+		if (headerSent) {
+			webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+		} else {
+			webSocket.send(await new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+			headerSent = true;
+		}
+	    }
         }
     }));
     const writer = transformStream.writable.getWriter();
