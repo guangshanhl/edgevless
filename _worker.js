@@ -238,8 +238,7 @@ function base64ToBuffer(base64Str) {
     const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
     const binaryStr = atob(normalizedStr);
     const length = binaryStr.length;
-    const arrayBuffer = new Uint8Array(length);
-    
+    const arrayBuffer = new Uint8Array(length);    
     for (let i = 0; i < length; i++) {
       arrayBuffer[i] = binaryStr.charCodeAt(i);
     }
