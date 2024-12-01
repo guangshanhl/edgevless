@@ -103,7 +103,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
+    try {
+        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
+            closeWebSocket(webSocket);
+        }
+    } catch (error) {
         closeWebSocket(webSocket);
     }
 }
@@ -126,15 +130,15 @@ function makeWebStream(webSocket, earlyHeader) {
     };
     const stream = new ReadableStream({
         start(controller) {
-	    const { earlyData, error } = base64ToBuffer(earlyHeader);
+            webSocket.addEventListener('message', (event) => handleMessage(event, controller));
+            webSocket.addEventListener('close', () => handleClose(controller));
+            webSocket.addEventListener('error', (err) => handleError(err, controller));
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
                 controller.enqueue(earlyData);
             }
-            webSocket.addEventListener('message', (event) => handleMessage(event, controller));
-            webSocket.addEventListener('close', () => handleClose(controller));
-            webSocket.addEventListener('error', (err) => handleError(err, controller));            
         },
         cancel(reason) {
             if (!isCancel) {
