@@ -334,7 +334,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
             try {
-                const response = await fetch('https://cloudflare-dns.com/dns-query', {
+                const response = await fetch('https://dns.google/dns-query', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/dns-message',
