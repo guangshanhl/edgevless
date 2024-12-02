@@ -233,11 +233,11 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
+    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+        return false;
+    }
     await remoteSocket.readable.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-                controller.error('WebSocket is closed');
-            }
+        async write(chunk, controller) {           
             let bufferToSend;
             if (resHeader) {
                 bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
