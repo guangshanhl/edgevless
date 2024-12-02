@@ -107,20 +107,36 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
      }
 }
+function createBufferWriter(size) {
+    const buffer = new Uint8Array(size);
+    let offset = 0;
+    return {
+        write: (data) => {
+            buffer.set(data, offset);
+            offset += data.length;
+            return offset;
+        },
+        getBuffer: () => buffer.slice(0, offset)
+    };
+}
+
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const CHUNK_SIZE = 131072;
-    function processChunk(data, controller) {
+    function processChunkedData(data, controller) {
+        const writer = createBufferWriter(data.byteLength);
         const buffer = new Uint8Array(data);
-        for (let i = 0; i < buffer.length; i += CHUNK_SIZE) {
-            controller.enqueue(buffer.slice(i, Math.min(i + CHUNK_SIZE, buffer.length)));
+        writer.write(buffer);        
+        const processedBuffer = writer.getBuffer();
+        for (let i = 0; i < processedBuffer.length; i += CHUNK_SIZE) {
+            controller.enqueue(processedBuffer.slice(i, Math.min(i + CHUNK_SIZE, processedBuffer.length)));
         }
     }
     return new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => {
                 if (!isCancel) {
-                    processChunk(event.data, controller);
+                    processChunkedData(event.data, controller);
                 }
             });
             webSocket.addEventListener('close', () => {
@@ -137,7 +153,7 @@ function makeWebStream(webSocket, earlyHeader) {
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
-                processChunked(earlyData, controller);
+                processChunkedData(earlyData, controller);
             }
         },
         cancel(reason) {
@@ -148,18 +164,25 @@ function makeWebStream(webSocket, earlyHeader) {
         }
     });
 }
-let cachedUserID;
+const cachedUserIDMap = new Map();
+function getCachedUserID(userID) {
+    if (!cachedUserIDMap.has(userID)) {
+        cachedUserIDMap.set(
+            userID, 
+            new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)))
+        );
+    }
+    return cachedUserIDMap.get(userID);
+}
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
-    if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-    }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
+    const cachedID = getCachedUserID(userID);    
+    const hasError = bufferUserID.some((byte, index) => byte !== cachedID[index]);
     if (hasError) {
         return { hasError: true };
     }
