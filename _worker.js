@@ -120,52 +120,33 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
      }
 }
-function createBufferWriter(size) {
-    const buffer = new Uint8Array(size);
-    let offset = 0;
-    return {
-        write: (data) => {
-            buffer.set(data, offset);
-            offset += data.length;
-            return offset;
-        },
-        getBuffer: () => buffer.slice(0, offset)
-    };
-}
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
-    const CHUNK_SIZE = 131072;
-    function processChunkedData(data, controller) {
-        const writer = createBufferWriter(data.byteLength);
-        const buffer = new Uint8Array(data);
-        writer.write(buffer);        
-        const processedBuffer = writer.getBuffer();
-        for (let i = 0; i < processedBuffer.length; i += CHUNK_SIZE) {
-            controller.enqueue(processedBuffer.slice(i, Math.min(i + CHUNK_SIZE, processedBuffer.length)));
+    const handleMessage = (event, controller) => {
+        if (!isCancel) {
+            controller.enqueue(event.data);
         }
-    }
-    return new ReadableStream({
+    };
+    const handleClose = (controller) => {
+        if (!isCancel) {
+            controller.close();
+            closeWebSocket(webSocket);
+        }
+    };
+    const handleError = (err, controller) => {
+        controller.error(err);
+        closeWebSocket(webSocket);
+    };
+    const stream = new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', (event) => {
-                if (!isCancel) {
-                    processChunkedData(event.data, controller);
-                }
-            });
-            webSocket.addEventListener('close', () => {
-                if (!isCancel) {
-                    controller.close();
-                    closeWebSocket(webSocket);
-                }
-            });
-            webSocket.addEventListener('error', (err) => {
-                controller.error(err);
-                closeWebSocket(webSocket);
-            });
+            webSocket.addEventListener('message', (event) => handleMessage(event, controller));
+            webSocket.addEventListener('close', () => handleClose(controller));
+            webSocket.addEventListener('error', (err) => handleError(err, controller));
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
-                processChunkedData(earlyData, controller);
+                controller.enqueue(earlyData);
             }
         },
         cancel(reason) {
@@ -175,6 +156,7 @@ function makeWebStream(webSocket, earlyHeader) {
             }
         }
     });
+    return stream;
 }
 const cachedUserIDMap = new Map();
 function getCachedUserID(userID) {
