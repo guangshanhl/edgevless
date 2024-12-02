@@ -82,7 +82,6 @@ async function ressOverWSHandler(request) {
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
     })).catch((err) => {
-        closeWebSocket(webSocket);
     });
     return new Response(null, {
         status: 101,
