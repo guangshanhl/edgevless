@@ -10,7 +10,6 @@ function processHeaders(request) {
     }    
     const headers = {
         upgrade: request.headers.get('Upgrade'),
-        earlyHeader: request.headers.get('sec-websocket-protocol') || '',
         host: request.headers.get('Host')
     };    
     HEADER_CACHE.set(request, headers);
@@ -50,8 +49,8 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    const headers = processHeaders(request);
-    const readableWebStream = makeWebStream(webSocket, headers.earlyHeader);
+    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
+	const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
