@@ -81,8 +81,7 @@ async function ressOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-    })).catch((err) => {
-    });
+    }));
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -106,7 +105,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         }
     }
     if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-        return;
+        closeWebSocket(webSocket);
      }
 }
 function makeWebStream(webSocket, earlyHeader) {
