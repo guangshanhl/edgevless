@@ -82,7 +82,6 @@ async function ressOverWSHandler(request) {
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
     })).catch((err) => {
-        closeWebSocket(webSocket);
     });
     return new Response(null, {
         status: 101,
@@ -91,18 +90,23 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        remoteSocket.value = connect({ hostname: address, port });
-        const writer = remoteSocket.value.writable.getWriter();
+        const tcpSocket = connect({ hostname: address, port });
+        remoteSocket.value = tcpSocket;
+        const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
-        return remoteSocket.value;
+        return tcpSocket;
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        if (tcpSocket) {
+            return forwardToData(tcpSocket, webSocket, resHeader);
+        } else {
+        return false;
+        }
     }
     if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-        closeWebSocket(webSocket);
+        return;
      }
 }
 function makeWebStream(webSocket, earlyHeader) {
