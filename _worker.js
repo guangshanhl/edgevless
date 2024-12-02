@@ -109,31 +109,35 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
-    const handleMessage = (event, controller) => {
-        if (!isCancel) {
-            controller.enqueue(event.data);
+    const CHUNK_SIZE = 131072;
+    function processChunk(data, controller) {
+        const buffer = new Uint8Array(data);
+        for (let i = 0; i < buffer.length; i += CHUNK_SIZE) {
+            controller.enqueue(buffer.slice(i, Math.min(i + CHUNK_SIZE, buffer.length)));
         }
-    };
-    const handleClose = (controller) => {
-        if (!isCancel) {
-            controller.close();
-            closeWebSocket(webSocket);
-        }
-    };
-    const handleError = (err, controller) => {
-        controller.error(err);
-        closeWebSocket(webSocket);
-    };
-    const stream = new ReadableStream({
+    }
+    return new ReadableStream({
         start(controller) {
-            webSocket.addEventListener('message', (event) => handleMessage(event, controller));
-            webSocket.addEventListener('close', () => handleClose(controller));
-            webSocket.addEventListener('error', (err) => handleError(err, controller));
+            webSocket.addEventListener('message', (event) => {
+                if (!isCancel) {
+                    processChunk(event.data, controller);
+                }
+            });
+            webSocket.addEventListener('close', () => {
+                if (!isCancel) {
+                    controller.close();
+                    closeWebSocket(webSocket);
+                }
+            });
+            webSocket.addEventListener('error', (err) => {
+                controller.error(err);
+                closeWebSocket(webSocket);
+            });
             const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
-                controller.enqueue(earlyData);
+                processChunked(earlyData, controller);
             }
         },
         cancel(reason) {
@@ -143,7 +147,6 @@ function makeWebStream(webSocket, earlyHeader) {
             }
         }
     });
-    return stream;
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
