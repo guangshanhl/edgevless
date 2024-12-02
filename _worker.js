@@ -100,11 +100,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
-	if (tcpSocket) {
-            return forwardToData(tcpSocket, webSocket, resHeader);
-        } else {
-	    return false;
-	}
+        return forwardToData(tcpSocket, webSocket, resHeader);
     }
     if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
         closeWebSocket(webSocket);
