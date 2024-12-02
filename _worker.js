@@ -119,7 +119,6 @@ function createBufferWriter(size) {
         getBuffer: () => buffer.slice(0, offset)
     };
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const CHUNK_SIZE = 131072;
@@ -283,9 +282,29 @@ function closeWebSocket(socket) {
         socket.close();
     }
 }
+const DNS_CACHE = new Map();
+const DNS_CACHE_TTL = 300000;
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
     let partChunk = null;
+    async function getDNSResponse(query) {
+        const cacheKey = Buffer.from(query).toString('base64');
+        const cached = DNS_CACHE.get(cacheKey);        
+        if (cached && Date.now() - cached.timestamp < DNS_CACHE_TTL) {
+            return cached.response;
+        }
+        const response = await fetch('https://cloudflare-dns.com/dns-query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/dns-message' },
+            body: query
+        });      
+        const result = await response.arrayBuffer();
+        DNS_CACHE.set(cacheKey, {
+            response: result,
+            timestamp: Date.now()
+        });      
+        return result;
+    }
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partChunk) {
@@ -312,13 +331,11 @@ async function handleUDPOutBound(webSocket, resHeader) {
     });
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
-            const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/dns-message' },
-                body: chunk
-            });
-            const dnsQueryResult = await resp.arrayBuffer();
-            const udpSizeBuffer = new Uint8Array([(dnsQueryResult.byteLength >> 8) & 0xff, dnsQueryResult.byteLength & 0xff]);
+            const dnsQueryResult = await getDNSResponse(chunk);
+            const udpSizeBuffer = new Uint8Array([
+                (dnsQueryResult.byteLength >> 8) & 0xff, 
+                dnsQueryResult.byteLength & 0xff
+            ]);
             const payload = headerSent
                 ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                 : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
