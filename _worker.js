@@ -130,10 +130,9 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 
 	async function retry() {
 		const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
-		tcpSocket.closed.catch(error => {
-		}).finally(() => {
-			safeCloseWebSocket(webSocket);
-		})
+		tcpSocket.closed.finally(() => {
+		    safeCloseWebSocket(webSocket);
+		});
 		remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null);
 	}
 
