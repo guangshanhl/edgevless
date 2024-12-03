@@ -23,7 +23,7 @@ export default {
             proxyIP = env.PROXYIP || proxyIP;
             const headers = processHeaders(request);          
             if (headers.upgrade === 'websocket') {
-                return await ressOverWSHandler(request);
+                return await ressOverWSHandler(request, headers.earlyHeader);
             }
             const url = new URL(request.url);         
             if (url.pathname === '/') {
@@ -46,11 +46,10 @@ export default {
         }
     }
 };
-async function ressOverWSHandler(request) {
+async function ressOverWSHandler(request, headers.earlyHeader) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    const headers = processHeaders(request);
     const readableWebStream = makeWebStream(webSocket, headers.earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
