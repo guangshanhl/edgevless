@@ -139,11 +139,13 @@ function makeWebStream(webSocket, earlyHeader) {
             webSocket.addEventListener('message', (event) => handleMessage(event, controller));
             webSocket.addEventListener('close', () => handleClose(controller));
             webSocket.addEventListener('error', (err) => handleError(err, controller));
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
+            if (earlyHeader) {
+                const { earlyData, error } = base64ToBuffer(earlyHeader);
+                if (error) {
+                    controller.error(error);
+                } else if (earlyData) {
+                    controller.enqueue(earlyData);
+                }
             }
         },
         cancel(reason) {
