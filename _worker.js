@@ -107,8 +107,7 @@ async function vlessOverWSHandler(request) {
 		},
 		abort(reason) {
 		},
-	})).catch((err) => {
-	});
+	}));
 
 	return new Response(null, {
 		status: 101,
@@ -408,8 +407,7 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
 				}
 			}
 		}
-	})).catch((error) => {
-	});
+	}));
 
 	const writer = transformStream.writable.getWriter();
 
