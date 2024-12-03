@@ -109,17 +109,16 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return tcpSocket;
     }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        if (tcpSocket) {
-            return forwardToData(tcpSocket, webSocket, resHeader);
-        } else {
-        return false;
-        }
+    const tcpSocket = await connectAndWrite(addressRemote, portRemote);
+    if (!tcpSocket) {
+        const tcpSocket = await connectAndWrite(proxyIP, portRemote);
+        tcpSocket.closed.catch(error => {
+		}).finally(() => {
+	    	closeWebSocket(webSocket);
+	    })
     }
-    if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-        closeWebSocket(webSocket);
-     }
+    forwardToData(tcpSocket, webSocket, resHeader);
+    }
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
