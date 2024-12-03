@@ -110,14 +110,13 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         return tcpSocket;
     }
     const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-    if (!tcpSocket) {
-        const tcpSocket = await connectAndWrite(proxyIP, portRemote);
-        tcpSocket.closed.catch(error => {
-		}).finally(() => {
-	    	closeWebSocket(webSocket);
-	    })
-    }
-    forwardToData(tcpSocket, webSocket, resHeader);
+    if (tcpSocket) {
+        const senddata = forwardToData(tcpSocket, webSocket, resHeader);
+	if (!senddata) {
+	   const pTcpSocket = await connectAndWrite(proxyIP, portRemote);
+           pTcpSocket.closed.finally(() => closeWebSocket(webSocket));
+	   forwardToData(pTcpSocket, webSocket, resHeader);
+	}
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
