@@ -46,7 +46,7 @@ export default {
         }
     }
 };
-async function ressOverWSHandler(request, headers.earlyHeader) {
+async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
