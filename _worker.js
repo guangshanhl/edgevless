@@ -3,42 +3,55 @@ let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+const HEADER_CACHE = new WeakMap();
+function processHeaders(request) {
+    if (HEADER_CACHE.has(request)) {
+        return HEADER_CACHE.get(request);
+    }    
+    const headers = {
+        upgrade: request.headers.get('Upgrade'),
+        earlyHeader: request.headers.get('sec-websocket-protocol') || '',
+        host: request.headers.get('Host')
+    };    
+    HEADER_CACHE.set(request, headers);
+    return headers;
+}
 export default {
     async fetch(request, env, ctx) {
         try {
             userID = env.UUID || userID;
-            proxyIP = env.PROXYIP || proxyIP; 
-            const upgradeHeader = request.headers.get('Upgrade');
-            if (upgradeHeader && upgradeHeader === 'websocket') {
+            proxyIP = env.PROXYIP || proxyIP;
+            const headers = processHeaders(request);          
+            if (headers.upgrade === 'websocket') {
                 return await ressOverWSHandler(request);
-            }                       
-            const url = new URL(request.url);
-            switch (url.pathname) {
-                case '/':
-                    return new Response(JSON.stringify(request.cf), { status: 200 });
-                case `/${userID}`: {
-                    const config = getConfig(userID, request.headers.get('Host'));
-                    return new Response(config, {
+            }
+            const url = new URL(request.url);         
+            if (url.pathname === '/') {
+                return new Response(JSON.stringify(request.cf), { status: 200 });
+            }          
+            if (url.pathname === `/${userID}`) {
+                return new Response(
+                    getConfig(userID, headers.host), 
+                    {
                         status: 200,
                         headers: {
                             "Content-Type": "text/plain;charset=utf-8"
-                        },
-                    });
-                }
-                default:
-                    return new Response('Not found', { status: 404 });
+                        }
+                    }
+                );
             }
+            return new Response('Not found', { status: 404 });
         } catch (err) {
             return new Response(err.toString());
         }
-    },
+    }
 };
 async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);
+    const headers = processHeaders(request);
+    const readableWebStream = makeWebStream(webSocket, headers.earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
@@ -97,7 +110,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        if (tcpSocket) {
+            return forwardToData(tcpSocket, webSocket, resHeader);
+        } else {
+        return false;
+        }
     }
     if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
         closeWebSocket(webSocket);
