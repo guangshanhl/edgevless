@@ -107,7 +107,8 @@ async function vlessOverWSHandler(request) {
 		},
 		abort(reason) {
 		},
-	}));
+	})).catch((err) => {
+	});
 
 	return new Response(null, {
 		status: 101,
@@ -130,9 +131,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
 
 	async function retry() {
 		const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote)
-		tcpSocket.closed.finally(() => {
-		    safeCloseWebSocket(webSocket);
-		});
+		tcpSocket.closed.catch(error => {
+		}).finally(() => {
+			safeCloseWebSocket(webSocket);
+		})
 		remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null);
 	}
 
@@ -406,7 +408,8 @@ async function handleUDPOutBound(webSocket, vlessResponseHeader) {
 				}
 			}
 		}
-	}));
+	})).catch((error) => {
+	});
 
 	const writer = transformStream.writable.getWriter();
 
