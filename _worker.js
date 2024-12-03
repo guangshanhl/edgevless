@@ -1,13 +1,8 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
-const WS_READY_STATE_OPEN = 1;
-const WS_READY_STATE_CLOSING = 2;
 const HEADER_CACHE = new WeakMap();
 function processHeaders(request) {
-    if (HEADER_CACHE.has(request)) {
-        return HEADER_CACHE.get(request);
-    }    
     const headers = {
         upgrade: request.headers.get('Upgrade'),
         earlyHeader: request.headers.get('sec-websocket-protocol') || '',
@@ -217,9 +212,6 @@ function processRessHeader(ressBuffer, userID) {
         default:
             return { hasError: true };
     }
-    if (!addressValue) {
-        return { hasError: true };
-    }
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -232,7 +224,7 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+    if (webSocket.readyState !== 1) {
         return false;
     }
     await remoteSocket.readable.pipeTo(new WritableStream({
@@ -255,9 +247,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     return hasData;
 }
 function base64ToBuffer(base64Str) {
-    if (!base64Str) {
-        return { error: null };
-    }
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
@@ -272,9 +261,7 @@ function base64ToBuffer(base64Str) {
     }
 }
 function closeWebSocket(socket) {
-    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
-        socket.close();
-    }
+    socket.close();
 }
 const DNS_CACHE = new Map();
 const DNS_CACHE_TTL = 300000;
@@ -334,7 +321,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                 : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
             headerSent = true;
-            if (webSocket.readyState === WS_READY_STATE_OPEN) {
+            if (webSocket.readyState === 1) {
                 webSocket.send(payload);
             }
         }
