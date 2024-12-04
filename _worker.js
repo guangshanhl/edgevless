@@ -168,8 +168,11 @@ function processRessHeader(ressBuffer, userID) {
     if (hasError) return { hasError: true };
     const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
     const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
-    const isUDP = command === 2;
-    if (command !== 1 && !isUDP) return { hasError: false };
+    if (command === 2) {
+        isUDP = true;
+    } else if (command !== 1) {
+        return { hasError: false };
+    }
     const portIndex = 18 + optLength + 1;
     const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
@@ -213,9 +216,6 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState !== 1) {
-        return hasData;
-    }
     await remoteSocket.readable.pipeTo(new WritableStream({
         async write(chunk, controller) {            
             let sendToData;
@@ -227,8 +227,10 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             } else {
                 sendToData = chunk;
             }
-            webSocket.send(sendToData);
-            hasData = true;
+            if (webSocket.readyState === 1) {
+                webSocket.send(sendToData);
+                hasData = true;
+            }
         },
     })).catch((error) => {
         closeWebSocket(webSocket);
