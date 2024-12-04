@@ -61,9 +61,7 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            if (hasError) {
-                return;
-            }
+            if (hasError) return;
             if (isUDP && portRemote === 53) {
                 isDns = true;
             } else if (isUDP) {
@@ -159,9 +157,7 @@ function makeWebStream(webSocket, earlyHeader) {
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
-    if (ressBuffer.byteLength < 24) {
-        return { hasError: true };
-    }
+    if (ressBuffer.byteLength < 24) return { hasError: true };
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
     if (!cachedUserID) {
@@ -169,9 +165,7 @@ function processRessHeader(ressBuffer, userID) {
     }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) {
-        return { hasError: true };
-    }
+    if (hasError) return { hasError: true };
     const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
     const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
