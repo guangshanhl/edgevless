@@ -216,7 +216,7 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-        controller.error('WebSocket is closed');
+        return hasData;
     }
     await remoteSocket.readable.pipeTo(new WritableStream({
         async write(chunk, controller) {            
