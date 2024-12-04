@@ -216,7 +216,7 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState === 1) {
+    if (webSocket.readyState !== 1) {
         return hasData;
     }
     await remoteSocket.readable.pipeTo(new WritableStream({
