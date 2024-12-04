@@ -101,8 +101,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    const result = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-    if (!result) {
+    if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
         closeWebSocket(webSocket);
     }
 }
@@ -123,30 +122,16 @@ function makeWebStream(webSocket, earlyHeader) {
         controller.error(err);
         closeWebSocket(webSocket);
     };
-    const base64ToBuffer = (base64Str) => {
-        try {
-            const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-            const binaryStr = atob(normalizedStr);
-            const length = binaryStr.length;
-            const arrayBuffer = new Uint8Array(length);
-            for (let i = 0; i < length; i++) {
-                arrayBuffer[i] = binaryStr.charCodeAt(i);
-            }
-            return arrayBuffer.buffer;
-        } catch {
-            return null;
-        }
-    };
     const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => handleMessage(event, controller));
             webSocket.addEventListener('close', () => handleClose(controller));
             webSocket.addEventListener('error', (err) => handleError(err, controller));
-            if (earlyHeader) {
-                const earlyDataBuffer = base64ToBuffer(earlyHeader);
-                if (earlyDataBuffer) {
-                    controller.enqueue(earlyDataBuffer);
-                }
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
+                controller.enqueue(earlyData);
             }
         },
         cancel(reason) {
@@ -160,46 +145,53 @@ function makeWebStream(webSocket, earlyHeader) {
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
-    if (!cachedUserID) {
-        cachedUserID = new Uint8Array(
-            userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16))
-        );
-    }
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
     const version = new Uint8Array(ressBuffer.slice(0, 1));
+    let isUDP = false;
+    if (!cachedUserID) {
+        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
     if (hasError) {
         return { hasError: true };
     }
-    const optLength = ressBuffer[17];
-    const command = ressBuffer[18 + optLength];
-    const isUDP = command === 2;
-    if (!isUDP && command !== 1) {
+    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
+    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    if (command === 2) {
+        isUDP = true;
+    } else if (command !== 1) {
         return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
     const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
     const portRemote = new DataView(portBuffer).getUint16(0);
-    const addressType = ressBuffer[portIndex + 2];
-    let addressValue, addressLength;
-    const addressValueIndex = portIndex + 3;
+    let addressIndex = portIndex + 2;
+    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
+    const addressType = addressBuffer[0];
+    let addressLength = 0;
+    let addressValueIndex = addressIndex + 1;
+    let addressValue = '';
     switch (addressType) {
         case 1:
             addressLength = 4;
-            addressValue = Array.from(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
             break;
         case 2:
-            addressLength = ressBuffer[addressValueIndex];
-            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex + 1, addressValueIndex + 1 + addressLength));
+            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            addressValueIndex += 1;
+            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             break;
         case 3:
             addressLength = 16;
-            addressValue = Array.from(
-                new Uint16Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength).buffer)
-            ).map(part => part.toString(16)).join(':');
+            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            const ipv6 = [];
+            for (let i = 0; i < 8; i++) {
+                ipv6.push(dataView.getUint16(i * 2).toString(16));
+            }
+            addressValue = ipv6.join(':');
             break;
         default:
             return { hasError: true };
@@ -216,7 +208,7 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState !==1) {
+    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
         return false;
     }
     await remoteSocket.readable.pipeTo(new WritableStream({
@@ -237,6 +229,20 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
         closeWebSocket(webSocket);
     });
     return hasData;
+}
+function base64ToBuffer(base64Str) {
+    try {
+        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+        const binaryStr = atob(normalizedStr);
+        const length = binaryStr.length;
+        const arrayBuffer = new Uint8Array(length);
+        for (let i = 0; i < length; i++) {
+            arrayBuffer[i] = binaryStr.charCodeAt(i);
+        }
+        return { earlyData: arrayBuffer.buffer, error: null };
+    } catch (error) {
+        return { error };
+    }
 }
 function closeWebSocket(socket) {
     if (socket.readyState === 1 || socket.readyState === 2) {
