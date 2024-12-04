@@ -1,17 +1,15 @@
 import { connect } from 'cloudflare:sockets';
-let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-let proxyIP = '';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
     async fetch(request, env, ctx) {
         try {
-            userID = env.UUID || userID;
-            proxyIP = env.PROXYIP || proxyIP; 
-            const upgradeHeader = request.headers.get('Upgrade');
-            if (upgradeHeader && upgradeHeader === 'websocket') {
-                return await ressOverWSHandler(request);
-            }                       
+            const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+            const proxyIP = env.PROXYIP || '';
+            const upgradeHeader = request.headers.get('Upgrade');    
+            if (upgradeHeader === 'websocket') {
+                return ressOverWSHandler(request, userID, proxyIP);
+            }                  
             const url = new URL(request.url);
             switch (url.pathname) {
                 case '/':
@@ -33,7 +31,7 @@ export default {
         }
     },
 };
-async function ressOverWSHandler(request) {
+async function ressOverWSHandler(request, userID, proxyIP) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
@@ -77,7 +75,7 @@ async function ressOverWSHandler(request) {
                 udpWrite(clientData);
                 return;
             }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+            handleTCPOutBound(remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, resHeader);
         },
     })).catch((err) => {
         closeWebSocket(webSocket);
@@ -87,7 +85,7 @@ async function ressOverWSHandler(request) {
         webSocket: client,
     });
 }
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
+async function handleTCPOutBound(remoteSocket, addressRemote, proxyIP, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
         remoteSocket.value = connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
@@ -159,9 +157,7 @@ function makeWebStream(webSocket, earlyHeader) {
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
-    if (ressBuffer.byteLength < 24) {
-        return { hasError: true };
-    }
+    if (buffer.byteLength < 24) return { hasError: true };
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
     if (!cachedUserID) {
@@ -244,7 +240,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     return hasData;
 }
 function closeWebSocket(socket) {
-    if (socket.readyState === 1 || socket.readyState === 2) {
+    if (socket.readyState < 2) {
         socket.close();
     }
 }
