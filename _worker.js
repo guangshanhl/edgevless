@@ -104,11 +104,8 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    try {
-        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-            closeWebSocket(webSocket);
-        }
-    } catch (error) {
+    const result = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
+    if (!result) {
         closeWebSocket(webSocket);
     }
 }
@@ -129,16 +126,30 @@ function makeWebStream(webSocket, earlyHeader) {
         controller.error(err);
         closeWebSocket(webSocket);
     };
+    const base64ToBuffer = (base64Str) => {
+        try {
+            const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+            const binaryStr = atob(normalizedStr);
+            const length = binaryStr.length;
+            const arrayBuffer = new Uint8Array(length);
+            for (let i = 0; i < length; i++) {
+                arrayBuffer[i] = binaryStr.charCodeAt(i);
+            }
+            return arrayBuffer.buffer;
+        } catch {
+            return null;
+        }
+    };
     const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => handleMessage(event, controller));
             webSocket.addEventListener('close', () => handleClose(controller));
             webSocket.addEventListener('error', (err) => handleError(err, controller));
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
+            if (earlyHeader) {
+                const earlyDataBuffer = base64ToBuffer(earlyHeader);
+                if (earlyDataBuffer) {
+                    controller.enqueue(earlyDataBuffer);
+                }
             }
         },
         cancel(reason) {
@@ -152,14 +163,15 @@ function makeWebStream(webSocket, earlyHeader) {
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
+    if (!cachedUserID) {
+        cachedUserID = new Uint8Array(
+            userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16))
+        );
+    }
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
     const version = new Uint8Array(ressBuffer.slice(0, 1));
-    let isUDP = false;
-    if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-    }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
     if (hasError) {
@@ -167,34 +179,30 @@ function processRessHeader(ressBuffer, userID) {
     }
     const optLength = ressBuffer[17];
     const command = ressBuffer[18 + optLength];
-    if (command === 2) {
-        isUDP = true;
-    } else if (command !== 1) {
+    const isUDP = command === 2;
+    if (!isUDP && command !== 1) {
         return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
-    const portRemote = new DataView(ressBuffer.slice(portIndex, portIndex + 2)).getUint16(0, false);
+    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
+    const portRemote = new DataView(portBuffer).getUint16(0);
     const addressType = ressBuffer[portIndex + 2];
-    let addressValue = '';
-    let addressValueIndex = portIndex + 3;
-    let addressLength;
+    let addressValue, addressLength;
+    const addressValueIndex = portIndex + 3;
     switch (addressType) {
         case 1:
             addressLength = 4;
-            addressValue = Array.from(new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength))).join('.');
+            addressValue = Array.from(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
             break;
         case 2:
             addressLength = ressBuffer[addressValueIndex];
-            addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)));
+            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex + 1, addressValueIndex + 1 + addressLength));
             break;
         case 3:
             addressLength = 16;
-            const ipv6 = [];
-            for (let i = 0; i < 8; i++) {
-                ipv6.push(((ressBuffer[addressValueIndex + (i * 2)] << 8) | ressBuffer[addressValueIndex + (i * 2) + 1]).toString(16));
-            }
-            addressValue = ipv6.join(':');
+            addressValue = Array.from(
+                new Uint16Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength).buffer)
+            ).map(part => part.toString(16)).join(':');
             break;
         default:
             return { hasError: true };
@@ -211,8 +219,8 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-        return hasData;
+    if (webSocket.readyState !==1) {
+        return false;
     }
     await remoteSocket.readable.pipeTo(new WritableStream({
         async write(chunk, controller) {            
@@ -233,22 +241,8 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     });
     return hasData;
 }
-function base64ToBuffer(base64Str) {
-    try {
-        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-        const binaryStr = atob(normalizedStr);
-        const length = binaryStr.length;
-        const arrayBuffer = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            arrayBuffer[i] = binaryStr.charCodeAt(i);
-        }
-        return { earlyData: arrayBuffer.buffer, error: null };
-    } catch (error) {
-        return { error };
-    }
-}
 function closeWebSocket(socket) {
-    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
+    if (socket.readyState === 1 || socket.readyState === 2) {
         socket.close();
     }
 }
@@ -292,7 +286,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                 : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
             headerSent = true;
-            if (webSocket.readyState === WS_READY_STATE_OPEN) {
+            if (webSocket.readyState === 1) {
                 webSocket.send(payload);
             }
         }
