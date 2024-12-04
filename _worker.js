@@ -64,12 +64,10 @@ async function ressOverWSHandler(request) {
             if (hasError) {
                 return;
             }
-            if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
-                    return;
-                }
+            if (isUDP && portRemote === 53) {
+                isDns = true;
+            } else if (isUDP) {
+                return;
             }
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
@@ -224,22 +222,21 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
-    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-        return false;
-    }
     await remoteSocket.readable.pipeTo(new WritableStream({
         async write(chunk, controller) {            
-            let bufferToSend;
+            let sendToData;
             if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(resHeader, 0);
-                bufferToSend.set(chunk, resHeader.byteLength);
+                sendToData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                sendToData.set(resHeader, 0);
+                sendToData.set(chunk, resHeader.byteLength);
                 resHeader = null;
             } else {
-                bufferToSend = chunk;
+                sendToData = chunk;
             }
-            webSocket.send(bufferToSend);
-            hasData = true;
+            if (webSocket.readyState === 1) {
+                webSocket.send(sendToData);
+                hasData = true;
+            }
         },
     })).catch((error) => {
         closeWebSocket(webSocket);
