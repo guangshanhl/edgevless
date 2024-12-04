@@ -93,13 +93,12 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        if (!remoteSocket.value || remoteSocket.value.closed) {
-            remoteSocket.value = connect({ hostname: address, port });
-        }
-        const writer = remoteSocket.value.writable.getWriter();
+        const tcpSocket = connect({ hostname: address, port });
+        remoteSocket.value = tcpSocket;
+        const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
-        return remoteSocket.value;
+        return tcpSocket;
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
@@ -204,9 +203,6 @@ function processRessHeader(ressBuffer, userID) {
         default:
             return { hasError: true };
     }
-    if (!addressValue) {
-        return { hasError: true };
-    }
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -219,11 +215,11 @@ function processRessHeader(ressBuffer, userID) {
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
+    if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+        controller.error('WebSocket is closed');
+    }
     await remoteSocket.readable.pipeTo(new WritableStream({
-        async write(chunk, controller) {
-            if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-                controller.error('WebSocket is closed');
-            }
+        async write(chunk, controller) {            
             let bufferToSend;
             if (resHeader) {
                 bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
@@ -316,5 +312,5 @@ async function handleUDPOutBound(webSocket, resHeader) {
     };
 }
 function getConfig(userID, hostName) {
-    return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `yless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
