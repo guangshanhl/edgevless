@@ -37,7 +37,6 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
@@ -62,7 +61,6 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            address = addressRemote;
             if (hasError) {
                 return;
             }
@@ -93,12 +91,11 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        const tcpSocket = connect({ hostname: address, port });
-        remoteSocket.value = tcpSocket;
-        const writer = tcpSocket.writable.getWriter();
+        remoteSocket.value = connect({ hostname: address, port });
+        const writer = remoteSocket.value.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
-        return tcpSocket;
+        return remoteSocket.value;
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
