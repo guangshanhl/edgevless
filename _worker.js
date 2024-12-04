@@ -122,16 +122,32 @@ function makeWebStream(webSocket, earlyHeader) {
         controller.error(err);
         closeWebSocket(webSocket);
     };
+    const decodeBase64ToBuffer = (base64Str) => {
+        try {
+            const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+            const binaryStr = atob(normalizedStr);
+            const length = binaryStr.length;
+            const arrayBuffer = new Uint8Array(length);
+            for (let i = 0; i < length; i++) {
+                arrayBuffer[i] = binaryStr.charCodeAt(i);
+            }
+            return arrayBuffer.buffer;
+        } catch {
+            return null;
+        }
+    };
     const stream = new ReadableStream({
         start(controller) {
             webSocket.addEventListener('message', (event) => handleMessage(event, controller));
             webSocket.addEventListener('close', () => handleClose(controller));
             webSocket.addEventListener('error', (err) => handleError(err, controller));
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
+            if (earlyHeader) {
+                const earlyDataBuffer = decodeBase64ToBuffer(earlyHeader);
+                if (earlyDataBuffer) {
+                    controller.enqueue(earlyDataBuffer);
+                } else {
+                    controller.error(error);
+                }
             }
         },
         cancel(reason) {
@@ -229,20 +245,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
         closeWebSocket(webSocket);
     });
     return hasData;
-}
-function base64ToBuffer(base64Str) {
-    try {
-        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-        const binaryStr = atob(normalizedStr);
-        const length = binaryStr.length;
-        const arrayBuffer = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            arrayBuffer[i] = binaryStr.charCodeAt(i);
-        }
-        return { earlyData: arrayBuffer.buffer, error: null };
-    } catch (error) {
-        return { error };
-    }
 }
 function closeWebSocket(socket) {
     if (socket.readyState === 1 || socket.readyState === 2) {
