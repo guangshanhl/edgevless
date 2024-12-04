@@ -151,49 +151,47 @@ function makeWebStream(webSocket, earlyHeader) {
     return stream;
 }
 let cachedUserID;
-function processRessHeader(ressBuffer, userID) {
+async function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
         return { hasError: true };
     }
-    const version = new Uint8Array(ressBuffer.slice(0, 1));
+    const version = new DataView(ressBuffer, 0, 1).getUint8(0);
     let isUDP = false;
     if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+        cachedUserID = Uint8Array.from(userID.replace(/-/g, ''), c => parseInt(c, 16));
     }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) {
-        return { hasError: true };
+    for (let i = 0; i < 16; i++) {
+        if (bufferUserID[i] !== cachedUserID[i]) {
+            return { hasError: true };
+        }
     }
-    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
-    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+    const optLength = ressBuffer[17];
+    const command = ressBuffer[18 + optLength];
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
     const portIndex = 18 + optLength + 1;
-    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
-    const portRemote = new DataView(portBuffer).getUint16(0);
-    let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
-    const addressType = addressBuffer[0];
-    let addressLength = 0;
-    let addressValueIndex = addressIndex + 1;
+    const portRemote = new DataView(ressBuffer.slice(portIndex, portIndex + 2)).getUint16(0);
+    const addressType = ressBuffer[portIndex + 2];
     let addressValue = '';
+    let addressValueIndex = portIndex + 3;
+    let addressLength;
     switch (addressType) {
         case 1:
             addressLength = 4;
-            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = Array.from(new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength))).join('.');
             break;
         case 2:
-            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            addressLength = ressBuffer[addressValueIndex];
             addressValueIndex += 1;
             addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             break;
         case 3:
             addressLength = 16;
-            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            const dataView = new DataView(ressBuffer, addressValueIndex, addressLength);
             const ipv6 = [];
             for (let i = 0; i < 8; i++) {
                 ipv6.push(dataView.getUint16(i * 2).toString(16));
