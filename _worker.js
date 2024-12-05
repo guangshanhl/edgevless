@@ -107,7 +107,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
                 } else {
                     sendToData = chunk;
                 }
-                if (webSocket.readyState !== 1) {
+                if (webSocket.readyState === 1) {
                     webSocket.send(sendToData);
                     hasData = true;
                 }
