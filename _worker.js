@@ -92,14 +92,17 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         await writer.write(clientData);
         writer.releaseLock();
         let hasData = false;
+	if (webSocket.readyState !== 1) {
+	  controller.error('webSocket is not open');
+	}
         await remoteSocket.value.readable.pipeTo(new WritableStream({
             write(chunk) {
                 if (resHeader) {
-					webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
-					resHeader = null;
-				} else {
-					webSocket.send(chunk);
-				}
+		  webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
+		  resHeader = null;
+		} else {
+		  webSocket.send(chunk);
+		}
                 hasData = true;
             }
         })).catch(() => closeWebSocket(webSocket));
