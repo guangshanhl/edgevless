@@ -96,9 +96,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     async function tryConnect(address, port) {
         await connectAndWrite(address, port);
         let hasData = false;
-        if (webSocket.readyState !== 1) {
-            return hasData;
-        }
         await remoteSocket.value.readable.pipeTo(new WritableStream({
             write(chunk) {
                 let sendToData;
@@ -110,8 +107,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
                 } else {
                     sendToData = chunk;
                 }
-                webSocket.send(sendToData);
-                hasData = true;
+                if (webSocket.readyState !== 1) {
+                    webSocket.send(sendToData);
+                    hasData = true;
+                }
             }
         })).catch((error) => {
             closeWebSocket(webSocket);
