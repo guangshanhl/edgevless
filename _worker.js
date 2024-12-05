@@ -86,39 +86,28 @@ async function ressOverWSHandler(request) {
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    async function connectAndWrite(address, port) {
+    async function connectAndPipe(address, port) {
         remoteSocket.value = connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
-        return remoteSocket.value;
-    }
-    async function tryConnect(address, port) {
-        await connectAndWrite(address, port);
         let hasData = false;
         await remoteSocket.value.readable.pipeTo(new WritableStream({
             write(chunk) {
-                let sendToData;
-                if (resHeader) {
-                    sendToData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                    sendToData.set(resHeader, 0);
-                    sendToData.set(chunk, resHeader.byteLength);
-                    resHeader = null;
-                } else {
-                    sendToData = chunk;
-                }
+                const dataToSend = resHeader
+                    ? new Uint8Array([...resHeader, ...chunk])
+                    : chunk;
+                resHeader = null;
                 if (webSocket.readyState === 1) {
-                    webSocket.send(sendToData);
+                    webSocket.send(dataToSend);
                     hasData = true;
                 }
             }
-        })).catch((error) => {
-            closeWebSocket(webSocket);
-        });
+        })).catch(() => closeWebSocket(webSocket));
         return hasData;
     }
-    if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-        closeWebSocket(webSocket);
+    if (!(await connectAndPipe(addressRemote, portRemote))) {
+        await connectAndPipe(proxyIP, portRemote );
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
