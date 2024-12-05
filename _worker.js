@@ -94,41 +94,31 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
-
-    // Try connecting to a remote server and forwarding data
     async function tryConnect(address, port) {
-        try {
-            const tcpSocket = await connectAndWrite(address, port); // tcpSocket 是 remoteSocket.value
-            let hasData = false;
-
-            // Forward data from the remote socket to the WebSocket
-            await remoteSocket.value.readable.pipeTo(new WritableStream({
-                write(chunk) {
-                    let sendToData;
-                    if (resHeader) {
-                        sendToData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                        sendToData.set(resHeader, 0);
-                        sendToData.set(chunk, resHeader.byteLength);
-                        resHeader = null; // Clear the header after the first write
-                    } else {
-                        sendToData = chunk;
-                    }
-                    webSocket.send(sendToData); // Send the data to the WebSocket
-                    hasData = true;
-                }
-            })).catch((error) => {
-                console.error(`Error while forwarding data: ${error}`);
-                closeWebSocket(webSocket);
-            });
-
+        const tcpSocket = await connectAndWrite(address, port);
+        let hasData = false;
+        if (webSocket.readyState !== 1) {
             return hasData;
-        } catch (error) {
-            console.error(`Failed to connect or forward data: ${error}`);
-            return false;
         }
+        await remoteSocket.readable.pipeTo(new WritableStream({
+            write(chunk) {
+                let sendToData;
+                if (resHeader) {
+                    sendToData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                    sendToData.set(resHeader, 0);
+                    sendToData.set(chunk, resHeader.byteLength);
+                    resHeader = null;
+                } else {
+                    sendToData = chunk;
+                }
+                webSocket.send(sendToData);
+                hasData = true;
+            }
+        })).catch((error) => {
+            closeWebSocket(webSocket);
+        });
+        return hasData;
     }
-
-    // Try connecting to the primary or proxy server
     if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
         closeWebSocket(webSocket);
     }
@@ -246,30 +236,6 @@ function processRessHeader(ressBuffer, userID) {
         ressVersion: version,
         isUDP,
     };
-}
-async function forwardToData(remoteSocket, webSocket, resHeader) {
-    let hasData = false;
-    if (webSocket.readyState !== 1) {
-        return hasData;
-    }
-    await remoteSocket.readable.pipeTo(new WritableStream({
-        async write(chunk, controller) {            
-            let sendToData;
-            if (resHeader) {
-                sendToData = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                sendToData.set(resHeader, 0);
-                sendToData.set(chunk, resHeader.byteLength);
-                resHeader = null;
-            } else {
-                sendToData = chunk;
-            }
-            webSocket.send(sendToData);
-            hasData = true;
-        },
-    })).catch((error) => {
-        closeWebSocket(webSocket);
-    });
-    return hasData;
 }
 function closeWebSocket(socket) {
     if (socket.readyState === 1 || socket.readyState === 2) {
