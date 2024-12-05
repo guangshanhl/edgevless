@@ -86,7 +86,6 @@ async function ressOverWSHandler(request) {
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    // Helper function to connect and write data to a remote socket
     async function connectAndWrite(address, port) {
         remoteSocket.value = connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
@@ -123,7 +122,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isCancel = false;
     const handleMessage = (event, controller) => {
