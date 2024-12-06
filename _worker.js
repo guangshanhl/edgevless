@@ -94,12 +94,13 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         let hasData = false;
         await remoteSocket.value.readable.pipeTo(new WritableStream({
             write(chunk) {
-                const dataToSend = resHeader
-                    ? new Uint8Array([...resHeader, ...chunk])
-                    : chunk;
-                resHeader = null;
                 if (webSocket.readyState === 1) {
-                    webSocket.send(dataToSend);
+                    if (resHeader) {
+			webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
+			resHeader = null;
+		    } else {
+			webSocket.send(chunk);
+		    }
                     hasData = true;
                 }
             }
