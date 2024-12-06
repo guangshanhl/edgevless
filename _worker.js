@@ -86,6 +86,7 @@ async function ressOverWSHandler(request) {
     });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
+    const resHeaderArray = resHeader ? new TextEncoder().encode(resHeader) : null;
     async function connectAndPipe(address, port) {
         remoteSocket.value = connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
@@ -95,12 +96,18 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         await remoteSocket.value.readable.pipeTo(new WritableStream({
             write(chunk) {
                 if (webSocket.readyState === 1) {
-                    if (resHeader) {
-			webSocket.send(await new Blob([resHeader, chunk]).arrayBuffer());
-			resHeader = null;
-		    } else {
-			webSocket.send(chunk);
-		    }
+                    let dataToSend;
+                    if (resHeaderArray) {
+                        const totalLength = resHeaderArray.length + chunk.byteLength;
+                        const combinedBuffer = new Uint8Array(totalLength);
+                        combinedBuffer.set(resHeaderArray, 0);
+                        combinedBuffer.set(new Uint8Array(chunk), resHeaderArray.length);
+                        dataToSend = combinedBuffer;
+                        resHeaderArray = null;
+                    } else {
+                        dataToSend = new Uint8Array(chunk);
+                    }
+                    webSocket.send(dataToSend);
                     hasData = true;
                 }
             }
@@ -108,7 +115,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         return hasData;
     }
     if (!(await connectAndPipe(addressRemote, portRemote))) {
-        await connectAndPipe(proxyIP, portRemote );
+        await connectAndPipe(proxyIP, portRemote);
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
