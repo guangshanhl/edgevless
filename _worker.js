@@ -95,15 +95,14 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         await remoteSocket.value.readable.pipeTo(new WritableStream({
             write(chunk) {
                 let dataToSend;
-                if (resHeader) {
-                    const totalLength = resHeader.length + chunk.byteLength;
-                    dataToSend = new Uint8Array(totalLength);
-                    dataToSend.set(resHeader, 0);
-                    dataToSend.set(new Uint8Array(chunk), resHeader.length);
-                    resHeader = null;
-                } else {
-                    dataToSend = chunk;
-                }
+		if (resHeader) {
+		    dataToSend = new Uint8Array(resHeader.length + chunk.byteLength);
+		    dataToSend.set(resHeader, 0);
+		    dataToSend.set(new Uint8Array(chunk), resHeader.length);
+		    resHeader = null;
+		} else {
+		    dataToSend = chunk;
+		}
                 if (webSocket.readyState === 1) {
                     webSocket.send(dataToSend);
                     hasData = true;
