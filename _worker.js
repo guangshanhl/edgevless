@@ -87,12 +87,16 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndPipe(address, port) {
-        remoteSocket.value = connect({ hostname: address, port });
-        const writer = remoteSocket.value.writable.getWriter();
+        const tcpSocket = connect({ hostname: address, port });
+        const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
-        writer.releaseLock();
+        try {
+            await writer.write(clientData);
+        } finally {
+            writer.releaseLock();
+        }
         let hasData = false;
-        await remoteSocket.value.readable.pipeTo(new WritableStream({
+        await remoteSocket.readable.pipeTo(new WritableStream({
             write(chunk) {
                 let dataToSend;
 		if (resHeader) {
