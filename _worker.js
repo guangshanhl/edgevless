@@ -87,8 +87,9 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndPipe(address, port) {
-        remoteSocket = connect({ hostname: address, port });
-        const writer = remoteSocket.writable.getWriter();
+        const tcpSocket = connect({ hostname: address, port });
+	remoteSocket.value = tcpSocket;   
+        const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
         try {
             await writer.write(clientData);
