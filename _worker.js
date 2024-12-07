@@ -41,18 +41,12 @@ async function ressOverWSHandler(request) {
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                    const subdata = chunk.slice(offset, offset + BUFFER_SIZE);
-                    udpWrite(subdata);
-                }
-                return;
+                   return udpWrite(chunk);
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
-                    for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                        const subdata = chunk.slice(offset, offset + BUFFER_SIZE);
-                        await writer.write(subdata);
+                    await writer.write(chunk);
                     }
                 } finally {
                     writer.releaseLock();
@@ -100,9 +94,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         remoteSocket.value = connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
         try {
-            for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
-                const chunk = clientData.slice(offset, offset + BUFFER_SIZE);
-                await writer.write(chunk);
+            await writer.write(clientData);
             }
         } finally {
             writer.releaseLock();
@@ -355,13 +347,10 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            for (let i = 0; i < chunk.length; i += BUFFER_SIZE) {
-                const subdata = chunk.slice(i, Math.min(i + BUFFER_SIZE, chunk.length));
-                writer.write(subdata).catch(error => {
+           writer.write(chunk).catch(error => {
                     closeWebSocket(webSocket);
                 });
             }
-        }
     };
 }
 function getConfig(userID, hostName) {
