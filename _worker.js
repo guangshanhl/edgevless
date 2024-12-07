@@ -47,7 +47,6 @@ async function ressOverWSHandler(request) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
                     await writer.write(chunk);
-                    }
                 } finally {
                     writer.releaseLock();
                 }
@@ -95,7 +94,6 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const writer = remoteSocket.value.writable.getWriter();
         try {
             await writer.write(clientData);
-            }
         } finally {
             writer.releaseLock();
         }
