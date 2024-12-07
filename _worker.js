@@ -262,14 +262,13 @@ async function handleUDPOutBound(webSocket, resHeader) {
 			const dnsQueryResult = await resp.arrayBuffer();
 			const udpSize = dnsQueryResult.byteLength;
 			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
-			if (webSocket.readyState === 1) {
-				if (headerSent) {
-					webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-				} else {
-					webSocket.send(await new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-					headerSent = true;
-				}
-			}
+			const payload = headerSent
+        	            ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
+        	            : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+          		headerSent = true;
+         		if (webSocket.readyState === 1) {
+          			webSocket.send(payload);
+           	     	}
 		}
 	}));
 	const writer = transformStream.writable.getWriter();
