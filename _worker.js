@@ -41,7 +41,7 @@ async function ressOverWSHandler(request) {
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                   return udpWrite(chunk);
+                  return udpWrite(chunk);
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
@@ -103,11 +103,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    try {
-        if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-            closeWebSocket(webSocket);
-        }
-    } catch (error) {
+    if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
         closeWebSocket(webSocket);
     }
 }
@@ -239,7 +235,7 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     if (webSocket.readyState !== 1) {
-	return false;
+	    return false;
     }
     try {
         await remoteSocket.readable.pipeTo(new WritableStream({
@@ -347,8 +343,8 @@ async function handleUDPOutBound(webSocket, resHeader) {
         write(chunk) {
            writer.write(chunk).catch(error => {
                     closeWebSocket(webSocket);
-                });
-            }
+            });
+        }
     };
 }
 function getConfig(userID, hostName) {
