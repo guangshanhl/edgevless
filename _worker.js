@@ -341,9 +341,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-           writer.write(chunk).catch(error => {
-                    closeWebSocket(webSocket);
-            });
+           writer.write(chunk);
         }
     };
 }
