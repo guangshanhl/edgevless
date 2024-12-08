@@ -6,27 +6,23 @@ const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
     async fetch(request, env, ctx) {
-        userID = env.UUID || userID;
-        proxyIP = env.PROXYIP || proxyIP;   
+      	userID = env.UUID || userID;
+        proxyIP = env.PROXYIP || proxyIP;  
         if (request.headers.get('Upgrade') === 'websocket') {
             return await ressOverWSHandler(request);
         }
         const url = new URL(request.url);
-        const routes = new Map([
-            ['/', () => new Response(JSON.stringify(request.cf))],
-            [`/${userID}`, () => {
+        const routes = {
+            '/': () => new Response(JSON.stringify(request.cf)),
+            [`/${userID}`]: () => {
                 const config = getConfig(userID, request.headers.get('Host'));
                 return new Response(config, {
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' }
                 });
-            }]
-        ]);
-        const handler = routes.get(url.pathname);
-        if (handler) {
-            return handler();
-        } else {
-            return new Response('Not found', { status: 404 });
-        }
+            }
+        };
+        const handler = routes[url.pathname];
+        return handler ? handler() : new Response('Not found', { status: 404 });
     }
 };
 async function ressOverWSHandler(request) {
@@ -41,23 +37,21 @@ async function ressOverWSHandler(request) {
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                  return udpWrite(chunk);
+                return udpWrite(chunk);
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
-                await writer.write(chunk);
-                writer.releaseLock();
+                try {
+                    await writer.write(chunk);
+                } finally {
+                    writer.releaseLock();
+                }
                 return;
             }
-            const {
-                hasError,
-                portRemote = 443,
-                addressRemote = '',
-                rawDataIndex,
-                ressVersion = new Uint8Array([0, 0]),
-                isUDP,
-            } = processRessHeader(chunk, userID);
+            const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
             if (hasError) return;
+            const clientData = chunk.slice(rawDataIndex);
+            const resHeader = new Uint8Array([ressVersion[0], 0]);
             if (isUDP) {
                 if (portRemote === 53) {
                     isDns = true;
@@ -65,16 +59,14 @@ async function ressOverWSHandler(request) {
                     return;
                 }
             }
-            const resHeader = new Uint8Array([ressVersion[0], 0]);
-            const clientData = chunk.slice(rawDataIndex);
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
-                return;
+            } else {
+                handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
             }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
-        },
+        }
     })).catch((err) => {
         closeWebSocket(webSocket);
     });
@@ -87,8 +79,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     async function connectAndWrite(address, port) {
         remoteSocket.value = await connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
+	try {
+             await writer.write(clientData);
+        } finally {
+              writer.releaseLock();
+        }
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
