@@ -41,11 +41,8 @@ async function ressOverWSHandler(request) {
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
-                try {
-                    await writer.write(chunk);
-                } finally {
-                    writer.releaseLock();
-                }
+                await writer.write(chunk);
+                writer.releaseLock();
                 return;
             }
             const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
@@ -79,11 +76,8 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     async function connectAndWrite(address, port) {
         remoteSocket.value = await connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
-	try {
-             await writer.write(clientData);
-        } finally {
-              writer.releaseLock();
-        }
+        await writer.write(clientData);
+        writer.releaseLock();
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
