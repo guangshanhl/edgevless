@@ -154,68 +154,50 @@ function makeWebStream(webSocket, earlyHeader) {
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) return { hasError: true };
-
-    // 解析版本信息
     const version = new DataView(ressBuffer, 0, 1).getUint8(0);
     let isUDP = false;
-
-    // 缓存 UserID，避免重复解析
     if (!cachedUserID) {
         cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
-
-    // 校验 UserID
     const bufferUserID = new Uint8Array(ressBuffer, 1, 16);
     if (!bufferUserID.every((byte, index) => byte === cachedUserID[index])) {
         return { hasError: true };
     }
-
-    // 提取选项长度和命令
     const optLength = new DataView(ressBuffer, 17, 1).getUint8(0);
     const command = new DataView(ressBuffer, 18 + optLength, 1).getUint8(0);
-
-    // 判断协议类型
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
-
-    // 提取端口号
     const portIndex = 18 + optLength + 1;
     const portRemote = new DataView(ressBuffer, portIndex, 2).getUint16(0);
-
-    // 解析地址
     const addressIndex = portIndex + 2;
     const addressType = new DataView(ressBuffer, addressIndex, 1).getUint8(0);
     let addressValue = '';
     let addressLength = 0;
     let addressValueIndex = addressIndex + 1;
-
     switch (addressType) {
-        case 1: // IPv4
+        case 1:
             addressLength = 4;
             addressValue = new Uint8Array(ressBuffer, addressValueIndex, addressLength).join('.');
             break;
 
-        case 2: // 域名
+        case 2:
             addressLength = new DataView(ressBuffer, addressValueIndex, 1).getUint8(0);
             addressValueIndex += 1;
             addressValue = new TextDecoder().decode(
                 new Uint8Array(ressBuffer, addressValueIndex, addressLength)
             );
             break;
-
-        case 3: // IPv6
+        case 3:
             addressLength = 16;
             const ipv6Parts = new Uint16Array(ressBuffer, addressValueIndex, addressLength / 2);
             addressValue = Array.from(ipv6Parts, part => part.toString(16)).join(':');
             break;
-
         default:
             return { hasError: true };
     }
-
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -226,7 +208,6 @@ function processRessHeader(ressBuffer, userID) {
         isUDP,
     };
 }
-
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     if (webSocket.readyState !== 1) {
