@@ -189,14 +189,10 @@ function processRessHeader(ressBuffer, userID) {
             addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
             break;
         case 3:
-            addressLength = 16;
-            const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
-            const ipv6 = [];
-            for (let i = 0; i < 8; i++) {
-                ipv6.push(dataView.getUint16(i * 2).toString(16));
-            }
-            addressValue = ipv6.join(':');
-            break;
+	    addressLength = 16;
+	    const ipv6Parts = new Uint16Array(ressBuffer, addressValueIndex, addressLength / 2);
+	    addressValue = Array.from(ipv6Parts, part => part.toString(16)).join(':');
+	    break;
         default:
             return { hasError: true };
     }
