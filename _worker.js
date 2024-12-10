@@ -97,10 +97,9 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (!isActive) return;           
                 const message = event.data;
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
-                        const chunk = new Uint8Array(
-                            message.slice(offset, offset + BUFFER_SIZE)
-                        );
+                    const totalLength = message.byteLength || message.length;
+                    for (let offset = 0; offset < totalLength; offset += BUFFER_SIZE) {
+                        const chunk = message.slice(offset, Math.min(offset + BUFFER_SIZE, totalLength));
                         controller.enqueue(chunk);
                     }
                 } else {
@@ -224,8 +223,9 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 } else {
                     bufferToSend = chunk;
                 }
-                for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                    const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
+                const totalLength = bufferToSend.length;
+                for (let offset = 0; offset < totalLength; offset += BUFFER_SIZE) {
+                    const subdata = bufferToSend.slice(offset, Math.min(offset + BUFFER_SIZE, totalLength));
                     webSocket.send(subdata);
                 }
                 hasData = true;
