@@ -81,11 +81,15 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        return await connectAndWrite(address, port);
     }
-    const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-    if (!connected) {
+    const connectSocket = await Promise.race([
+        tryConnect(addressRemote, portRemote),
+        tryConnect(proxyIP, portRemote)
+    ]);
+    if (connectSocket) {
+        forwardToData(connectSocket, webSocket, resHeader);
+    } else {
         closeWebSocket(webSocket);
     }
 }
