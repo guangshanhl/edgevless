@@ -182,7 +182,6 @@ function processRessHeader(ressBuffer, userID) {
             addressLength = 4;
             addressValue = new Uint8Array(ressBuffer, addressValueIndex, addressLength).join('.');
             break;
-
         case 2:
             addressLength = new DataView(ressBuffer, addressValueIndex, 1).getUint8(0);
             addressValueIndex += 1;
