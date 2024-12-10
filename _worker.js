@@ -154,49 +154,69 @@ function makeWebStream(webSocket, earlyHeader) {
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) return { hasError: true };
-    const version = new Uint8Array(ressBuffer.slice(0, 1));
+
+    // 解析版本信息
+    const version = new DataView(ressBuffer, 0, 1).getUint8(0);
     let isUDP = false;
+
+    // 缓存 UserID，避免重复解析
     if (!cachedUserID) {
-        cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+        cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
-    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) return { hasError: true };
-    const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
-    const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+
+    // 校验 UserID
+    const bufferUserID = new Uint8Array(ressBuffer, 1, 16);
+    if (!bufferUserID.every((byte, index) => byte === cachedUserID[index])) {
+        return { hasError: true };
+    }
+
+    // 提取选项长度和命令
+    const optLength = new DataView(ressBuffer, 17, 1).getUint8(0);
+    const command = new DataView(ressBuffer, 18 + optLength, 1).getUint8(0);
+
+    // 判断协议类型
     if (command === 2) {
         isUDP = true;
     } else if (command !== 1) {
         return { hasError: false };
     }
+
+    // 提取端口号
     const portIndex = 18 + optLength + 1;
-    const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
-    const portRemote = new DataView(portBuffer).getUint16(0);
-    let addressIndex = portIndex + 2;
-    const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
-    const addressType = addressBuffer[0];
+    const portRemote = new DataView(ressBuffer, portIndex, 2).getUint16(0);
+
+    // 解析地址
+    const addressIndex = portIndex + 2;
+    const addressType = new DataView(ressBuffer, addressIndex, 1).getUint8(0);
+    let addressValue = '';
     let addressLength = 0;
     let addressValueIndex = addressIndex + 1;
-    let addressValue = '';
+
     switch (addressType) {
-        case 1:
+        case 1: // IPv4
             addressLength = 4;
-            addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+            addressValue = new Uint8Array(ressBuffer, addressValueIndex, addressLength).join('.');
             break;
-        case 2:
-            addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+
+        case 2: // 域名
+            addressLength = new DataView(ressBuffer, addressValueIndex, 1).getUint8(0);
             addressValueIndex += 1;
-            addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            addressValue = new TextDecoder().decode(
+                new Uint8Array(ressBuffer, addressValueIndex, addressLength)
+            );
             break;
-        case 3:
-	    addressLength = 16;
-	    const ipv6Parts = new Uint16Array(ressBuffer, addressValueIndex, addressLength / 2);
-	    addressValue = Array.from(ipv6Parts, part => part.toString(16)).join(':');
-	    break;
+
+        case 3: // IPv6
+            addressLength = 16;
+            const ipv6Parts = new Uint16Array(ressBuffer, addressValueIndex, addressLength / 2);
+            addressValue = Array.from(ipv6Parts, part => part.toString(16)).join(':');
+            break;
+
         default:
             return { hasError: true };
     }
-     return {
+
+    return {
         hasError: false,
         addressRemote: addressValue,
         addressType,
@@ -206,6 +226,7 @@ function processRessHeader(ressBuffer, userID) {
         isUDP,
     };
 }
+
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     if (webSocket.readyState !== 1) {
