@@ -35,7 +35,7 @@ async function ressOverWSHandler(request) {
     let udpWrite = null;
     let isDns = false;
     readableWebStream.pipeTo(new WritableStream({
-        async write(chunk, controller) {
+        async write(chunk) {
             if (isDns && udpWrite) {
                 return udpWrite(chunk);
             }
@@ -210,12 +210,12 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     if (webSocket.readyState !== 1) {
-	    return false;
+        return false;
     }
     try {
         await remoteSocket.readable.pipeTo(new WritableStream({
-            async write(chunk, controller) {
-                let bufferToSend;               
+            async write(chunk) {
+                let bufferToSend;
                 if (resHeader) {
                     bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
                     bufferToSend.set(resHeader, 0);
@@ -225,11 +225,11 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                     bufferToSend = chunk;
                 }
                 for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                    const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);                   
+                    const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
                     webSocket.send(subdata);
                 }
-		hasData = true;
-            },
+                hasData = true;
+            }
         }));
     } catch (error) {
         closeWebSocket(webSocket);
@@ -240,14 +240,10 @@ function base64ToBuffer(base64Str) {
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
-        const length = binaryStr.length;
-        const arrayBuffer = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            arrayBuffer[i] = binaryStr.charCodeAt(i);
-        }
+        const arrayBuffer = Uint8Array.from(binaryStr, char => char.charCodeAt(0));      
         return { earlyData: arrayBuffer.buffer, error: null };
     } catch (error) {
-        return { error };
+        return { earlyData: null, error };
     }
 }
 function closeWebSocket(socket) {
