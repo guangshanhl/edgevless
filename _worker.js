@@ -91,56 +91,55 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
+    const enqueueChunks = (message, controller) => {
+        const totalLength = message.byteLength || message.length;
+        for (let offset = 0; offset < totalLength; offset += BUFFER_SIZE) {
+            controller.enqueue(message.slice(offset, Math.min(offset + BUFFER_SIZE, totalLength)));
+        }
+    };
+    const closeConnection = (controller, error) => {
+        if (isActive) {
+            isActive = false;
+            if (error) {
+                controller.error(error);
+            } else {
+                controller.close();
+            }
+            closeWebSocket(webSocket);
+        }
+    };
     const stream = new ReadableStream({
         start(controller) {
             const messageHandler = (event) => {
-                if (!isActive) return;           
+                if (!isActive) return;
                 const message = event.data;
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    const totalLength = message.byteLength || message.length;
-                    for (let offset = 0; offset < totalLength; offset += BUFFER_SIZE) {
-                        const chunk = message.slice(offset, Math.min(offset + BUFFER_SIZE, totalLength));
-                        controller.enqueue(chunk);
-                    }
+                    enqueueChunks(message, controller);
                 } else {
                     controller.enqueue(message);
                 }
             };
-            const handleError = (error) => {
-                if (!isActive) return;
-                controller.error(error);
-                isActive = false;
-            };
             webSocket.addEventListener('message', messageHandler);
-            webSocket.addEventListener('close', () => {
-                if (!isActive) return;
-                closeWebSocket(webSocket);
-                controller.close();
-                isActive = false;
-            });
-            webSocket.addEventListener('error', handleError);
+            webSocket.addEventListener('close', () => closeConnection(controller));
+            webSocket.addEventListener('error', (error) => closeConnection(controller, error));
             if (earlyHeader) {
                 const { earlyData, error } = base64ToBuffer(earlyHeader);
                 if (error) {
-                    handleError(error);
+                    closeConnection(controller, error);
                 } else if (earlyData) {
                     controller.enqueue(earlyData);
                 }
             }
             return () => {
-                isActive = false;
+                closeConnection(controller);
                 webSocket.removeEventListener('message', messageHandler);
-                webSocket.removeEventListener('close', () => {});
-                webSocket.removeEventListener('error', handleError);
-                closeWebSocket(webSocket);
             };
         },
-        pull(controller) {
+        pull() {
             return Promise.resolve();
         },
-        cancel(reason) {
-            isActive = false;
-            closeWebSocket(webSocket);
+        cancel() {
+            closeConnection(null);
         }
     }, {
         highWaterMark: BUFFER_SIZE,
