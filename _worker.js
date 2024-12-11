@@ -208,14 +208,16 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     try {
+        let headerProcessed = false;
         await remoteSocket.readable.pipeTo(new WritableStream({
             async write(chunk) {
                 let bufferToSend;
-                if (resHeader) {
+                if (!headerProcessed && resHeader) {
                     bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
                     bufferToSend.set(resHeader, 0);
                     bufferToSend.set(chunk, resHeader.byteLength);
                     resHeader = null;
+                    headerProcessed = true;
                 } else {
                     bufferToSend = chunk;
                 }
