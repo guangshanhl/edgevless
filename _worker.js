@@ -50,11 +50,8 @@ async function ressOverWSHandler(request) {
             const clientData = chunk.slice(rawDataIndex);
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
-                    return;
-                }
+                if (portRemote === 53) isDns = true;
+                else return;
             }
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
