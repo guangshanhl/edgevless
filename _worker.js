@@ -275,8 +275,10 @@ async function handleUDPOutBound(webSocket, resHeader) {
             const dataToSend = headerSent 
                 ? new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer()
                 : new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer();
-            webSocket.send(await dataToSend);
-            headerSent = true;
+            if (webSocket.readyState === 1) {
+                webSocket.send(await dataToSend);
+                headerSent = true;
+            }
         }
     }));
     return {
