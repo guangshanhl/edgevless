@@ -50,8 +50,11 @@ async function ressOverWSHandler(request) {
             const clientData = chunk.slice(rawDataIndex);
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             if (isUDP) {
-                if (portRemote === 53) isDns = true;
-                else return;
+                if (portRemote === 53) {
+                    isDns = true;
+                } else {
+                    return;
+                }
             }
             if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
@@ -88,55 +91,55 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
-    const enqueueChunks = (message, controller) => {
-        const totalLength = message.byteLength || message.length;
-        for (let offset = 0; offset < totalLength; offset += BUFFER_SIZE) {
-            controller.enqueue(message.slice(offset, Math.min(offset + BUFFER_SIZE, totalLength)));
-        }
-    };
-    const closeConnection = (controller, error) => {
-        if (isActive) {
-            isActive = false;
-            if (error) {
-                controller.error(error);
-            } else {
-                controller.close();
-            }
-            closeWebSocket(webSocket);
-        }
-    };
     const stream = new ReadableStream({
         start(controller) {
             const messageHandler = (event) => {
-                if (!isActive) return;
+                if (!isActive) return;           
                 const message = event.data;
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    enqueueChunks(message, controller);
+                    for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
+                        const chunk = new Uint8Array(message.slice(offset, offset + BUFFER_SIZE));
+                        controller.enqueue(chunk);
+                    }
                 } else {
                     controller.enqueue(message);
                 }
             };
+            const handleError = (error) => {
+                if (!isActive) return;
+                controller.error(error);
+                isActive = false;
+            };
             webSocket.addEventListener('message', messageHandler);
-            webSocket.addEventListener('close', () => closeConnection(controller));
-            webSocket.addEventListener('error', (error) => closeConnection(controller, error));
+            webSocket.addEventListener('close', () => {
+                if (!isActive) return;
+                closeWebSocket(webSocket);
+                controller.close();
+                isActive = false;
+            });
+            webSocket.addEventListener('error', handleError);
             if (earlyHeader) {
                 const { earlyData, error } = base64ToBuffer(earlyHeader);
                 if (error) {
-                    closeConnection(controller, error);
+                    handleError(error);
                 } else if (earlyData) {
                     controller.enqueue(earlyData);
                 }
             }
             return () => {
-                closeConnection(controller);
+                isActive = false;
                 webSocket.removeEventListener('message', messageHandler);
+                webSocket.removeEventListener('close', () => {});
+                webSocket.removeEventListener('error', handleError);
+                closeWebSocket(webSocket);
             };
         },
-        pull() {
+        pull(controller) {
             return Promise.resolve();
         },
-        cancel() {
-            closeConnection(null);
+        cancel(reason) {
+            isActive = false;
+            closeWebSocket(webSocket);
         }
     }, {
         highWaterMark: BUFFER_SIZE,
@@ -205,7 +208,7 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     try {
-        let headerProcessed = false;
+		let headerProcessed = false;
         await remoteSocket.readable.pipeTo(new WritableStream({
             async write(chunk) {
                 let bufferToSend;
@@ -214,18 +217,17 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                     bufferToSend.set(resHeader, 0);
                     bufferToSend.set(chunk, resHeader.byteLength);
                     resHeader = null;
-                    headerProcessed = true;
+					headerProcessed = true;
                 } else {
                     bufferToSend = chunk;
                 }
-                if (webSocket.readyState === 1) {
-                    const totalLength = bufferToSend.length;
-                    for (let offset = 0; offset < totalLength; offset += BUFFER_SIZE) {
-                        const subdata = bufferToSend.slice(offset, Math.min(offset + BUFFER_SIZE, totalLength));
-                        webSocket.send(subdata);
-                    }
-                    hasData = true;
-                }
+				if (webSocket.readyState !== 1) {
+					for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
+						const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
+						webSocket.send(subdata);
+					}
+					hasData = true;
+				}
             }
         }));
     } catch (error) {
