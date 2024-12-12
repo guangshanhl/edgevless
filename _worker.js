@@ -1,7 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 let proxyIP = '';
-const BUFFER_SIZE = 32768;
+const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
@@ -74,40 +74,21 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        try {
-            const socket = await connect({ 
-                hostname: address, 
-                port,
-                timeout: 5000,
-                allowHalfOpen: false
-            });
-            
-            remoteSocket.value = socket;
-            const writer = socket.writable.getWriter();
-            
-            try {
-                await writer.write(clientData);
-                return socket;
-            } finally {
-                writer.releaseLock();
-            }
-        } catch {
-            return null;
-        }
+        remoteSocket.value = await connect({ hostname: address, port });
+        const writer = remoteSocket.value.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
+        return remoteSocket.value;
     }
-
-    let socket = await connectAndWrite(addressRemote, portRemote);
-    if (!socket && proxyIP) {
-        socket = await connectAndWrite(proxyIP, portRemote);
+    async function tryConnect(address, port) {
+        const tcpSocket = await connectAndWrite(address, port);
+        return forwardToData(tcpSocket, webSocket, resHeader);
     }
-
-    if (socket) {
-        return forwardToData(socket, webSocket, resHeader);
+    const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
+    if (!connected) {
+        closeWebSocket(webSocket);
     }
-
-    closeWebSocket(webSocket);
 }
-
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
     const stream = new ReadableStream({
@@ -252,6 +233,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     } catch (error) {
         closeWebSocket(webSocket);
     }
+    return hasData;
 }
 function base64ToBuffer(base64Str) {
     try {
