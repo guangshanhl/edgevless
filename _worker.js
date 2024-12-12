@@ -74,21 +74,40 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        remoteSocket.value = await connect({ hostname: address, port });
-        const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
-        return remoteSocket.value;
+        try {
+            const socket = await connect({ 
+                hostname: address, 
+                port,
+                timeout: 5000,
+                allowHalfOpen: false
+            });
+            
+            remoteSocket.value = socket;
+            const writer = socket.writable.getWriter();
+            
+            try {
+                await writer.write(clientData);
+                return socket;
+            } finally {
+                writer.releaseLock();
+            }
+        } catch {
+            return null;
+        }
     }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+
+    let socket = await connectAndWrite(addressRemote, portRemote);
+    if (!socket && proxyIP) {
+        socket = await connectAndWrite(proxyIP, portRemote);
     }
-    const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-    if (!connected) {
-        closeWebSocket(webSocket);
+
+    if (socket) {
+        return forwardToData(socket, webSocket, resHeader);
     }
+
+    closeWebSocket(webSocket);
 }
+
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
     const stream = new ReadableStream({
@@ -233,7 +252,6 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     } catch (error) {
         closeWebSocket(webSocket);
     }
-    return hasData;
 }
 function base64ToBuffer(base64Str) {
     try {
