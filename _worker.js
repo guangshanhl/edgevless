@@ -208,7 +208,7 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     try {
-		let headerProcessed = false;
+	let headerProcessed = false;
         await remoteSocket.readable.pipeTo(new WritableStream({
             async write(chunk) {
                 let bufferToSend;
@@ -221,13 +221,13 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 } else {
                     bufferToSend = chunk;
                 }
-				if (webSocket.readyState !== 1) {
-					for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-						const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
-						webSocket.send(subdata);
-					}
-					hasData = true;
-				}
+		if (webSocket.readyState === 1) {
+			for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
+				const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
+				webSocket.send(subdata);
+			}
+			hasData = true;
+		}
             }
         }));
     } catch (error) {
