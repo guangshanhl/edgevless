@@ -213,8 +213,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             async write(chunk) {
                 let bufferToSend;
                 if (!headerProcessed && resHeader) {
-                    const blob = new Blob([resHeader, chunk]);
-                    bufferToSend = await blob.arrayBuffer();
+                    bufferToSend = await new Blob([resHeader, chunk]).arrayBuffer();
                     resHeader = null;
                     headerProcessed = true;
                 } else {
