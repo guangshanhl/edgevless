@@ -252,29 +252,14 @@ function closeWebSocket(socket) {
 }
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
-    let partialChunk = null;    
     const transformStream = new TransformStream({
         transform(chunk, controller) {
-            if (partialChunk) {
-                chunk = new Uint8Array([...partialChunk, ...chunk]);
-                partialChunk = null;
-            }            
-            let offset = 0;
-            while (offset < chunk.byteLength) {
-                if (chunk.byteLength < offset + 2) {
-                    partialChunk = chunk.slice(offset);
-                    break;
-                }
-                const dataView = new DataView(chunk.buffer, chunk.byteOffset + offset);
-                const udpPacketLength = dataView.getUint16(0);
-                const nextOffset = offset + 2 + udpPacketLength;
-                if (chunk.byteLength < nextOffset) {
-                    partialChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpData = chunk.slice(offset + 2, nextOffset);
-                offset = nextOffset;               
+            let index = 0;
+            while (index < chunk.byteLength) {
+                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + index, 2).getUint16(0);
+                const udpData = chunk.subarray(index + 2, index + 2 + udpPacketLength);
                 controller.enqueue(udpData);
+                index += 2 + udpPacketLength;
             }
         }
     });
@@ -282,32 +267,21 @@ async function handleUDPOutBound(webSocket, resHeader) {
         async write(chunk) {
             const response = await fetch('https://dns.google/dns-query', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/dns-message',
-                    'Accept': 'application/dns-message'
-                },
-                body: chunk
+                headers: { 'content-type': 'application/dns-message' },
+                body: chunk,
             });
             const dnsQueryResult = await response.arrayBuffer();
-            const udpSizeBuffer = new Uint8Array([
-                (dnsQueryResult.byteLength >> 8) & 0xff,
-                dnsQueryResult.byteLength & 0xff
-            ]);
-            const payload = headerSent 
-                ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-                : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);               
+            const udpSizeBuffer = new Uint8Array([(dnsQueryResult.byteLength >> 8) & 0xff, dnsQueryResult.byteLength & 0xff]);
+            const dataToSend = headerSent 
+                ? new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer()
+                : new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer();
+            webSocket.send(await dataToSend);
             headerSent = true;
-            if (webSocket.readyState === 1) {
-                webSocket.send(payload);
-            }
         }
-    })).catch(error => {
-        closeWebSocket(webSocket);
-    });
-    const writer = transformStream.writable.getWriter();
+    }));
     return {
         write(chunk) {
-           writer.write(chunk);
+            transformStream.writable.getWriter().write(chunk);
         }
     };
 }
