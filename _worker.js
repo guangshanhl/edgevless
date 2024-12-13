@@ -33,7 +33,6 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
@@ -68,7 +67,6 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            address = addressRemote;
             if (hasError) {
                 return;
             }
@@ -324,9 +322,6 @@ async function handleUDPOutBound(webSocket, resHeader) {
                     },
                     body: chunk
                 });
-                if (!response.ok) {
-                    throw new Error(`DNS query failed: ${response.status}`);
-                }
                 const dnsQueryResult = await response.arrayBuffer();
                 const udpSizeBuffer = new Uint8Array([
                     (dnsQueryResult.byteLength >> 8) & 0xff,
