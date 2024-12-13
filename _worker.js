@@ -67,9 +67,7 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            if (hasError) {
-                return;
-            }
+            if (hasError) return;
             if (isUDP) {
                 if (portRemote === 53) {
                     isDns = true;
