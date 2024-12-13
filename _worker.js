@@ -68,7 +68,6 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-
             address = addressRemote;
             if (hasError) {
                 return;
