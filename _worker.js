@@ -252,14 +252,12 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                 } else {
                     bufferToSend = chunk;
                 }
-                for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                    const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);                   
-                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                        webSocket.send(subdata);
-                        hasData = true;
-                    } else {
-                        return false;
+                if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                    for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
+                        const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);                                      
+                        webSocket.send(subdata);                        
                     }
+                    hasData = true;
                 }
             },
         }));
