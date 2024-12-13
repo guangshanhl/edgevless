@@ -5,7 +5,7 @@ const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
     async fetch(request, env, ctx) {
-      	userID = env.UUID || userID;
+        userID = env.UUID || userID;
         proxyIP = env.PROXYIP || proxyIP;  
         if (request.headers.get('Upgrade') === 'websocket') {
             return await ressOverWSHandler(request);
@@ -89,48 +89,38 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebStream(webSocket, earlyHeader) {
-	let isCancel = false;
-	const stream = new ReadableStream({
-		start(controller) {
-			webSocket.addEventListener('message', (event) => {
-				if (isCancel) {
-					return;
-				}
-				const message = event.data;
-				controller.enqueue(message);
-			});
-			webSocket.addEventListener('close', () => {
-				closeWebSocket(webSocket);
-				if (isCancel) {
-					return;
-				}
-				controller.close();
-			}
-			);
-			webSocket.addEventListener('error', (err) => {
-				controller.error(err);
-			}
-			);
-			if (earlyHeader) {
+    let isCancel = false;
+    const stream = new ReadableStream({
+        start(controller) {
+            webSocket.addEventListener('message', (event) => {
+                if (isCancel) return;
+                controller.enqueue(event.data);
+            });
+            webSocket.addEventListener('close', () => {
+                closeWebSocket(webSocket);
+                if (isCancel) return;
+                controller.close();
+            });
+            webSocket.addEventListener('error', (err) => {
+                controller.error(err);
+            });
+            if (earlyHeader) {
                 const { earlyData, error } = base64ToBuffer(earlyHeader);
                 if (error) {
-                    handleError(error);
+                    controller.error(error);
                 } else if (earlyData) {
                     controller.enqueue(earlyData);
                 }
             }
-		},
-		pull(controller) {
-		},
-		cancel(reason) {
-			if (isCancel) {
-				return;
-			}
-			isCancel = true;
-			closeWebSocket(webSocket);
-		}
-	});
-	return stream;
+        },
+        pull(controller) {},
+        cancel(reason) {
+            if (isCancel) return;
+            isCancel = true;
+            closeWebSocket(webSocket);
+        }
+    });
+    return stream;
 }
 let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
@@ -246,7 +236,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
             const dnsQueryResult = await response.arrayBuffer();
             const dataToSend = headerSent
                 ? await new Blob([dnsQueryResult]).arrayBuffer()
-                : await new Blob([resHeader, dnsQueryResult]).arrayBuffer();
+                : await new Blob([resHeader, dnsQueryResult]).arrayBuffer();         
             if (webSocket.readyState === WS_READY_STATE_OPEN) {
                 webSocket.send(dataToSend);
                 headerSent = true;
@@ -260,5 +250,5 @@ async function handleUDPOutBound(webSocket, resHeader) {
     };
 }
 function getConfig(userID, hostName) {
-    return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `vless://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
