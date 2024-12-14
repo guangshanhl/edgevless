@@ -61,7 +61,7 @@ async function ressOverWSHandler(request) {
             }
             const {
                 hasError,
-                portRemote = 443,
+                portRemote = 8443,
                 addressRemote = '',
                 rawDataIndex,
                 ressVersion = new Uint8Array([0, 0]),
