@@ -95,7 +95,11 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        remoteSocket.value = connect({ hostname: address, port });
+        remoteSocket.value = connect({
+            hostname: address,
+            port: port,
+            secure: true,
+        });
         const writer = remoteSocket.value.writable.getWriter();
         try {
             for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
