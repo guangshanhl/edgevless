@@ -7,28 +7,37 @@ const WS_READY_STATE_CLOSING = 2;
 export default {
     async fetch(request, env, ctx) {
         userID = env.UUID || userID;
-        proxyIP = env.PROXYIP || proxyIP;   
+        proxyIP = env.PROXYIP || proxyIP;
         try {
-            if(request.headers.get('Upgrade') === 'websocket') {
+            if (request.headers.get('Upgrade') === 'websocket') {
                 return await webSocketHandler(request);
             }
             const url = new URL(request.url);
-            const routes = new Map([
-                ['/', () => new Response(JSON.stringify(request.cf))],
-                [`/${userID}`, () => {
-                    const config = getConfig(userID, request.headers.get('Host'));
-                    return new Response(config, {
-                        headers: {'Content-Type': 'text/plain;charset=utf-8'}
-                    });
-                }]
-            ]);
-            const handler = routes.get(url.pathname);
-            return handler ? handler() : new Response('Not found', {status: 404});
+            const handler = getRouteHandler(url.pathname, request, userID);
+            return handler ? handler() : new Response('Not found', { status: 404 });
         } catch (err) {
             return new Response(err.toString());
         }
     }
 };
+function getRouteHandler(pathname, request, userID) {
+    const routes = new Map([
+        ['/', () => handleRootRequest(request)],
+        [`/${userID}`, () => handleUserRequest(request, userID)]
+    ]);
+    return routes.get(pathname);
+}
+function handleRootRequest(request) {
+    return new Response(JSON.stringify(request.cf), {
+        headers: { 'Content-Type': 'application/json' }
+    });
+}
+function handleUserRequest(request, userID) {
+    const config = getConfig(userID, request.headers.get('Host'));
+    return new Response(config, {
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+    });
+}
 async function webSocketHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
