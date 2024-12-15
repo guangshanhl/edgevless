@@ -50,7 +50,10 @@ async function webSocketHandler(request) {
     readableWebSocketStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                udpWriteChunks(chunk, udpWrite);
+                const chunkArray = chunkData(chunk, BUFFER_SIZE);
+                for (const subdata of chunkArray) {
+                    udpWrite(subdata);
+                }
                 return;
             }
             if (remoteSocket.value) {
@@ -267,10 +270,6 @@ function base64ToBuffer(base64Str) {
     } catch (error) {
         return { error };
     }
-}
-function udpWriteChunks(chunk, udpWrite) {
-    const chunkArray = chunkData(chunk, BUFFER_SIZE);
-    chunkArray.forEach(subdata => udpWrite(subdata));
 }
 async function writeChunksToSocket(socket, data) {
     const writer = socket.writable.getWriter();
