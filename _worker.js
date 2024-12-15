@@ -41,8 +41,8 @@ async function ressOverWSHandler(request) {
     readableWebStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                    const subdata = chunk.slice(offset, offset + BUFFER_SIZE);
+                const chunkArray = chunkData(chunk, BUFFER_SIZE);
+                for (const subdata of chunkArray) {
                     udpWrite(subdata);
                 }
                 return;
@@ -50,8 +50,8 @@ async function ressOverWSHandler(request) {
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
-                    for (let offset = 0; offset < chunk.byteLength; offset += BUFFER_SIZE) {
-                        const subdata = chunk.slice(offset, offset + BUFFER_SIZE);
+                    const chunkArray = chunkData(chunk, BUFFER_SIZE);
+                    for (const subdata of chunkArray) {
                         await writer.write(subdata);
                     }
                 } finally {
@@ -103,8 +103,8 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         });
         const writer = remoteSocket.value.writable.getWriter();
         try {
-            for (let offset = 0; offset < clientData.byteLength; offset += BUFFER_SIZE) {
-                const chunk = clientData.slice(offset, offset + BUFFER_SIZE);
+            const chunkArray = chunkData(clientData, BUFFER_SIZE);
+            for (const chunk of chunkArray) {
                 await writer.write(chunk);
             }
         } finally {
@@ -129,10 +129,8 @@ function makeWebStream(webSocket, earlyHeader) {
                 if (!isActive) return;           
                 const message = event.data;
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
-                        const chunk = new Uint8Array(
-                            message.slice(offset, offset + BUFFER_SIZE)
-                        );
+                    const chunkArray = chunkData(message, BUFFER_SIZE);
+                    for (const chunk of chunkArray) {
                         controller.enqueue(chunk);
                     }
                 } else {
@@ -254,9 +252,9 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                     bufferToSend = chunk;
                 }
                 if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                    for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                        const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);                                      
-                        webSocket.send(subdata);                        
+                    const chunkArray = chunkData(bufferToSend, BUFFER_SIZE);
+                    for (const subdata of chunkArray) {
+                        webSocket.send(subdata);
                     }
                     hasData = true;
                 }
@@ -280,6 +278,13 @@ function base64ToBuffer(base64Str) {
     } catch (error) {
         return { error };
     }
+}
+function chunkData(data, size) {
+    const chunks = [];
+    for (let offset = 0; offset < data.byteLength; offset += size) {
+        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
+    }
+    return chunks;
 }
 function closeWebSocket(socket) {
     if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
@@ -343,8 +348,8 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            for (let i = 0; i < chunk.length; i += BUFFER_SIZE) {
-                const subdata = chunk.slice(i, Math.min(i + BUFFER_SIZE, chunk.length));
+            const chunkArray = chunkData(chunk, BUFFER_SIZE);
+            for (const subdata of chunkArray) {
                 writer.write(subdata);
             }
         }
