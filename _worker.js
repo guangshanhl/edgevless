@@ -41,22 +41,11 @@ async function webSocketHandler(request) {
     readableWebSocketStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                const chunkArray = chunkData(chunk, BUFFER_SIZE);
-                for (const subdata of chunkArray) {
-                    udpWrite(subdata);
-                }
+                udpWriteChunks(chunk, udpWrite);
                 return;
             }
             if (remoteSocket.value) {
-                const writer = remoteSocket.value.writable.getWriter();
-                try {
-                    const chunkArray = chunkData(chunk, BUFFER_SIZE);
-                    for (const subdata of chunkArray) {
-                        await writer.write(subdata);
-                    }
-                } finally {
-                    writer.releaseLock();
-                }
+                await writeChunksToSocket(remoteSocket.value, chunk);
                 return;
             }
             const {
@@ -101,15 +90,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
             secureTransport: "on",
             allowHalfOpen: true
         });
-        const writer = remoteSocket.value.writable.getWriter();
-        try {
-            const chunkArray = chunkData(clientData, BUFFER_SIZE);
-            for (const chunk of chunkArray) {
-                await writer.write(chunk);
-            }
-        } finally {
-            writer.releaseLock();
-        }
+        await writeChunksToSocket(remoteSocket.value, clientData);
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
@@ -278,6 +259,21 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
+function udpWriteChunks(chunk, udpWrite) {
+    const chunkArray = chunkData(chunk, BUFFER_SIZE);
+    chunkArray.forEach(subdata => udpWrite(subdata));
+}
+async function writeChunksToSocket(socket, data) {
+    const writer = socket.writable.getWriter();
+    try {
+        const chunkArray = chunkData(data, BUFFER_SIZE);
+        for (const chunk of chunkArray) {
+            await writer.write(chunk);
+        }
+    } finally {
+        writer.releaseLock();
+    }
+}
 function chunkData(data, size) {
     const chunks = [];
     for (let offset = 0; offset < data.byteLength; offset += size) {
@@ -302,29 +298,14 @@ function closeWebSocket(socket) {
 }
 async function handleUDPOutBound(webSocket, resHeader) {
     let headerSent = false;
-    let partialChunk = null;  
+    let partialChunk = null;
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partialChunk) {
-                chunk = new Uint8Array([...partialChunk, ...chunk]);
+                chunk = mergeChunks(partialChunk, chunk);
                 partialChunk = null;
             }
-            let offset = 0;
-            while (offset < chunk.byteLength) {
-                if (chunk.byteLength < offset + 2) {
-                    partialChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset).getUint16(0);
-                const nextOffset = offset + 2 + udpPacketLength;
-                if (chunk.byteLength < nextOffset) {
-                    partialChunk = chunk.slice(offset);
-                    break;
-                }
-                const udpData = chunk.slice(offset + 2, nextOffset);
-                offset = nextOffset;               
-                controller.enqueue(udpData);
-            }
+            processChunk(chunk, controller);
         }
     });
     transformStream.readable.pipeTo(new WritableStream({
@@ -360,6 +341,30 @@ async function handleUDPOutBound(webSocket, resHeader) {
             }
         }
     };
+}
+function mergeChunks(chunk1, chunk2) {
+    const merged = new Uint8Array(chunk1.byteLength + chunk2.byteLength);
+    merged.set(chunk1, 0);
+    merged.set(chunk2, chunk1.byteLength);
+    return merged;
+}
+function processChunk(chunk, controller) {
+    let offset = 0;
+    while (offset < chunk.byteLength) {
+        if (chunk.byteLength < offset + 2) {
+            partialChunk = chunk.slice(offset);
+            break;
+        }
+        const udpPacketLength = new DataView(chunk.buffer, chunk.byteOffset + offset).getUint16(0);
+        const nextOffset = offset + 2 + udpPacketLength;
+        if (chunk.byteLength < nextOffset) {
+            partialChunk = chunk.slice(offset);
+            break;
+        }
+        const udpData = chunk.slice(offset + 2, nextOffset);
+        offset = nextOffset;
+        controller.enqueue(udpData);
+    }
 }
 function getConfig(userID, hostName) {
     return `vless://${userID}\u0040${hostName}:8443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
