@@ -316,29 +316,25 @@ async function handleUDPOutBound(webSocket, resHeader) {
     });
     transformStream.readable.pipeTo(new WritableStream({
         async write(chunk) {
-            try {
-                const response = await fetch('https://cloudflare-dns.com/dns-query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/dns-message',
-                        'Accept': 'application/dns-message'
-                    },
-                    body: chunk
-                });
-                const dnsQueryResult = await response.arrayBuffer();
-                const udpSizeBuffer = new Uint8Array([
-                    (dnsQueryResult.byteLength >> 8) & 0xff,
-                    dnsQueryResult.byteLength & 0xff
-                ]);
-                const payload = headerSent 
-                    ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-                    : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);               
-                headerSent = true;
-                if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                    webSocket.send(payload);
-                }
-            } catch (error) {
-                closeWebSocket(webSocket);
+            const response = await fetch('https://cloudflare-dns.com/dns-query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/dns-message',
+                    'Accept': 'application/dns-message'
+                },
+                body: chunk
+            });
+            const dnsQueryResult = await response.arrayBuffer();
+            const udpSizeBuffer = new Uint8Array([
+                (dnsQueryResult.byteLength >> 8) & 0xff,
+                dnsQueryResult.byteLength & 0xff
+            ]);
+            const payload = headerSent 
+                ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
+                : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);               
+            headerSent = true;
+            if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                webSocket.send(payload);
             }
         }
     })).catch(error => {
@@ -349,9 +345,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
         write(chunk) {
             for (let i = 0; i < chunk.length; i += BUFFER_SIZE) {
                 const subdata = chunk.slice(i, Math.min(i + BUFFER_SIZE, chunk.length));
-                writer.write(subdata).catch(error => {
-                    closeWebSocket(webSocket);
-                });
+                writer.write(subdata);
             }
         }
     };
