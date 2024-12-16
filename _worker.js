@@ -287,7 +287,7 @@ function chunkData(data, size) {
   return chunks;
 }
 function mergeUint8Arrays(...arrays) {
-    const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
+  const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
   const result = new Uint8Array(totalLength);
   let offset = 0; 
   for (const arr of arrays) {
