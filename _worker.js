@@ -234,7 +234,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             async write(chunk, controller) {
                 let chunkHeader;               
                 if (resHeader) {
-                    chunkHeader = concatenateUint8Arrays(resHeader, chunk);
+                    chunkHeader = mergeUint8Arrays(resHeader, chunk);
                     resHeader = null;
                 } else {
                     chunkHeader = chunk;
@@ -285,7 +285,7 @@ function chunkData(data, size) {
     }
     return chunks;
 }
-function concatenateUint8Arrays(...arrays) {
+function mergeUint8Arrays(...arrays) {
     const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
@@ -306,7 +306,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partialChunk) {
-                chunk = concatenateUint8Arrays(partialChunk, chunk);
+                chunk = mergeUint8Arrays(partialChunk, chunk);
                 partialChunk = null;
             }
             processChunk(chunk, controller);
@@ -328,8 +328,8 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 dnsQueryResult.byteLength & 0xff
             ]);
             const payload = headerSent 
-                ? concatenateUint8Arrays(udpSizeBuffer, new Uint8Array(dnsQueryResult))
-                : concatenateUint8Arrays(resHeader, udpSizeBuffer, new Uint8Array(dnsQueryResult));
+                ? mergeUint8Arrays(udpSizeBuffer, new Uint8Array(dnsQueryResult))
+                : mergeUint8Arrays(resHeader, udpSizeBuffer, new Uint8Array(dnsQueryResult));
             headerSent = true;
             if (webSocket.readyState === WS_READY_STATE_OPEN) {
                 webSocket.send(payload);
