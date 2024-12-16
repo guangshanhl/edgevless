@@ -282,7 +282,7 @@ async function writeToSocket(socket, data) {
 function chunkData(data, size) {
     const chunks = [];
     for (let offset = 0; offset < data.byteLength; offset += size) {
-        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
+        chunks.push(data.subarray(offset, offset + size));
     }
     return chunks;
 }
