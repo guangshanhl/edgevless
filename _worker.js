@@ -115,11 +115,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
 }
 function makeWebSocketStream(webSocket, earlyHeader) {
-    let isActive = true;
+    let isClosed = false;
     const stream = new ReadableStream({
         start(controller) {
             const messageHandler = (event) => {
-                if (!isActive) return;
+                if (isClosed) return;
                 const message = event.data;
                 const chunkArray = chunkData(message, BUFFER_SIZE);
                 for (const chunk of chunkArray) {
@@ -127,15 +127,20 @@ function makeWebSocketStream(webSocket, earlyHeader) {
                 }
             };
             const handleError = (error) => {
-                if (!isActive) return;
-                controller.error(error);
-                isActive = false;
+                if (!isClosed) controller.error(error);
+                cleanup();
             };
             const handleClose = () => {
-                if (!isActive) return;
+                if (!isClosed) controller.close();
+                cleanup();
+            };
+            const cleanup = () => {
+                if (isClosed) return;
+                isClosed = true;
+                webSocket.removeEventListener('message', messageHandler);
+                webSocket.removeEventListener('close', handleClose);
+                webSocket.removeEventListener('error', handleError);
                 closeWebSocket(webSocket);
-                controller.close();
-                isActive = false;
             };
             webSocket.addEventListener('message', messageHandler);
             webSocket.addEventListener('close', handleClose);
@@ -148,20 +153,16 @@ function makeWebSocketStream(webSocket, earlyHeader) {
                     controller.enqueue(earlyData);
                 }
             }
-            return () => {
-                isActive = false;
-                webSocket.removeEventListener('message', messageHandler);
-                webSocket.removeEventListener('close', handleClose);
-                webSocket.removeEventListener('error', handleError);
-                closeWebSocket(webSocket);
-            };
+            return cleanup;
         },
         pull(controller) {
             return Promise.resolve();
         },
         cancel(reason) {
-            isActive = false;
-            closeWebSocket(webSocket);
+            if (!isClosed) {
+                isClosed = true;
+                closeWebSocket(webSocket);
+            }
         }
     }, {
         highWaterMark: BUFFER_SIZE,
