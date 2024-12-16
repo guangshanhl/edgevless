@@ -280,21 +280,21 @@ async function writeToSocket(socket, data) {
     }
 }
 function chunkData(data, size) {
-    const chunks = [];
-    for (let offset = 0; offset < data.byteLength; offset += size) {
-        chunks.push(data.subarray(offset, offset + size));
-    }
-    return chunks;
+  const chunks = [];
+  for (let i = 0; i < data.byteLength; i += size) {
+    chunks.push(new Uint8Array(data.slice(i, i + size)));
+  }
+  return chunks;
 }
 function mergeUint8Arrays(...arrays) {
     const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    arrays.forEach(arr => {
-        result.set(arr, offset);
-        offset += arr.byteLength;
-    });
-    return result;
+  const result = new Uint8Array(totalLength);
+  let offset = 0; 
+  for (const arr of arrays) {
+    result.set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength), offset);
+    offset += arr.byteLength;
+  }  
+  return result;
 }
 function closeWebSocket(socket) {
     if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
