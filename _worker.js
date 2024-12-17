@@ -13,26 +13,26 @@ export default {
                 return await webSocketHandler(request);
             }
             const url = new URL(request.url);
-            const handler = getRouteHandler(url.pathname, request, userID);
+            const handler = routeHandler(url.pathname, request, userID);
             return handler ? handler() : new Response('Not found', { status: 404 });
         } catch (err) {
             return new Response(err.toString());
         }
     }
 };
-function getRouteHandler(pathname, request, userID) {
+function routeHandler(pathname, request, userID) {
     const routes = new Map([
-        ['/', () => handleRootRequest(request)],
-        [`/${userID}`, () => handleUserRequest(request, userID)]
+        ['/', () => rootRequest(request)],
+        [`/${userID}`, () => userRequest(request, userID)]
     ]);
     return routes.get(pathname);
 }
-function handleRootRequest(request) {
+function rootRequest(request) {
     return new Response(JSON.stringify(request.cf), {
         headers: { 'Content-Type': 'application/json' }
     });
 }
-function handleUserRequest(request, userID) {
+function userRequest(request, userID) {
     const config = getConfig(userID, request.headers.get('Host'));
     return new Response(config, {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }
@@ -57,7 +57,7 @@ async function webSocketHandler(request) {
                 return;
             }
             if (remoteSocket.value) {
-                await writeChunksToSocket(remoteSocket.value, chunk);
+                await writeToSocket(remoteSocket.value, chunk);
                 return;
             }
             const {
@@ -102,7 +102,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
             secureTransport: "on",
             allowHalfOpen: true
         });
-        await writeChunksToSocket(remoteSocket.value, clientData);
+        await writeToSocket(remoteSocket.value, clientData);
         return remoteSocket.value;
     }
     async function tryConnect(address, port) {
@@ -238,7 +238,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             async write(chunk, controller) {
                 let chunkHeader;               
                 if (resHeader) {
-                    chunkHeader = concatenateUint8Arrays(resHeader, chunk);
+                    chunkHeader = mergeUint8Arrays(resHeader, chunk);
                     resHeader = null;
                 } else {
                     chunkHeader = chunk;
@@ -271,7 +271,7 @@ function base64ToBuffer(base64Str) {
         return { error };
     }
 }
-async function writeChunksToSocket(socket, data) {
+async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
     try {
         const chunkArray = chunkData(data, BUFFER_SIZE);
@@ -289,7 +289,7 @@ function chunkData(data, size) {
     }
     return chunks;
 }
-function concatenateUint8Arrays(...arrays) {
+function mergeUint8Arrays(...arrays) {
     const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
@@ -310,7 +310,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const transformStream = new TransformStream({
         transform(chunk, controller) {
             if (partialChunk) {
-                chunk = concatenateUint8Arrays(partialChunk, chunk);
+                chunk = mergeUint8Arrays(partialChunk, chunk);
                 partialChunk = null;
             }
             processChunk(chunk, controller);
@@ -332,8 +332,8 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 dnsQueryResult.byteLength & 0xff
             ]);
             const payload = headerSent 
-                ? concatenateUint8Arrays(udpSizeBuffer, new Uint8Array(dnsQueryResult))
-                : concatenateUint8Arrays(resHeader, udpSizeBuffer, new Uint8Array(dnsQueryResult));
+                ? mergeUint8Arrays(udpSizeBuffer, new Uint8Array(dnsQueryResult))
+                : mergeUint8Arrays(resHeader, udpSizeBuffer, new Uint8Array(dnsQueryResult));
             headerSent = true;
             if (webSocket.readyState === WS_READY_STATE_OPEN) {
                 webSocket.send(payload);
