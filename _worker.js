@@ -4,7 +4,6 @@ let proxyIP = '';
 const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-const webSocketCache = new Map();
 export default {
     async fetch(request, env, ctx) {
         userID = env.UUID || userID;
@@ -39,19 +38,10 @@ function userRequest(request, userID) {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }
     });
 }
-async function getWebSocketConnection(remoteAddress, remotePort) {
-    const key = `${remoteAddress}:${remotePort}`;
-    if (webSocketCache.has(key)) {
-        return webSocketCache.get(key);
-    }
+async function webSocketHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    webSocketCache.set(key, server);
-    return client;
-}
-async function webSocketHandler(request) {
-    const webSocket = await getWebSocketConnection(remoteAddress, remotePort);
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebSocketStream = makeWebSocketStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
