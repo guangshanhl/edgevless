@@ -74,9 +74,7 @@ async function webSocketHandler(request) {
             const clientData = chunk.slice(rawDataIndex);
             isDns = isUDP;
             if (isDns) {
-                if (portRemote !== 53) {
-                    return;
-                }
+                if (portRemote !== 53) return;
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
