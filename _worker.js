@@ -230,24 +230,24 @@ function processRessHeader(ressBuffer, userID) {
 async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     try {
-        await remoteSocket.readable.pipeTo(
-            new WritableStream({
-                async write(chunk) {
-                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                        return;
-                    }
-                    if (resHeader) {
-                        chunk = mergeUint8Arrays(resHeader, chunk);
-                        resHeader = null;
-                    }
-                    const chunkArray = chunkData(chunk, BUFFER_SIZE);
+        await remoteSocket.readable.pipeTo(new WritableStream({
+            async write(chunk, controller) {
+                let chunkHeader;               
+                if (resHeader) {
+                    chunkHeader = mergeUint8Arrays(resHeader, chunk);
+                    resHeader = null;
+                } else {
+                    chunkHeader = chunk;
+                }
+                if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                    const chunkArray = chunkData(chunkHeader, BUFFER_SIZE);
                     for (const subdata of chunkArray) {
                         webSocket.send(subdata);
                     }
                     hasData = true;
                 }
-            })
-        );
+            }
+        }));
     } catch (error) {
         closeWebSocket(webSocket);
     }
@@ -286,16 +286,13 @@ function chunkData(data, size) {
     return chunks;
 }
 function mergeUint8Arrays(...arrays) {
-    let totalLength = 0;
-    for (const arr of arrays) {
-        totalLength += arr.byteLength;
-    }
+    const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
-    for (const arr of arrays) {
+    arrays.forEach(arr => {
         result.set(arr, offset);
         offset += arr.byteLength;
-    }
+    });
     return result;
 }
 function closeWebSocket(socket) {
