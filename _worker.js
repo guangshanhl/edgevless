@@ -50,9 +50,7 @@ async function webSocketHandler(request) {
     readableWebSocketStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                for (const subdata of chunkData(chunk, BUFFER_SIZE)) {
-                    udpWrite(subdata);
-                }
+                udpWrite(chunk);
                 return;
             }
             if (remoteSocket.value) {
@@ -130,14 +128,13 @@ function makeWebSocketStream(webSocket, earlyHeader) {
     let isActive = true;
     function base64ToBuffer(base64Str) {
         try {
-            const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-            const binaryStr = atob(normalizedStr);
-            const length = binaryStr.length;
-            const arrayBuffer = new Uint8Array(length);
+            const decodedStr = atob(base64Str.replace(/-/g, '+').replace(/_/g, '/'));
+            const length = decodedStr.length;
+            const buffer = new Uint8Array(length);
             for (let i = 0; i < length; i++) {
-                arrayBuffer[i] = binaryStr.charCodeAt(i);
+                buffer[i] = decodedStr.charCodeAt(i);
             }
-            return { earlyData: arrayBuffer.buffer, error: null };
+            return { earlyData: buffer.buffer, error: null };
         } catch (error) {
             return { error };
         }
@@ -316,9 +313,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            for (const subdata of chunkData(chunk, BUFFER_SIZE)) {
-                writer.write(subdata);
-            }
+            writer.write(chunk);
         }
     };
 }
