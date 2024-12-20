@@ -51,9 +51,7 @@ async function webSocketHandler(request) {
         async write(chunk, controller) {
             if (isDns && udpWrite) {
                 const chunkArray = chunkData(chunk, BUFFER_SIZE);
-                for (const subdata of chunkArray) {
-                    udpWrite(subdata);
-                }
+                chunkArray.forEach(subdata => udpWrite(subdata));
                 return;
             }
             if (remoteSocket.value) {
@@ -114,9 +112,7 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
                     }
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         const chunkArray = chunkData(chunkHeader, BUFFER_SIZE);
-                        for (const subdata of chunkArray) {
-                            webSocket.send(subdata);
-                        }
+                        chunkArray.forEach(subdata => webSocket.send(subdata));
                         hasData = true;
                     }
                 }
@@ -153,9 +149,7 @@ function makeWebSocketStream(webSocket, earlyHeader) {
                 if (!isActive) return;
                 const message = event.data;
                 const chunkArray = chunkData(message, BUFFER_SIZE);
-                for (const chunk of chunkArray) {
-                    controller.enqueue(chunk);
-                }
+                chunkArray.forEach(chunk => controller.enqueue(chunk));
             };
             const handleError = (error) => {
                 if (!isActive) return;
@@ -262,9 +256,7 @@ async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
     try {
         const chunkArray = chunkData(data, BUFFER_SIZE);
-        for (const chunk of chunkArray) {
-            await writer.write(chunk);
-        }
+        chunkArray.forEach(chunk => await writer.write(chunk));
     } finally {
         writer.releaseLock();
     }
@@ -331,9 +323,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     return {
         write(chunk) {
             const chunkArray = chunkData(chunk, BUFFER_SIZE);
-            for (const subdata of chunkArray) {
-                writer.write(subdata);
-            }
+            chunkArray.forEach(chunk => writer.write(subdata));
         }
     };
 }
