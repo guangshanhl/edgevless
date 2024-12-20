@@ -117,13 +117,9 @@ function makeWebSocketStream(webSocket, earlyHeader) {
             const messageHandler = (event) => {
                 if (!isActive) return;
                 const message = event.data;
-                if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    const chunkArray = chunkData(message, BUFFER_SIZE);
-                    for (const chunk of chunkArray) {
-                        controller.enqueue(chunk);
-                    }
-                } else {
-                    controller.enqueue(message);
+                const chunkArray = chunkData(message, BUFFER_SIZE);
+                for (const chunk of chunkArray) {
+                    controller.enqueue(chunk);
                 }
             };
             const handleError = (error) => {
