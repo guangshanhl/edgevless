@@ -5,7 +5,6 @@ const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 let cachedUserID = createCachedUserID(userID);
-const CHUNK_BUFFER = new Uint8Array(BUFFER_SIZE);
 export default {
     async fetch(request, env, ctx) {
         userID = env.UUID || userID;
@@ -255,13 +254,8 @@ async function writeToSocket(socket, data) {
 }
 function chunkData(data, size) {
     const chunks = [];
-    let offset = 0;
-    while (offset < data.byteLength) {
-        const chunkLength = Math.min(size, data.byteLength - offset);
-        const chunk = new Uint8Array(CHUNK_BUFFER.buffer, 0, chunkLength);
-        chunk.set(new Uint8Array(data.buffer, data.byteOffset + offset, chunkLength));
-        chunks.push(chunk);
-        offset += chunkLength;
+    for (let offset = 0; offset < data.byteLength; offset += size) {
+        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
     }
     return chunks;
 }
@@ -269,10 +263,10 @@ function mergeUint8Arrays(...arrays) {
     const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
-    for (const arr of arrays) {
+    arrays.forEach(arr => {
         result.set(arr, offset);
         offset += arr.byteLength;
-    }
+    });
     return result;
 }
 function closeWebSocket(socket) {
