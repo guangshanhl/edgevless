@@ -105,17 +105,13 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         try {
             await tcpSocket.readable.pipeTo(new WritableStream({
                 async write(chunk, controller) {
-                    let chunkHeader;
-                    if (resHeader) {
-                        chunkHeader = mergeUint8Arrays(resHeader, chunk);
-                        resHeader = null;
-                    } else {
-                        chunkHeader = chunk;
-                    }
+                    const chunkHeader = resHeader 
+                        ? mergeUint8Arrays(resHeader, chunk) 
+                        : chunk;
+                    resHeader = null;
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                        const chunkArray = chunkData(chunkHeader, BUFFER_SIZE);
-                        for (const subdata of chunkArray) {
-                            webSocket.send(subdata);
+                        for (const subdata of chunkData(chunkHeader, BUFFER_SIZE)) {
+                          webSocket.send(subdata);
                         }
                         hasData = true;
                     }
