@@ -270,14 +270,9 @@ async function writeToSocket(socket, data) {
     }
 }
 function chunkData(data, size) {
-    const dataLength = data.byteLength;
     const chunks = [];
-    let offset = 0;
-    const dataView = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    while (offset < dataLength) {
-        const chunkSize = Math.min(size, dataLength - offset);
-        chunks.push(dataView.buffer.slice(dataView.byteOffset + offset, dataView.byteOffset + offset + chunkSize));
-        offset += chunkSize;
+    for (let offset = 0; offset < data.byteLength; offset += size) {
+        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
     }
     return chunks;
 }
