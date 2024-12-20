@@ -101,7 +101,30 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        let hasData = false;
+        try {
+            await tcpSocket.readable.pipeTo(new WritableStream({
+                async write(chunk, controller) {
+                    let chunkHeader;
+                    if (resHeader) {
+                        chunkHeader = mergeUint8Arrays(resHeader, chunk);
+                        resHeader = null;
+                    } else {
+                        chunkHeader = chunk;
+                    }
+                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                        const chunkArray = chunkData(chunkHeader, BUFFER_SIZE);
+                        for (const subdata of chunkArray) {
+                            webSocket.send(subdata);
+                        }
+                        hasData = true;
+                    }
+                }
+            }));
+        } catch (error) {
+            closeWebSocket(webSocket);
+        }
+        return hasData;
     }
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
     if (!connected) {
@@ -110,6 +133,20 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
 }
 function makeWebSocketStream(webSocket, earlyHeader) {
     let isActive = true;
+    function base64ToBuffer(base64Str) {
+        try {
+            const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+            const binaryStr = atob(normalizedStr);
+            const length = binaryStr.length;
+            const arrayBuffer = new Uint8Array(length);
+            for (let i = 0; i < length; i++) {
+                arrayBuffer[i] = binaryStr.charCodeAt(i);
+            }
+            return { earlyData: arrayBuffer.buffer, error: null };
+        } catch (error) {
+            return { error };
+        }
+    }
     const stream = new ReadableStream({
         start(controller) {
             const messageHandler = (event) => {
@@ -220,46 +257,6 @@ function processRessHeader(ressBuffer, userID) {
         ressVersion: version,
         isUDP,
     };
-}
-async function forwardToData(remoteSocket, webSocket, resHeader) {
-    let hasData = false;
-    try {
-        await remoteSocket.readable.pipeTo(new WritableStream({
-            async write(chunk, controller) {
-                let chunkHeader;               
-                if (resHeader) {
-                    chunkHeader = mergeUint8Arrays(resHeader, chunk);
-                    resHeader = null;
-                } else {
-                    chunkHeader = chunk;
-                }
-                if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                    const chunkArray = chunkData(chunkHeader, BUFFER_SIZE);
-                    for (const subdata of chunkArray) {
-                        webSocket.send(subdata);
-                    }
-                    hasData = true;
-                }
-            }
-        }));
-    } catch (error) {
-        closeWebSocket(webSocket);
-    }
-    return hasData;
-}
-function base64ToBuffer(base64Str) {
-    try {
-        const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
-        const binaryStr = atob(normalizedStr);
-        const length = binaryStr.length;
-        const arrayBuffer = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            arrayBuffer[i] = binaryStr.charCodeAt(i);
-        }
-        return { earlyData: arrayBuffer.buffer, error: null };
-    } catch (error) {
-        return { error };
-    }
 }
 async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
