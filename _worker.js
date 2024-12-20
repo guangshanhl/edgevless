@@ -181,9 +181,6 @@ function makeWebSocketStream(webSocket, earlyHeader) {
                 closeWebSocket(webSocket);
             };
         },
-        pull(controller) {
-            return Promise.resolve();
-        },
         cancel(reason) {
             isActive = false;
             closeWebSocket(webSocket);
