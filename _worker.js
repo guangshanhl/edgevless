@@ -47,7 +47,6 @@ async function webSocketHandler(request) {
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-    let resHeader = null;
     readableWebSocketStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
@@ -70,7 +69,7 @@ async function webSocketHandler(request) {
                 isUDP,
             } = processRessHeader(chunk, userID);
             if (hasError) return;
-            resHeader = new Uint8Array([ressVersion[0], 0]);
+            const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
             isDns = isUDP;
             if (isDns) {
@@ -92,14 +91,15 @@ async function webSocketHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        remoteSocket.value = connect({
+        const tcpSocket = connect({
             hostname: address,
             port: port,
             secureTransport: "on",
             allowHalfOpen: true
         });
-        await writeToSocket(remoteSocket.value, clientData);
-        return remoteSocket.value;
+        remoteSocket.value = tcpSocket;
+        await writeToSocket(tcpSocket, clientData);
+        return tcpSocket;
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
