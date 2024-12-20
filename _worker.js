@@ -255,8 +255,7 @@ async function writeToSocket(socket, data) {
 function chunkData(data, size) {
     const chunks = [];
     for (let offset = 0; offset < data.byteLength; offset += size) {
-        const end = Math.min(offset + size, data.byteLength);
-        chunks.push(data.subarray(offset, end));
+        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
     }
     return chunks;
 }
