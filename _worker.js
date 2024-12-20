@@ -4,7 +4,6 @@ let proxyIP = '';
 const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-let cachedUserID = createCachedUserID(userID);
 export default {
     async fetch(request, env, ctx) {
         userID = env.UUID || userID;
@@ -191,10 +190,14 @@ function makeWebSocketStream(webSocket, earlyHeader) {
     });
     return stream;
 }
+let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) return { hasError: true };
     const version = new DataView(ressBuffer, 0, 1).getUint8(0);
     let isUDP = false;
+    if (!cachedUserID) {
+        cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    }
     const bufferUserID = new Uint8Array(ressBuffer, 1, 16);
     if (!bufferUserID.every((byte, index) => byte === cachedUserID[index])) {
         return { hasError: true };
@@ -238,9 +241,6 @@ function processRessHeader(ressBuffer, userID) {
         ressVersion: version,
         isUDP,
     };
-}
-function createCachedUserID(id) {
-    return Uint8Array.from(id.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
 }
 async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
