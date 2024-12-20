@@ -50,8 +50,7 @@ async function webSocketHandler(request) {
     readableWebSocketStream.pipeTo(new WritableStream({
         async write(chunk, controller) {
             if (isDns && udpWrite) {
-                const chunkArray = chunkData(chunk, BUFFER_SIZE);
-                for (const subdata of chunkArray) {
+                for (const subdata of chunkData(chunk, BUFFER_SIZE)) {
                     udpWrite(subdata);
                 }
                 return;
@@ -148,9 +147,8 @@ function makeWebSocketStream(webSocket, earlyHeader) {
             const messageHandler = (event) => {
                 if (!isActive) return;
                 const message = event.data;
-                const chunkArray = chunkData(message, BUFFER_SIZE);
-                for (const chunk of chunkArray) {
-                    controller.enqueue(chunk);
+                for (const subdata of chunkData(message, BUFFER_SIZE)) {
+                    controller.enqueue(subdata);
                 }
             };
             const handleError = (error) => {
@@ -257,8 +255,7 @@ function processRessHeader(ressBuffer, userID) {
 async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
     try {
-        const chunkArray = chunkData(data, BUFFER_SIZE);
-        for (const chunk of chunkArray) {
+        for (const chunk of chunkData(data, BUFFER_SIZE)) {
             await writer.write(chunk);
         }
     } finally {
@@ -326,8 +323,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
-            const chunkArray = chunkData(chunk, BUFFER_SIZE);
-            for (const subdata of chunkArray) {
+            for (const subdata of chunkData(chunk, BUFFER_SIZE)) {
                 writer.write(subdata);
             }
         }
