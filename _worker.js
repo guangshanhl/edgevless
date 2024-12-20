@@ -51,7 +51,9 @@ async function webSocketHandler(request) {
         async write(chunk, controller) {
             if (isDns && udpWrite) {
                 const chunkArray = chunkData(chunk, BUFFER_SIZE);
-                chunkArray.forEach(subdata => udpWrite(subdata));
+                for (const subdata of chunkArray) {
+                    udpWrite(subdata);
+                }
                 return;
             }
             if (remoteSocket.value) {
@@ -112,7 +114,9 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
                     }
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         const chunkArray = chunkData(chunkHeader, BUFFER_SIZE);
-                        chunkArray.forEach(subdata => webSocket.send(subdata));
+                        for (const subdata of chunkArray) {
+                            webSocket.send(subdata);
+                        }
                         hasData = true;
                     }
                 }
@@ -149,7 +153,9 @@ function makeWebSocketStream(webSocket, earlyHeader) {
                 if (!isActive) return;
                 const message = event.data;
                 const chunkArray = chunkData(message, BUFFER_SIZE);
-                chunkArray.forEach(chunk => controller.enqueue(chunk));
+                for (const chunk of chunkArray) {
+                    controller.enqueue(chunk);
+                }
             };
             const handleError = (error) => {
                 if (!isActive) return;
@@ -256,15 +262,22 @@ async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
     try {
         const chunkArray = chunkData(data, BUFFER_SIZE);
-        chunkArray.forEach(chunk => await writer.write(chunk));
+        for (const chunk of chunkArray) {
+            await writer.write(chunk);
+        }
     } finally {
         writer.releaseLock();
     }
 }
 function chunkData(data, size) {
+    const dataLength = data.byteLength;
     const chunks = [];
-    for (let offset = 0; offset < data.byteLength; offset += size) {
-        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
+    let offset = 0;
+    const dataView = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    while (offset < dataLength) {
+        const chunkSize = Math.min(size, dataLength - offset);
+        chunks.push(dataView.buffer.slice(dataView.byteOffset + offset, dataView.byteOffset + offset + chunkSize));
+        offset += chunkSize;
     }
     return chunks;
 }
@@ -323,7 +336,9 @@ async function handleUDPOutBound(webSocket, resHeader) {
     return {
         write(chunk) {
             const chunkArray = chunkData(chunk, BUFFER_SIZE);
-            chunkArray.forEach(chunk => writer.write(subdata));
+            for (const subdata of chunkArray) {
+                writer.write(subdata);
+            }
         }
     };
 }
