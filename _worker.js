@@ -207,11 +207,7 @@ function processRessHeader(ressBuffer, userID) {
     }
     const optLength = new DataView(ressBuffer, 17, 1).getUint8(0);
     const command = new DataView(ressBuffer, 18 + optLength, 1).getUint8(0);
-    if (command === 2) {
-        isUDP = true;
-    } else if (command !== 1) {
-        return { hasError: false };
-    }
+    if (command === 2) isUDP = true; else if (command !== 1) return { hasError: false };
     const portIndex = 18 + optLength + 1;
     const portRemote = new DataView(ressBuffer, portIndex, 2).getUint16(0);
     const addressIndex = portIndex + 2;
