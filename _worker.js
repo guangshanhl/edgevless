@@ -4,6 +4,8 @@ let proxyIP = '';
 const BUFFER_SIZE = 65536;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+let cachedUserID = createCachedUserID(userID);
+const CHUNK_BUFFER = new Uint8Array(BUFFER_SIZE);
 export default {
     async fetch(request, env, ctx) {
         userID = env.UUID || userID;
@@ -190,14 +192,10 @@ function makeWebSocketStream(webSocket, earlyHeader) {
     });
     return stream;
 }
-let cachedUserID;
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) return { hasError: true };
     const version = new DataView(ressBuffer, 0, 1).getUint8(0);
     let isUDP = false;
-    if (!cachedUserID) {
-        cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-    }
     const bufferUserID = new Uint8Array(ressBuffer, 1, 16);
     if (!bufferUserID.every((byte, index) => byte === cachedUserID[index])) {
         return { hasError: true };
@@ -242,6 +240,9 @@ function processRessHeader(ressBuffer, userID) {
         isUDP,
     };
 }
+function createCachedUserID(id) {
+    return Uint8Array.from(id.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+}
 async function writeToSocket(socket, data) {
     const writer = socket.writable.getWriter();
     try {
@@ -254,8 +255,13 @@ async function writeToSocket(socket, data) {
 }
 function chunkData(data, size) {
     const chunks = [];
-    for (let offset = 0; offset < data.byteLength; offset += size) {
-        chunks.push(new Uint8Array(data.slice(offset, offset + size)));
+    let offset = 0;
+    while (offset < data.byteLength) {
+        const chunkLength = Math.min(size, data.byteLength - offset);
+        const chunk = new Uint8Array(CHUNK_BUFFER.buffer, 0, chunkLength);
+        chunk.set(new Uint8Array(data.buffer, data.byteOffset + offset, chunkLength));
+        chunks.push(chunk);
+        offset += chunkLength;
     }
     return chunks;
 }
@@ -263,10 +269,10 @@ function mergeUint8Arrays(...arrays) {
     const totalLength = arrays.reduce((acc, val) => acc + val.byteLength, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
-    arrays.forEach(arr => {
+    for (const arr of arrays) {
         result.set(arr, offset);
         offset += arr.byteLength;
-    });
+    }
     return result;
 }
 function closeWebSocket(socket) {
