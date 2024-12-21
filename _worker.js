@@ -59,7 +59,7 @@ async function webSocketHandler(request) {
             }
             const {
                 hasError,
-                portRemote = 8443,
+                portRemote = 443,
                 addressRemote = '',
                 rawDataIndex,
                 ressVersion = new Uint8Array([0, 0]),
@@ -68,8 +68,14 @@ async function webSocketHandler(request) {
             if (hasError) return;
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
-            isDns = isUDP;
-            if (isUDP && portRemote === 53) {
+            if (isUDP) {
+                if (portRemote === 53) {
+                    isDns = true;
+                } else {
+                    return;
+                }
+            }
+            if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
@@ -336,5 +342,5 @@ function processChunk(chunk, controller) {
     }
 }
 function getConfig(userID, hostName) {
-    return `vless://${userID}\u0040${hostName}:8443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
