@@ -37,7 +37,6 @@ async function ressOverWSHandler(request) {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
-    let address = '';
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
     let remoteSocket = { value: null };
@@ -62,7 +61,6 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            address = addressRemote;
             if (hasError) {
                 return;
             }
@@ -197,9 +195,6 @@ function processRessHeader(ressBuffer, userID) {
             break;
         default:
             return { hasError: true };
-    }
-    if (!addressValue) {
-        return { hasError: true };
     }
     return {
         hasError: false,
