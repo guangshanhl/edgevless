@@ -65,13 +65,12 @@ async function ressOverWSHandler(request) {
             address = addressRemote;
             if (hasError) {
                 return;
-            }
+            }          
             if (isUDP) {
-                if (portRemote === 53) {
-                    isDns = true;
-                } else {
+                if (portRemote !== 53) {
                     return;
                 }
+                isDns = true;
             }
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
@@ -198,9 +197,6 @@ function processRessHeader(ressBuffer, userID) {
         default:
             return { hasError: true };
     }
-    if (!addressValue) {
-        return { hasError: true };
-    }
     return {
         hasError: false,
         addressRemote: addressValue,
@@ -220,9 +216,10 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
             }
             let bufferToSend;
             if (resHeader) {
-                bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                bufferToSend.set(new Uint8Array(resHeader), 0);
-                bufferToSend.set(new Uint8Array(chunk), resHeader.byteLength);
+                const resHeaderArray = new Uint8Array(resHeader);
+                bufferToSend = new Uint8Array(resHeaderArray.byteLength + chunk.byteLength);
+                bufferToSend.set(resHeader, 0);
+                bufferToSend.set(chunk, resHeaderArray.byteLength);
                 resHeader = null;
             } else {
                 bufferToSend = chunk;
