@@ -216,7 +216,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
             } else {
                 dataToSend = chunk;
             }
-            webSocket.send(dataToSend.buffer);
+            webSocket.send(dataToSend);
             hasData = true;
         },
     })).catch(() => {
@@ -271,13 +271,13 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
                     const combinedArray = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
                     combinedArray.set(udpSizeBuffer, 0);
                     combinedArray.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
-                    webSocket.send(combinedArray.buffer);
+                    webSocket.send(combinedArray);
                 } else {
                     const combinedArray = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
                     combinedArray.set(resHeader, 0);
                     combinedArray.set(udpSizeBuffer, resHeader.byteLength);
                     combinedArray.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
-                    webSocket.send(combinedArray.buffer);
+                    webSocket.send(combinedArray);
                     headerSent = true;
                 }
             }
