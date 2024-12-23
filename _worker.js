@@ -80,9 +80,7 @@ async function ressOverWSHandler(request) {
             }
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-    })).catch((err) => {
-        closeWebSocket(webSocket);
-    });
+    }));
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -272,7 +270,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 }
             }
         }
-    })).catch((error) => {});
+    }));
     const writer = transformStream.writable.getWriter();
     return {
         write(chunk) {
