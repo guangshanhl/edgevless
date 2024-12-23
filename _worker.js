@@ -103,7 +103,7 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 };
-const makeWebStream = (webSocket, resHeader) => {
+const makeWebStream = (webSocket, earlyHeader) => {
     let isCancel = false;
     const stream = new ReadableStream({
         start: (controller) => {
@@ -119,7 +119,7 @@ const makeWebStream = (webSocket, resHeader) => {
             webSocket.addEventListener('error', (err) => {
                 controller.error(err);
             });
-            const { earlyData, error } = base64ToBuffer(resHeader);
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
