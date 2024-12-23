@@ -1,4 +1,5 @@
 import { connect } from 'cloudflare:sockets';
+let cachedUserID;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
@@ -144,7 +145,9 @@ const processRessHeader = (ressBuffer, userID) => {
     if (ressBuffer.byteLength < 24) return { hasError: true };
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
-    const cachedUserID = new Uint8Array(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    if (!cachedUserID) {
+        cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    }
     const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
     const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
     if (hasError) return { hasError: true };
