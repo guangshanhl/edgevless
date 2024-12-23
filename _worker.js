@@ -84,11 +84,12 @@ async function ressOverWSHandler(request, userID, proxyIP) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) {
     const connectAndWrite = async (address, port) => {
-        remoteSocket.value = connect({ hostname: address, port });
-        const writer = remoteSocket.value.writable.getWriter();
+        const tcpSocket = connect({ hostname: address, port });
+        remoteSocket.value = tcpSocket;
+        const writer = tcpSocket.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
-        return remoteSocket.value;
+        return tcpSocket;
     };
     const tryConnect = async (address, port) => {
         const tcpSocket = await connectAndWrite(address, port);
