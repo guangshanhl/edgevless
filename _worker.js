@@ -104,43 +104,39 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 }
-function makeWebStream(webSocket, earlyHeader) {
-    let isCancel = false;
-    const handleMessage = (event, controller) => {
-        if (!isCancel) {
-            controller.enqueue(event.data);
-        }
-    };
-    const handleClose = (controller) => {
-        if (!isCancel) {
-            controller.close();
-            closeWebSocket(webSocket);
-        }
-    };
-    const handleError = (err, controller) => {
-        controller.error(err);
-        closeWebSocket(webSocket);
-    };
-    const stream = new ReadableStream({
-        start(controller) {
-            webSocket.addEventListener('message', (event) => handleMessage(event, controller));
-            webSocket.addEventListener('close', () => handleClose(controller));
-            webSocket.addEventListener('error', (err) => handleError(err, controller));
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
-                controller.enqueue(earlyData);
-            }
-        },
-        cancel(reason) {
-            if (!isCancel) {
-                isCancel = true;
-                closeWebSocket(webSocket);
-            }
-        }
-    });
-    return stream;
+function makeWebStream(webSocketServer, resHeader) {
+	let isCancel = false;
+	const stream = new ReadableStream({
+		start(controller) {
+			webSocketServer.addEventListener('message', (event) => {
+				if (isCancel) return;
+				const message = event.data;
+				controller.enqueue(message);
+			});
+			webSocketServer.addEventListener('close', () => {
+				closeWebSocket(webSocketServer);
+				if (isCancel) return;
+				controller.close();
+			}
+			);
+			webSocketServer.addEventListener('error', (err) => {
+				controller.error(err);
+			}
+			);
+			const { earlyData, error } = base64ToBuffer(resHeader);
+			if (error) {
+				controller.error(error);
+			} else if (earlyData) {
+				controller.enqueue(earlyData);
+			}
+		},
+		cancel(reason) {
+			if (isCancel) return;
+			isCancel = true;
+			closeWebSocket(webSocketServer);
+		}
+	});
+	return stream;
 }
 function processRessHeader(ressBuffer, userID) {
     if (ressBuffer.byteLength < 24) {
