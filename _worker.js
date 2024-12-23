@@ -201,18 +201,22 @@ const processRessHeader = (ressBuffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
     let hasData = false;
-    let vresHeader = resHeader;
     await remoteSocket.readable.pipeTo(new WritableStream({
         write: async (chunk, controller) => {
             if (webSocket.readyState !== WS_READY_STATE_OPEN) {
                 controller.error('WebSocket is closed');
+                return;
             }
-            if (vresHeader) {
-                webSocket.send(await new Blob([vresHeader, chunk]).arrayBuffer());
-                vresHeader = null;
+            let dataToSend;
+            if (resHeader) {
+                dataToSend = new Uint8Array(resHeader.length + chunk.length);
+                dataToSend.set(resHeader, 0);
+                dataToSend.set(chunk, resHeader.length);
+                resHeader = null;
             } else {
-                webSocket.send(chunk);
+                dataToSend = chunk;
             }
+            webSocket.send(dataToSend.buffer);
             hasData = true;
         },
     })).catch(() => {
@@ -264,9 +268,16 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
             new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
             if (webSocket.readyState === WS_READY_STATE_OPEN) {
                 if (headerSent) {
-                    webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+                    const combinedArray = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+                    combinedArray.set(udpSizeBuffer, 0);
+                    combinedArray.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+                    webSocket.send(combinedArray.buffer);
                 } else {
-                    webSocket.send(await new Blob([resHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+                    const combinedArray = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+                    combinedArray.set(resHeader, 0);
+                    combinedArray.set(udpSizeBuffer, resHeader.byteLength);
+                    combinedArray.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
+                    webSocket.send(combinedArray.buffer);
                     headerSent = true;
                 }
             }
