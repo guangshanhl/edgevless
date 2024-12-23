@@ -61,9 +61,7 @@ async function ressOverWSHandler(request) {
                 ressVersion = new Uint8Array([0, 0]),
                 isUDP,
             } = processRessHeader(chunk, userID);
-            if (hasError) {
-                return;
-            }
+            if (hasError) return;
             if (isUDP) {
                 if (portRemote !== 53) {
                     return;
@@ -98,26 +96,27 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
     }
-    if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
+    const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
+    if (!connected) {
         closeWebSocket(webSocket);
     }
 }
-function makeWebStream(webSocketServer, resHeader) {
+function makeWebStream(webSocket, resHeader) {
 	let isCancel = false;
 	const stream = new ReadableStream({
 		start(controller) {
-			webSocketServer.addEventListener('message', (event) => {
+			webSocket.addEventListener('message', (event) => {
 				if (isCancel) return;
 				const message = event.data;
 				controller.enqueue(message);
 			});
-			webSocketServer.addEventListener('close', () => {
-				closeWebSocket(webSocketServer);
+			webSocket.addEventListener('close', () => {
+				closeWebSocket(webSocket);
 				if (isCancel) return;
 				controller.close();
 			}
 			);
-			webSocketServer.addEventListener('error', (err) => {
+			webSocket.addEventListener('error', (err) => {
 				controller.error(err);
 			}
 			);
@@ -131,7 +130,7 @@ function makeWebStream(webSocketServer, resHeader) {
 		cancel(reason) {
 			if (isCancel) return;
 			isCancel = true;
-			closeWebSocket(webSocketServer);
+			closeWebSocket(webSocket);
 		}
 	});
 	return stream;
