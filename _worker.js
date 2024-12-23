@@ -93,7 +93,10 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
     };
     const tryConnect = async (address, port) => {
         const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        if (tcpSocket) {
+            return forwardToData(tcpSocket, webSocket, resHeader);
+        }
+        return false;
     };
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
     if (!connected) {
