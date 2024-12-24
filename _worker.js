@@ -83,7 +83,6 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
         },
     }));
-
     return new Response(null, {
         status: 101,
         webSocket: client,
@@ -198,7 +197,6 @@ const processRessHeader = (ressBuffer, userID) => {
         isUDP,
     };
 };
-
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
 	let hasData = false;
     await remoteSocket.readable.pipeTo(new WritableStream({
