@@ -45,7 +45,7 @@ async function handleWebSocket(request, userID, proxyIP) {
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
 
     const readableWebStream = createStreamHandler(webSocket, earlyHeader);
-    let remoteSocket = null;
+    let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
 
@@ -54,8 +54,10 @@ async function handleWebSocket(request, userID, proxyIP) {
             if (isDns && udpWrite) {
                 return udpWrite(chunk);
             }
-            if (remoteSocket) {
-                await remoteSocket.writable.write(chunk);
+            if (remoteSocket.value) {
+                const writer = remoteSocket.value.writable.getWriter();
+		await writer.write(chunk);
+		writer.releaseLock();
                 return;
             }
 
@@ -89,9 +91,11 @@ async function handleWebSocket(request, userID, proxyIP) {
 
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) {
     const connectAndWrite = async (address, port) => {
-        remoteSocket = connect({ hostname: address, port });
-        await remoteSocket.writable.write(clientData);
-        return remoteSocket;
+        remoteSocket.value = connect({ hostname: address, port });
+        const writer = remoteSocket.value.writable.getWriter();
+	await writer.write(clientData);
+	writer.releaseLock();
+        return remoteSocket.value;
     };
 
     const tryConnect = async (address, port) => {
@@ -111,7 +115,7 @@ function createStreamHandler(webSocket, earlyHeader) {
     let isCancel = false;
     return new ReadableStream({
         start(controller) {
-			const { earlyData, error } = base64ToBuffer(earlyHeader);
+	    const { earlyData, error } = base64ToBuffer(earlyHeader);
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
