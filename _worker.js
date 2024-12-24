@@ -2,31 +2,27 @@ import { connect } from 'cloudflare:sockets';
 let cachedUserID;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
     fetch: async (request, env, ctx) => {
         try {
-            const userID = env.UUID || 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-            const proxyIP = env.PROXYIP || '';
-            const upgradeHeader = request.headers.get('Upgrade');
+            const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+            const proxyIP = env.PROXYIP ?? '';
+            const upgradeHeader = getUpgradeHeader(request);
+
             if (upgradeHeader === 'websocket') {
                 return await ressOverWSHandler(request, userID, proxyIP);
             }
             const url = new URL(request.url);
-            switch (url.pathname) {
-                case '/':
-                    return new Response(JSON.stringify(request.cf), { status: 200 });
-                case `/${userID}`: {
-                    const config = getConfig(userID, request.headers.get('Host'));
-                    return new Response(config, {
-                        status: 200,
-                        headers: {
-                            "Content-Type": "text/plain;charset=utf-8"
-                        },
-                    });
-                }
-                default:
-                    return new Response('Not found', { status: 404 });
-            }
+            const paths = {
+                '/': () => new Response(JSON.stringify(request.cf), { status: 200 }),
+                [`/${userID}`]: () => new Response(getConfig(userID, request.headers.get('Host')), {
+                    status: 200,
+                    headers: { "Content-Type": "text/plain;charset=utf-8" }
+                })
+            };
+            const handler = paths[url.pathname] || (() => new Response('Not found', { status: 404 }));
+            return handler();
         } catch (err) {
             return new Response(err.toString(), { status: 500 });
         }
@@ -37,7 +33,7 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
-    const readableWebStream = makeWebStream(webSocket, earlyHeader);
+    const readableWebStream = createStreamHandler(webSocket, earlyHeader);
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
@@ -49,9 +45,9 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
                 try {
-                  await writer.write(chunk);
+                    await writer.write(chunk);
                 } finally {
-                  writer.releaseLock();
+                    writer.releaseLock();
                 }
                 return;
             }
@@ -109,7 +105,7 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
         closeWebSocket(webSocket);
     }
 };
-const makeWebStream = (webSocket, earlyHeader) => {
+const createStreamHandler = (webSocket, earlyHeader) => {
     let isCancel = false;
     const stream = new ReadableStream({
         start: (controller) => {
@@ -290,5 +286,5 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
     };
 };
 const getConfig = (userID, hostName) => {
-    return `ress://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `ress://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 };
