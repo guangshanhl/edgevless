@@ -2,6 +2,7 @@ import { connect } from 'cloudflare:sockets';
 let cachedUserID;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+const connections = new Map();
 const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
     fetch: async (request, env, ctx) => {
@@ -81,9 +82,20 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
         webSocket: client,
     });
 };
+const getConnection = async (address, port) => {
+    const key = `${address}:${port}`;
+    if (connections.has(key)) {
+        return connections.get(key);
+    }
+    const newConnection = connect({ hostname: address, port });
+    connections.set(key, newConnection);
+    return newConnection;
+};
+
 const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
     const connectAndWrite = async (address, port) => {
-        remoteSocket.value = connect({ hostname: address, port });
+        remoteSocket.value = await getConnection(address, port);
+        remoteSocket.value.setNoDelay(true);
         const writer = remoteSocket.value.writable.getWriter();
         try {
             await writer.write(clientData);
