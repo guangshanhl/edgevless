@@ -9,7 +9,6 @@ export default {
             const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
             const proxyIP = env.PROXYIP ?? '';
             const upgradeHeader = getUpgradeHeader(request);
-
             if (upgradeHeader === 'websocket') {
                 return await ressOverWSHandler(request, userID, proxyIP);
             }
@@ -200,7 +199,6 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
         write: async (chunk, controller) => {
             if (webSocket.readyState !== WS_READY_STATE_OPEN) {
                 controller.error('WebSocket is closed');
-                return;
             }
             let dataToSend;
             if (resHeader) {
