@@ -38,11 +38,6 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
-    setInterval(() => {
-        if (webSocket.readyState === WS_READY_STATE_OPEN) {
-            webSocket.send(JSON.stringify({ type: 'keep-alive' }));
-        }
-    }, 30000);
     readableWebStream.pipeTo(new WritableStream({
         write: async (chunk) => {
             if (isDns && udpWrite) {
@@ -198,16 +193,16 @@ const processRessHeader = (ressBuffer, userID) => {
     };
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
-	let hasData = false;
+    let hasData = false;
     await remoteSocket.readable.pipeTo(new WritableStream({
         write: async (chunk) => {
             if (webSocket.readyState !== WS_READY_STATE_OPEN) return;
             webSocket.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
             resHeader = null;
-			hasData = true;
+	    hasData = true;
         },
     })).catch(() => closeWebSocket(webSocket));
-	return hasData;
+    return hasData;
 };
 const base64ToBuffer = (base64Str) => {
     try {
