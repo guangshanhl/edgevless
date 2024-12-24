@@ -95,7 +95,6 @@ const getConnection = async (address, port) => {
 const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
     const connectAndWrite = async (address, port) => {
         remoteSocket.value = await getConnection(address, port);
-        remoteSocket.value.setNoDelay(true);
         const writer = remoteSocket.value.writable.getWriter();
         try {
             await writer.write(clientData);
