@@ -3,6 +3,10 @@ let cachedUserID;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 const getUpgradeHeader = (request) => request.headers.get('Upgrade');
+
+// Connection pool
+const connectionPool = new Map();
+
 export default {
     fetch: async (request, env, ctx) => {
         try {
@@ -25,8 +29,9 @@ export default {
         } catch (err) {
             return new Response(err.toString(), { status: 500 });
         }
-    },
+    }
 };
+
 const ressOverWSHandler = async (request, userID, proxyIP) => {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
@@ -36,6 +41,7 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
     let remoteSocket = { value: null };
     let udpWrite = null;
     let isDns = false;
+
     readableWebStream.pipeTo(new WritableStream({
         write: async (chunk) => {
             if (isDns && udpWrite) {
@@ -81,9 +87,17 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
         webSocket: client,
     });
 };
+
 const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
     const connectAndWrite = async (address, port) => {
-        remoteSocket.value = connect({ hostname: address, port });
+        const key = `${address}:${port}`;
+        if (connectionPool.has(key)) {
+            remoteSocket.value = connectionPool.get(key);
+        } else {
+            remoteSocket.value = connect({ hostname: address, port });
+            connectionPool.set(key, remoteSocket.value);
+        }
+
         const writer = remoteSocket.value.writable.getWriter();
         try {
             await writer.write(clientData);
@@ -92,6 +106,7 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
         }
         return remoteSocket.value;
     };
+
     const tryConnect = async (address, port) => {
         const tcpSocket = await connectAndWrite(address, port);
         if (tcpSocket) {
@@ -99,11 +114,13 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
         }
         return false;
     };
+
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
     if (!connected) {
         closeWebSocket(webSocket);
     }
 };
+
 const createStreamHandler = (webSocket, earlyHeader) => {
     let isCancel = false;
     const stream = new ReadableStream({
@@ -135,6 +152,7 @@ const createStreamHandler = (webSocket, earlyHeader) => {
     });
     return stream;
 };
+
 const processRessHeader = (ressBuffer, userID) => {
     if (ressBuffer.byteLength < 24) return { hasError: true };
     const version = new Uint8Array(ressBuffer.slice(0, 1));
@@ -193,6 +211,7 @@ const processRessHeader = (ressBuffer, userID) => {
         isUDP,
     };
 };
+
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
     let hasData = false;
     await remoteSocket.readable.pipeTo(new WritableStream({
@@ -217,6 +236,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
     });
     return hasData;
 };
+
 const base64ToBuffer = (base64Str) => {
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
@@ -231,11 +251,13 @@ const base64ToBuffer = (base64Str) => {
         return { error };
     }
 };
+
 const closeWebSocket = (socket) => {
     if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
         socket.close();
     }
 };
+
 const handleUDPOutBound = async (webSocket, resHeader) => {
     let headerSent = false;
     const transformStream = new TransformStream({
@@ -283,6 +305,7 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
         }
     };
 };
+
 const getConfig = (userID, hostName) => {
     return `ress://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 };
