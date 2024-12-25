@@ -1,14 +1,12 @@
 import { connect } from 'cloudflare:sockets';
-let cachedUserID;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
     fetch: async (request, env, ctx) => {
         try {
             const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
             const proxyIP = env.PROXYIP ?? '';
-            const upgradeHeader = getUpgradeHeader(request);
+            const upgradeHeader = request.headers.get('Upgrade');
             if (upgradeHeader === 'websocket') {
                 return await ressOverWSHandler(request, userID, proxyIP);
             }
@@ -43,11 +41,8 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
-                try {
-                    await writer.write(chunk);
-                } finally {
-                    writer.releaseLock();
-                }
+                await writer.write(chunk);
+                writer.releaseLock();
                 return;
             }
             const {
@@ -90,11 +85,8 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
             allowHalfOpen: true
         });
         const writer = remoteSocket.value.writable.getWriter();
-        try {
-            await writer.write(clientData);
-        } finally {
-            writer.releaseLock();
-        }
+        await writer.write(clientData);
+        writer.releaseLock();
         return remoteSocket.value;
     };
     const tryConnect = async (address, port) => {
@@ -144,12 +136,11 @@ const processRessHeader = (ressBuffer, userID) => {
     if (ressBuffer.byteLength < 24) return { hasError: true };
     const version = new Uint8Array(ressBuffer.slice(0, 1));
     let isUDP = false;
-    if (!cachedUserID) {
-        cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    const userIDBytes = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+    const receivedID = new Uint8Array(buffer.slice(1, 17));
+    if (!receivedID.every((byte, index) => byte === userIDBytes[index])) {
+        return { hasError: true };
     }
-    const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-    const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-    if (hasError) return { hasError: true };
     const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
     const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
     if (command === 2) {
@@ -202,19 +193,10 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
     let hasData = false;
     await remoteSocket.readable.pipeTo(new WritableStream({
         write: async (chunk, controller) => {
-            if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-                controller.error('WebSocket is closed');
+            if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                const dataSend = header ? new Uint8Array([...resHeader, ...chunk]) : chunk;
+                webSocket.send(dataSend);
             }
-            let dataToSend;
-            if (resHeader) {
-                dataToSend = new Uint8Array(resHeader.length + chunk.length);
-                dataToSend.set(resHeader, 0);
-                dataToSend.set(chunk, resHeader.length);
-                resHeader = null;
-            } else {
-                dataToSend = chunk;
-            }
-            webSocket.send(dataToSend);
             hasData = true;
         },
     })).catch(() => {
