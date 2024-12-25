@@ -115,8 +115,8 @@ const createStreamHandler = (webSocket, earlyHeader) => {
             webSocket.addEventListener('error', (err) => {
                 controller.error(err);
             });
-            const { earlyData } = base64ToBuffer(earlyHeader);
-             if (earlyData) {
+            const earlyData = base64ToBuffer(earlyHeader);
+            if (earlyData) {
                 controller.enqueue(earlyData);
             }
         },
