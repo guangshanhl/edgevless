@@ -59,12 +59,7 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
                 isUDP,
             } = processRessHeader(chunk, userID);
             if (hasError) return;
-            if (isUDP) {
-                if (portRemote !== 53) {
-                    return;
-                }
-                isDns = true;
-            }
+            isDns = isUDP && portRemote === 53;
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
             if (isDns) {
