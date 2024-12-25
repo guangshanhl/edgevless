@@ -115,10 +115,8 @@ const createStreamHandler = (webSocket, earlyHeader) => {
             webSocket.addEventListener('error', (err) => {
                 controller.error(err);
             });
-            const { earlyData, error } = base64ToBuffer(earlyHeader);
-            if (error) {
-                controller.error(error);
-            } else if (earlyData) {
+            const { earlyData } = base64ToBuffer(earlyHeader);
+             if (earlyData) {
                 controller.enqueue(earlyData);
             }
         },
@@ -216,14 +214,10 @@ const base64ToBuffer = (base64Str) => {
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
-        const length = binaryStr.length;
-        const arrayBuffer = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            arrayBuffer[i] = binaryStr.charCodeAt(i);
-        }
-        return { earlyData: arrayBuffer.buffer, error: null };
+        const arrayBuffer = new Uint8Array([...binaryStr].map(char => char.charCodeAt(0)));
+        return arrayBuffer.buffer;
     } catch (error) {
-        return { error };
+        return null;
     }
 };
 const closeWebSocket = (socket) => {
