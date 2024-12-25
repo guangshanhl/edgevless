@@ -43,11 +43,8 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
             }
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
-                try {
-                    await writer.write(chunk);
-                } finally {
-                    writer.releaseLock();
-                }
+                await writer.write(chunk);
+                writer.releaseLock();
                 return;
             }
             const {
@@ -85,11 +82,8 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
             allowHalfOpen: true
         });
         const writer = remoteSocket.value.writable.getWriter();
-        try {
-            await writer.write(clientData);
-        } finally {
-            writer.releaseLock();
-        }
+        await writer.write(clientData);
+        writer.releaseLock();
         return remoteSocket.value;
     };
     const tryConnect = async (address, port) => {
