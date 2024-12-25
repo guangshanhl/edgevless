@@ -41,12 +41,7 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
                 return udpWrite(chunk);
             }
             if (remoteSocket.value) {
-                const writer = remoteSocket.value.writable.getWriter();
-                try {
-                    await writer.write(chunk);
-                } finally {
-                    writer.releaseLock();
-                }
+                await writeToSocket(remoteSocket.value, chunk);
                 return;
             }
             const {
@@ -63,15 +58,17 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
                     return;
                 }
                 isDns = true;
-            }
-            const resHeader = new Uint8Array([ressVersion[0], 0]);
-            const clientData = chunk.slice(rawDataIndex);
+            }  
             if (isDns) {
+                const resHeader = new Uint8Array([ressVersion[0], 0]);
+                const clientData = chunk.slice(rawDataIndex);
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
                 return;
-            }
+            } else {
+            const resHeader = new Uint8Array([ressVersion[0], 0]);
+            const clientData = chunk.slice(rawDataIndex);
             handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
         },
     }));
@@ -81,16 +78,16 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
     });
 };
 const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
-    const connectAndWrite = async (address, port) => {
-        remoteSocket.value = connect({ hostname: address, port });
-        const writer = remoteSocket.value.writable.getWriter();
-        try {
-            await writer.write(clientData);
-        } finally {
-            writer.releaseLock();
-        }
+    async function connectAndWrite(address, port) {
+        remoteSocket.value = connect({
+            hostname: address,
+            port: port,
+            secureTransport: "on",
+            allowHalfOpen: true
+        });
+        await writeToSocket(remoteSocket.value, clientData);
         return remoteSocket.value;
-    };
+    }
     const tryConnect = async (address, port) => {
         const tcpSocket = await connectAndWrite(address, port);
         if (tcpSocket) {
@@ -230,6 +227,14 @@ const base64ToBuffer = (base64Str) => {
         return { error };
     }
 };
+async function writeToSocket(socket, data) {
+    const writer = socket.writable.getWriter();
+    try {
+        await writer.write(data);
+    } finally {
+        writer.releaseLock();
+    }
+}
 const closeWebSocket = (socket) => {
     if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
         socket.close();
