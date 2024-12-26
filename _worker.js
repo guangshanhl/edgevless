@@ -54,10 +54,15 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
                 isUDP,
             } = processRessHeader(chunk, userID);
             if (hasError) return;
+            if (isUDP) {
+                if (portRemote !== 53) {
+                    return;
+                }
+                isDns = true;
+            }
             const resHeader = new Uint8Array([ressVersion[0], 0]);
             const clientData = chunk.slice(rawDataIndex);
-            if (isUDP && portRemote === 53) {
-                isDns = true;
+            if (isDns) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
@@ -115,8 +120,10 @@ const createStreamHandler = (webSocket, earlyHeader) => {
             webSocket.addEventListener('error', (err) => {
                 controller.error(err);
             });
-            const earlyData = base64ToBuffer(earlyHeader);
-            if (earlyData) {
+            const { earlyData, error } = base64ToBuffer(earlyHeader);
+            if (error) {
+                controller.error(error);
+            } else if (earlyData) {
                 controller.enqueue(earlyData);
             }
         },
@@ -214,10 +221,14 @@ const base64ToBuffer = (base64Str) => {
     try {
         const normalizedStr = base64Str.replace(/-/g, '+').replace(/_/g, '/');
         const binaryStr = atob(normalizedStr);
-        const arrayBuffer = new Uint8Array([...binaryStr].map(char => char.charCodeAt(0)));
-        return arrayBuffer.buffer;
+        const length = binaryStr.length;
+        const arrayBuffer = new Uint8Array(length);
+        for (let i = 0; i < length; i++) {
+            arrayBuffer[i] = binaryStr.charCodeAt(i);
+        }
+        return { earlyData: arrayBuffer.buffer, error: null };
     } catch (error) {
-        return null;
+        return { error };
     }
 };
 const closeWebSocket = (socket) => {
