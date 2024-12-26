@@ -2,14 +2,12 @@ import { connect } from 'cloudflare:sockets';
 let cachedUserID = null;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
     fetch: async (request, env, ctx) => {
-        try {
-            const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-            const proxyIP = env.PROXYIP ?? '';
-            const upgradeHeader = getUpgradeHeader(request);
-            if (upgradeHeader === 'websocket') {
+        const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+        const proxyIP = env.PROXYIP ?? '';
+        try {            
+            if (request.headers.get('Upgrade') === 'websocket') {
                 return await ressOverWSHandler(request, userID, proxyIP);
             }
             const url = new URL(request.url);
@@ -23,7 +21,7 @@ export default {
             const handler = paths[url.pathname] || (() => new Response('Not found', { status: 404 }));
             return handler();
         } catch (err) {
-            return new Response(err.toString(), { status: 500 });
+            return new Response(err.toString());
         }
     },
 };
