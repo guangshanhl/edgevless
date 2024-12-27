@@ -57,8 +57,9 @@ async function ressOverWSHandler(request) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
+            } else {
+                handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
             }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
         close() { closeWebSocket(webSocket); },
         abort(err) { closeWebSocket(webSocket); }
