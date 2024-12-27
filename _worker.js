@@ -9,7 +9,7 @@ export default {
         userID = env.UUID || userID;
         proxyIP = env.PROXYIP || proxyIP;
         if (request.headers.get('Upgrade') === 'websocket') {
-            return await ressOverWSHandler(request);
+            return ressOverWSHandler(request);
         }
         const url = new URL(request.url);
         const routes = {
@@ -17,9 +17,7 @@ export default {
             [`/${userID}`]: () => {
                 const config = getConfig(userID, request.headers.get('Host'));
                 return new Response(config, {
-                    headers: {
-                        'Content-Type': 'text/plain;charset=utf-8'
-                    }
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
                 });
             }
         };
@@ -28,8 +26,7 @@ export default {
     }
 };
 async function ressOverWSHandler(request) {
-    const webSocketPair = new WebSocketPair();
-    const [client, webSocket] = Object.values(webSocketPair);
+    const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
     webSocket.accept();
     const earlyHeader = request.headers.get('sec-websocket-protocol') || '';
     const readableWebStream = makeWebStream(webSocket, earlyHeader);
@@ -38,9 +35,7 @@ async function ressOverWSHandler(request) {
     let isDns = false;
     const writableStream = new WritableStream({
         async write(chunk) {
-            if (isDns && udpWrite) {
-                return udpWrite(chunk);
-            }
+            if (isDns && udpWrite) return udpWrite(chunk);
             if (remoteSocket.value) {
                 const writer = remoteSocket.value.writable.getWriter();
                 await writer.write(chunk);
@@ -62,44 +57,35 @@ async function ressOverWSHandler(request) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
-            } else {
-                handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
             }
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-        close() {
-            closeWebSocket(webSocket);
-        },
-        abort(err) {
-            closeWebSocket(webSocket);
-        }
+        close() { closeWebSocket(webSocket); },
+        abort(err) { closeWebSocket(webSocket); }
     });
-    readableWebStream.pipeTo(writableStream).catch((err) => {
-        closeWebSocket(webSocket);
-    });
+    readableWebStream.pipeTo(writableStream).catch(() => closeWebSocket(webSocket));
     return new Response(null, { status: 101, webSocket: client });
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
-    async function connectAndWrite(address, port) {
+    const connectAndWrite = async (address, port) => {
         remoteSocket.value = await connect({ hostname: address, port });
         const writer = remoteSocket.value.writable.getWriter();
         await writer.write(clientData);
         writer.releaseLock();
         return remoteSocket.value;
-    }
-    async function tryConnect(address, port) {
+    };
+    const tryConnect = async (address, port) => {
         const tcpSocket = await connectAndWrite(address, port);
         return forwardToData(tcpSocket, webSocket, resHeader);
-    }
+    };
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-    if (!connected) {
-        closeWebSocket(webSocket);
-    }
+    if (!connected) closeWebSocket(webSocket);
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
     const stream = new ReadableStream({
         start(controller) {
-            const messageHandler = (event) => {
+            const messageHandler = event => {
                 if (!isActive) return;
                 const message = event.data;
                 if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
@@ -111,11 +97,12 @@ function makeWebStream(webSocket, earlyHeader) {
                     controller.enqueue(message);
                 }
             };
-            const handleError = (error) => {
+            const handleError = error => {
                 if (!isActive) return;
                 controller.error(error);
                 isActive = false;
             };
+
             webSocket.addEventListener('message', messageHandler);
             webSocket.addEventListener('close', () => {
                 if (!isActive) return;
@@ -140,18 +127,14 @@ function makeWebStream(webSocket, earlyHeader) {
                 closeWebSocket(webSocket);
             };
         },
-        pull(controller) {
-            return Promise.resolve();
-        },
+        pull(controller) { return Promise.resolve(); },
         cancel(reason) {
             isActive = false;
             closeWebSocket(webSocket);
         }
     }, {
         highWaterMark: BUFFER_SIZE,
-        size(chunk) {
-            return chunk.byteLength || 1;
-        }
+        size(chunk) { return chunk.byteLength || 1; }
     });
     return stream;
 }
@@ -164,9 +147,7 @@ function processRessHeader(ressBuffer, userID) {
         cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
     }
     const bufferUserID = new Uint8Array(ressBuffer, 1, 16);
-    if (!bufferUserID.every((byte, index) => byte === cachedUserID[index])) {
-        return { hasError: true };
-    }
+    if (!bufferUserID.every((byte, index) => byte === cachedUserID[index])) return { hasError: true };
     const optLength = new DataView(ressBuffer, 17, 1).getUint8(0);
     const command = new DataView(ressBuffer, 18 + optLength, 1).getUint8(0);
     if (command === 2) {
@@ -305,16 +286,10 @@ async function handleUDPOutBound(webSocket, resHeader) {
                 webSocket.send(payload);
             }
         }
-    })).catch(error => {
-        closeWebSocket(webSocket);
-    });
+    })).catch(() => closeWebSocket(webSocket));
     const writer = transformStream.writable.getWriter();
-    return {
-        write(chunk) {
-            writer.write(chunk);
-        }
-    };
+    return { write(chunk) { writer.write(chunk); } };
 }
 function getConfig(userID, hostName) {
-    return `ress://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+    return `ress://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 }
