@@ -102,7 +102,6 @@ function makeWebStream(webSocket, earlyHeader) {
                 controller.error(error);
                 isActive = false;
             };
-
             webSocket.addEventListener('message', messageHandler);
             webSocket.addEventListener('close', () => {
                 if (!isActive) return;
