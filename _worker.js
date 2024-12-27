@@ -6,11 +6,11 @@ const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
     fetch: async (request, env, ctx) => {
         try {
-            const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-            const proxyIP = env.PROXYIP ?? '';
+            let userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+            let proxyIP = env.PROXYIP ?? '';
             const upgradeHeader = getUpgradeHeader(request);           
             if (upgradeHeader === 'websocket') {
-                return await ressOverWSHandler(request, userID, proxyIP);
+                return await ressOverWSHandler(request);
             }           
             const url = new URL(request.url);
             const paths = {
@@ -27,7 +27,7 @@ export default {
         }
     },
 };
-const ressOverWSHandler = async (request, userID, proxyIP) => {
+const ressOverWSHandler = async (request) => {
     const webSocketPair = new WebSocketPair();
     const [client, webSocket] = Object.values(webSocketPair);
     webSocket.accept();   
@@ -68,7 +68,7 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
                 udpWrite(clientData);
                 return;
             }
-            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
     }));
     return new Response(null, {
@@ -81,7 +81,7 @@ const writeToSocket = async (socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
 };
-const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
+const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) => {
     const connectAndWrite = async (address, port) => {
         remoteSocket.value = connect({
             hostname: address,
