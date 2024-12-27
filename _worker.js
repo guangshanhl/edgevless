@@ -8,7 +8,7 @@ export default {
             let userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
             let proxyIP = env.PROXYIP ?? '';
             const upgradeHeader = request.headers.get('Upgrade');
-			if (!upgradeHeader || upgradeHeader !== 'websocket') {
+	    if (!upgradeHeader || upgradeHeader !== 'websocket') {
                 return await ressOverWSHandler(request);
             }           
             const url = new URL(request.url);
