@@ -2,14 +2,13 @@ import { connect } from 'cloudflare:sockets';
 let cachedUserID = null;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
     fetch: async (request, env, ctx) => {
         try {
             let userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
             let proxyIP = env.PROXYIP ?? '';
-            const upgradeHeader = getUpgradeHeader(request);           
-            if (upgradeHeader === 'websocket') {
+            const upgradeHeader = request.headers.get('Upgrade');
+			if (!upgradeHeader || upgradeHeader !== 'websocket') {
                 return await ressOverWSHandler(request);
             }           
             const url = new URL(request.url);
