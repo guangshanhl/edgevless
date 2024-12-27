@@ -4,9 +4,9 @@ const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
     fetch: async (request, env, ctx) => {
+	let userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+        let proxyIP = env.PROXYIP ?? '';
         try {
-            let userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-            let proxyIP = env.PROXYIP ?? '';
             const upgradeHeader = request.headers.get('Upgrade');
 	    if (!upgradeHeader || upgradeHeader !== 'websocket') {
                 return await ressOverWSHandler(request);
