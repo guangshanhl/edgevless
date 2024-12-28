@@ -93,25 +93,18 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     async function connectAndWrite(address, port) {
-        try {
-            remoteSocket.value = connect({
-                hostname: address,
-                port: port
-            });
-            const writer = remoteSocket.value.writable.getWriter();
-            await writer.write(clientData);
-            writer.releaseLock();
-            return remoteSocket.value;
-        } catch (error) {
-            return null;
-        }
+        remoteSocket.value = connect({
+            hostname: address,
+            port: port
+        });
+        const writer = remoteSocket.value.writable.getWriter();
+        await writer.write(clientData);
+        writer.releaseLock();
+        return remoteSocket.value;
     }
     async function tryConnect(address, port) {
         const tcpSocket = await connectAndWrite(address, port);
-        if (tcpSocket) {
-            return forwardToData(tcpSocket, webSocket, resHeader);
-        }
-        return false;
+        return forwardToData(tcpSocket, webSocket, resHeader);
     }
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
     if (!connected) {
