@@ -226,24 +226,34 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
     let hasData = false;
     try {
         let headerProcessed = false;
+        const bufferPool = [];
         await remoteSocket.readable.pipeTo(new WritableStream({
-                async write(chunk) {
-                    let bufferToSend;
-                    if (!headerProcessed && resHeader) {
-                        bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
-                        bufferToSend.set(resHeader, 0);
-                        bufferToSend.set(chunk, resHeader.byteLength);
-                        resHeader = null;
-                        headerProcessed = true;
-                    } else {
-                        bufferToSend = chunk;
+            async write(chunk) {
+                if (!headerProcessed && resHeader) {
+                    const bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
+                    bufferToSend.set(resHeader, 0);
+                    bufferToSend.set(chunk, resHeader.byteLength);
+                    bufferPool.push(bufferToSend);
+                    resHeader = null;
+                    headerProcessed = true;
+                } else {
+                    bufferPool.push(chunk);
+                }
+                if (bufferPool.length > 1) {
+                    const combinedBuffer = new Uint8Array(bufferPool.reduce((acc, cur) => acc + cur.byteLength, 0));
+                    let offset = 0;
+                    for (const buffer of bufferPool) {
+                        combinedBuffer.set(buffer, offset);
+                        offset += buffer.byteLength;
                     }
+                    bufferPool.length = 0;
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                        webSocket.send(bufferToSend);
+                        webSocket.send(combinedBuffer);
                         hasData = true;
                     }
                 }
-            }));
+            }
+        }));
     } catch (error) {
         closeWebSocket(webSocket);
     }
