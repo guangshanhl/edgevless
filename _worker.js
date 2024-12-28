@@ -257,7 +257,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                     } else {
                         bufferToSend = chunk;
                     }
-                    if (webSocket.readyState === 1) {
+                    if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
                             const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
                             webSocket.send(subdata);
@@ -288,7 +288,7 @@ function base64ToBuffer(base64Str) {
     }
 }
 function closeWebSocket(socket) {
-    if (socket.readyState === 1 || socket.readyState === 2) {
+    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
         socket.close();
     }
 }
@@ -322,7 +322,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
     });
     transformStream.readable.pipeTo(new WritableStream({
             async write(chunk) {
-                const response = await fetch('https://dns.google/dns-query', {
+                const response = await fetch('https://cloudflare-dns.com/dns-query', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/dns-message',
@@ -339,7 +339,7 @@ async function handleUDPOutBound(webSocket, resHeader) {
                      ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
                      : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
                 headerSent = true;
-                if (webSocket.readyState === 1) {
+                if (webSocket.readyState === WS_READY_STATE_OPEN) {
                     webSocket.send(payload);
                 }
             }
