@@ -258,10 +258,7 @@ async function forwardToData(remoteSocket, webSocket, resHeader) {
                         bufferToSend = chunk;
                     }
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
-                        for (let offset = 0; offset < bufferToSend.length; offset += BUFFER_SIZE) {
-                            const subdata = bufferToSend.slice(offset, offset + BUFFER_SIZE);
-                            webSocket.send(subdata);
-                        }
+                        webSocket.send(bufferToSend);
                         hasData = true;
                     }
                 }
