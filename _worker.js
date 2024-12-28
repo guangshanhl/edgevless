@@ -3,7 +3,7 @@ import {
 }
 from 'cloudflare:sockets';
 let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-let proxyIP = '';
+let proxyIP = '192.9.158.188';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
