@@ -57,12 +57,10 @@ async function ressOverWSHandler(request) {
                 const { write } = await handleUDPOutBound(webSocket, resHeader);
                 udpWrite = write;
                 udpWrite(clientData);
-            } else {
-                handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
+                return;
             }
+            handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader);
         },
-        close() { closeWebSocket(webSocket); },
-        abort(err) { closeWebSocket(webSocket); }
     });
     readableWebStream.pipeTo(writableStream).catch(() => closeWebSocket(webSocket));
     return new Response(null, { status: 101, webSocket: client });
