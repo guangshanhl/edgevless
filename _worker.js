@@ -116,38 +116,25 @@ function makeWebStream(webSocket, earlyHeader) {
     const stream = new ReadableStream({
         start(controller) {
             const messageHandler = (event) => {
-                if (!isActive)
-                    return;
+                if (!isActive) return;
                 const message = event.data;
-                if (message instanceof ArrayBuffer || message instanceof Uint8Array) {
-                    for (let offset = 0; offset < message.byteLength; offset += BUFFER_SIZE) {
-                        const chunk = new Uint8Array(message.slice(offset, offset + BUFFER_SIZE));
-                        controller.enqueue(chunk);
-                    }
-                } else {
-                    controller.enqueue(message);
-                }
+                controller.enqueue(message);
             };
             const handleError = (error) => {
-                if (!isActive)
-                    return;
+                if (!isActive) return;
                 controller.error(error);
                 isActive = false;
             };
             webSocket.addEventListener('message', messageHandler);
             webSocket.addEventListener('close', () => {
-                if (!isActive)
-                    return;
+                if (!isActive) return;
                 closeWebSocket(webSocket);
                 controller.close();
                 isActive = false;
             });
             webSocket.addEventListener('error', handleError);
             if (earlyHeader) {
-                const {
-                    earlyData,
-                    error
-                } = base64ToBuffer(earlyHeader);
+                const { earlyData, error } = base64ToBuffer(earlyHeader);
                 if (error) {
                     handleError(error);
                 } else if (earlyData) {
@@ -168,11 +155,6 @@ function makeWebStream(webSocket, earlyHeader) {
         cancel(reason) {
             isActive = false;
             closeWebSocket(webSocket);
-        }
-    }, {
-        highWaterMark: BUFFER_SIZE,
-        size(chunk) {
-            return chunk.byteLength || 1;
         }
     });
     return stream;
