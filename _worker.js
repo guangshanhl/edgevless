@@ -67,18 +67,35 @@ async function ressOverWSHandler(request) {
 }
 async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader) {
     const connectAndWrite = async (address, port) => {
-        remoteSocket.value = await connect({ hostname: address, port });
-        const writer = remoteSocket.value.writable.getWriter();
-        await writer.write(clientData);
-        writer.releaseLock();
-        return remoteSocket.value;
+        try {
+            remoteSocket.value = await connect({ hostname: address, port });
+            const writer = remoteSocket.value.writable.getWriter();
+            await writer.write(clientData);
+            writer.releaseLock();
+            return remoteSocket.value;
+        } catch (error) {
+            console.error(`Error connecting to ${address}:${port} or writing data:`, error);
+            return null;
+        }
     };
     const tryConnect = async (address, port) => {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
+        try {
+            const tcpSocket = await connectAndWrite(address, port);
+            if (tcpSocket) {
+                return forwardToData(tcpSocket, webSocket, resHeader);
+            } else {
+                return null;
+            }
+        } catch (error) {
+            console.error(`Error in tryConnect with ${address}:${port}:`, error);
+            return null;
+        }
     };
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-    if (!connected) closeWebSocket(webSocket);
+    if (!connected) {
+        console.log("Connection failed, closing WebSocket.");
+        closeWebSocket(webSocket);
+    }
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
