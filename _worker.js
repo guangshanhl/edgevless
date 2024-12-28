@@ -18,7 +18,7 @@ const handleHttpRequest = async (request, userID) => {
     case '/':
       return new Response(JSON.stringify(request.cf, null, 4), { status: 200 });
     case `/${userID}`:
-      return new Response(getGLESSConfig(userID, request.headers.get('Host')), {
+      return new Response(getVLESSConfig(userID, request.headers.get('Host')), {
         status: 200,
         headers: { "Content-Type": "text/plain;charset=utf-8" }
       });
@@ -35,9 +35,9 @@ const handleWsRequest = async (request, userID, proxyIP) => {
     async write(chunk) {
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
       if (remoteSocket.value) return await writeToRemote(remoteSocket.value, chunk);
-      const { hasError, addressRemote, portRemote, rawDataIndex, glessVersion, isUDP } = processGlessHeader(chunk, userID);
+      const { hasError, addressRemote, portRemote, rawDataIndex, vlessVersion, isUDP } = processVlessHeader(chunk, userID);
       if (hasError) return;
-      const resHeader = new Uint8Array([glessVersion[0], 0]);
+      const resHeader = new Uint8Array([vlessVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       if (isUDP) {
         isDns = portRemote === 53;
@@ -96,7 +96,7 @@ const createWstream = (webSocket, earlyDataHeader) => {
     }
   });
 };
-const processGlessHeader = (buffer, userID) => {
+const processVlessHeader = (buffer, userID) => {
   const view = new DataView(buffer);
   if (stringify(new Uint8Array(buffer.slice(1, 17))) !== userID) return { hasError: true }; 
   const optLength = view.getUint8(17);
@@ -121,7 +121,7 @@ const processGlessHeader = (buffer, userID) => {
     addressRemote: addressValue,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    glessVersion: [0],
+    vlessVersion: [0],
     isUDP
   };
 };
@@ -130,7 +130,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader, retry) => {
     closeWebSocket(webSocket);
     return;
   }
-  let hasData = false;
+  let hasIncomingData = false;
   try {
     await remoteSocket.readable.pipeTo(new WritableStream({
       async write(chunk) {
@@ -145,7 +145,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader, retry) => {
   } catch {
     closeWebSocket(webSocket);
   }
-  if (!hasData && retry) retry();
+  if (!hasIncomingData && retry) retry();
 };
 const base64ToBuffer = base64Str => {
   try {
@@ -195,6 +195,6 @@ const handleUDP = async (webSocket, resHeader, rawClientData) => {
   await writer.write(rawClientData);
   writer.close();
 };
-const getGLESSConfig = (userID, hostName) => `
-gless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
+const getVLESSConfig = (userID, hostName) => `
+vless://${userID}\u0040${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}
 `;
