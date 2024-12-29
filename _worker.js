@@ -339,7 +339,6 @@ async function handleUDPOutBound(webSocket, worldResponseHeader) {
 	let isVlessHeaderSent = false;
 	const transformStream = new TransformStream({
 		start(controller) {
-
 		},
 		transform(chunk, controller) {
 			for (let index = 0; index < chunk.byteLength;) {
