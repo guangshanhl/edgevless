@@ -101,14 +101,11 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, client
         writer.releaseLock();
         return remoteSocket.value;
     }
-    async function tryConnect(address, port) {
-        const tcpSocket = await connectAndWrite(address, port);
-        return forwardToData(tcpSocket, webSocket, resHeader);
-    }
-    const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-    if (!connected) {
+    const socket = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
+    if (!socket) {
         closeWebSocket(webSocket);
     }
+    forwardToData(socket, webSocket, resHeader);
 }
 function makeWebStream(webSocket, earlyHeader) {
     let isActive = true;
