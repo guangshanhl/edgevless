@@ -220,31 +220,26 @@ function processRessHeader(ressBuffer, userID) {
     };
 }
 async function forwardToData(remoteSocket, webSocket, resHeader) {
-    let hasData = false;
     try {
-        let headerProcessed = false;
         await remoteSocket.readable.pipeTo(new WritableStream({
                 async write(chunk) {
                     let bufferToSend;
-                    if (!headerProcessed && resHeader) {
+                    if (resHeader) {
                         bufferToSend = new Uint8Array(resHeader.byteLength + chunk.byteLength);
                         bufferToSend.set(resHeader, 0);
                         bufferToSend.set(chunk, resHeader.byteLength);
                         resHeader = null;
-                        headerProcessed = true;
                     } else {
                         bufferToSend = chunk;
                     }
                     if (webSocket.readyState === WS_READY_STATE_OPEN) {
                         webSocket.send(bufferToSend);
-                        hasData = true;
                     }
                 }
             }));
     } catch (error) {
         closeWebSocket(webSocket);
     }
-    return hasData;
 }
 function base64ToBuffer(base64Str) {
     try {
