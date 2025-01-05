@@ -23,6 +23,7 @@ export default {
       const handler = paths[url.pathname] || (() => new Response('Not found', { status: 404 }));
       return handler();
     } catch (err) {
+      console.error('Fetch error:', err);  // 添加详细的错误日志
       return new Response(err.toString(), { status: 500 });
     }
   },
@@ -37,43 +38,61 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
   let isDns = false;
   readableWebStream.pipeTo(new WritableStream({
     write: async (chunk) => {
-      if (isDns && udpWrite) return udpWrite(chunk);
-      if (remoteSocket.value) return await writeToSocket(remoteSocket.value, chunk);
-      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
-      if (hasError) return;
-      const resHeader = new Uint8Array([ressVersion[0], 0]);
-      const clientData = chunk.slice(rawDataIndex);
-      if (isUDP) {
-        if (portRemote !== 53) return;
-        isDns = true;
-        const { write } = await handleUDPOutBound(webSocket, resHeader);
-        udpWrite = write;
-        udpWrite(clientData);
-      } else {
-        handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
+      try {
+        if (isDns && udpWrite) return udpWrite(chunk);
+        if (remoteSocket.value) return await writeToSocket(remoteSocket.value, chunk);
+        const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
+        if (hasError) return;
+        const resHeader = new Uint8Array([ressVersion[0], 0]);
+        const clientData = chunk.slice(rawDataIndex);
+        if (isUDP) {
+          if (portRemote !== 53) return;
+          isDns = true;
+          const { write } = await handleUDPOutBound(webSocket, resHeader);
+          udpWrite = write;
+          udpWrite(clientData);
+        } else {
+          handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
+        }
+      } catch (err) {
+        console.error('Stream write error:', err);  // 添加详细的错误日志
+        closeWebSocket(webSocket);
       }
     },
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
 const writeToSocket = async (socket, chunk) => {
-  const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  try {
+    const writer = socket.writable.getWriter();
+    await writer.write(chunk);
+    writer.releaseLock();
+  } catch (err) {
+    console.error('Write to socket error:', err);  // 添加详细的错误日志
+  }
 };
 const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
   const connectAndWrite = async (address, port) => {
-    remoteSocket.value = connect({ hostname: address, port: port, secureTransport: "on", allowHalfOpen: true });
-    await writeToSocket(remoteSocket.value, clientData);
-    return remoteSocket.value;
+    try {
+      remoteSocket.value = connect({ hostname: address, port: port, secureTransport: "on", allowHalfOpen: true });
+      await writeToSocket(remoteSocket.value, clientData);
+      return remoteSocket.value;
+    } catch (err) {
+      console.error('TCP connect and write error:', err);  // 添加详细的错误日志
+    }
   };
   const tryConnect = async (address, port) => {
     const tcpSocket = await connectAndWrite(address, port);
     if (tcpSocket) return forwardToData(tcpSocket, webSocket, resHeader);
     return false;
   };
-  const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
-  if (!connected) closeWebSocket(webSocket);
+  try {
+    const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
+    if (!connected) closeWebSocket(webSocket);
+  } catch (err) {
+    console.error('TCP outbound error:', err);  // 添加详细的错误日志
+    closeWebSocket(webSocket);
+  }
 };
 const createStreamHandler = (webSocket, earlyHeader) => {
   let isCancel = false;
@@ -166,24 +185,28 @@ const processRessHeader = (ressBuffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
-  await remoteSocket.readable.pipeTo(new WritableStream({
-    write: async (chunk) => {
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) throw new Error('WebSocket is closed');
-      let dataToSend;
-      if (resHeader) {
-        dataToSend = new Uint8Array(resHeader.length + chunk.length);
-        dataToSend.set(resHeader, 0);
-        dataToSend.set(chunk, resHeader.length);
-        resHeader = null;
-      } else {
-        dataToSend = chunk;
-      }
-      webSocket.send(dataToSend);
-      hasData = true;
-    },
-  })).catch(() => {
-    closeWebSocket(webSocket);
-  });
+  try {
+    await remoteSocket.readable.pipeTo(new WritableStream({
+      write: async (chunk) => {
+        if (webSocket.readyState !== WS_READY_STATE_OPEN) throw new Error('WebSocket is closed');
+        let dataToSend;
+        if (resHeader) {
+          dataToSend = new Uint8Array(resHeader.length + chunk.length);
+          dataToSend.set(resHeader, 0);
+          dataToSend.set(chunk, resHeader.length);
+          resHeader = null;
+        } else {
+          dataToSend = chunk;
+        }
+        webSocket.send(dataToSend);
+        hasData = true;
+      },
+    })).catch(() => {
+      closeWebSocket(webSocket);
+    });
+  } catch (err) {
+    console.error('Forward to data error:', err);  // 添加详细的错误日志
+  }
   return hasData;
 };
 const base64ToBuffer = (base64Str) => {
@@ -220,28 +243,33 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
   });
   transformStream.readable.pipeTo(new WritableStream({
     write: async (chunk) => {
-      const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'content-type': 'application/dns-message' },
-        body: chunk,
-      });
-      const dnsQueryResult = await resp.arrayBuffer();
-      const udpSizeBuffer = new Uint8Array(2);
-      new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
-      if (webSocket.readyState === WS_READY_STATE_OPEN) {
-        if (headerSent) {
-          const combinedArray = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-          combinedArray.set(udpSizeBuffer, 0);
-          combinedArray.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
-          webSocket.send(combinedArray);
-        } else {
-          const combinedArray = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-          combinedArray.set(resHeader, 0);
-          combinedArray.set(udpSizeBuffer, resHeader.byteLength);
-          combinedArray.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
-          webSocket.send(combinedArray);
-          headerSent = true;
+      try {
+        const resp = await fetch('https://cloudflare-dns.com/dns-query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/dns-message' },
+          body: chunk,
+        });
+        const dnsQueryResult = await resp.arrayBuffer();
+        const udpSizeBuffer = new Uint8Array(2);
+        new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
+        if (webSocket.readyState === WS_READY_STATE_OPEN) {
+          if (headerSent) {
+            const combinedArray = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+            combinedArray.set(udpSizeBuffer, 0);
+            combinedArray.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+            webSocket.send(combinedArray);
+          } else {
+            const combinedArray = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+            combinedArray.set(resHeader, 0);
+            combinedArray.set(udpSizeBuffer, resHeader.byteLength);
+            combinedArray.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
+            webSocket.send(combinedArray);
+            headerSent = true;
+          }
         }
+      } catch (err) {
+        console.error('UDP outbound error:', err);  // 添加详细的错误日志
+        closeWebSocket(webSocket);
       }
     }
   }));
