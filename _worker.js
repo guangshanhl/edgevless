@@ -5,26 +5,22 @@ const WS_READY_STATE_CLOSING = 2;
 const getUpgradeHeader = (request) => request.headers.get('Upgrade');
 export default {
   fetch: async (request, env, ctx) => {
-    try {
-      const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-      const proxyIP = env.PROXYIP ?? '';
-      const upgradeHeader = getUpgradeHeader(request);
-      if (upgradeHeader === 'websocket') {
-        return await ressOverWSHandler(request, userID, proxyIP);
-      }
-      const url = new URL(request.url);
-      const paths = {
-        '/': () => new Response(JSON.stringify(request.cf), { status: 200 }),
-        [`/${userID}`]: () => new Response(getConfig(userID, request.headers.get('Host')), {
-          status: 200,
-          headers: { "Content-Type": "text/plain;charset=utf-8" }
-        })
-      };
-      const handler = paths[url.pathname] || (() => new Response('Not found', { status: 404 }));
-      return handler();
-    } catch (err) {
-      return new Response(err.toString());
+    const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+    const proxyIP = env.PROXYIP ?? '';
+    const upgradeHeader = getUpgradeHeader(request);
+    if (upgradeHeader === 'websocket') {
+      return await ressOverWSHandler(request, userID, proxyIP);
     }
+    const url = new URL(request.url);
+    const paths = {
+      '/': () => new Response(JSON.stringify(request.cf), { status: 200 }),
+      [`/${userID}`]: () => new Response(getConfig(userID, request.headers.get('Host')), {
+        status: 200,
+        headers: { "Content-Type": "text/plain;charset=utf-8" }
+      })
+    };
+    const handler = paths[url.pathname] || (() => new Response('Not found', { status: 404 }));
+    return handler();
   },
 };
 const ressOverWSHandler = async (request, userID, proxyIP) => {
@@ -168,7 +164,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
   await remoteSocket.readable.pipeTo(new WritableStream({
     write: async (chunk) => {
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) throw new Error('WebSocket is closed');
+      if (webSocket.readyState !== WS_READY_STATE_OPEN) return false;
       let dataToSend;
       if (resHeader) {
         dataToSend = new Uint8Array(resHeader.length + chunk.length);
@@ -181,9 +177,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
       webSocket.send(dataToSend);
       hasData = true;
     },
-  })).catch(() => {
-    closeWebSocket(webSocket);
-  });
+  }));
   return hasData;
 };
 const base64ToBuffer = (base64Str) => {
@@ -230,25 +224,23 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
       new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
       if (webSocket.readyState === WS_READY_STATE_OPEN) {
         if (headerSent) {
-          const combinedArray = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-          combinedArray.set(udpSizeBuffer, 0);
-          combinedArray.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
-          webSocket.send(combinedArray);
+          const combined = new Uint8Array(udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+          combined.set(udpSizeBuffer, 0);
+          combined.set(new Uint8Array(dnsQueryResult), udpSizeBuffer.byteLength);
+          webSocket.send(combined);
         } else {
-          const combinedArray = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
-          combinedArray.set(resHeader, 0);
-          combinedArray.set(udpSizeBuffer, resHeader.byteLength);
-          combinedArray.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
-          webSocket.send(combinedArray);
+          const combined = new Uint8Array(resHeader.byteLength + udpSizeBuffer.byteLength + dnsQueryResult.byteLength);
+          combined.set(resHeader, 0);
+          combined.set(udpSizeBuffer, resHeader.byteLength);
+          combined.set(new Uint8Array(dnsQueryResult), resHeader.byteLength + udpSizeBuffer.byteLength);
+          webSocket.send(combined);
           headerSent = true;
         }
       }
     }
   }));
   const writer = transformStream.writable.getWriter();
-  return {
-    write: (chunk) => writer.write(chunk),
-  };
+  return { write: (chunk) => writer.write(chunk), };
 };
 const getConfig = (userID, hostName) => {
   return `ress://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
