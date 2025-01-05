@@ -23,8 +23,7 @@ export default {
       const handler = paths[url.pathname] || (() => new Response('Not found', { status: 404 }));
       return handler();
     } catch (err) {
-      console.error('Fetch error:', err);  // 添加详细的错误日志
-      return new Response(err.toString(), { status: 500 });
+      return new Response(err.toString());
     }
   },
 };
@@ -55,7 +54,6 @@ const ressOverWSHandler = async (request, userID, proxyIP) => {
           handleTCPOutBound(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
         }
       } catch (err) {
-        console.error('Stream write error:', err);  // 添加详细的错误日志
         closeWebSocket(webSocket);
       }
     },
@@ -68,7 +66,7 @@ const writeToSocket = async (socket, chunk) => {
     await writer.write(chunk);
     writer.releaseLock();
   } catch (err) {
-    console.error('Write to socket error:', err);  // 添加详细的错误日志
+    console.error('Write to socket error:', err);
   }
 };
 const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
@@ -78,7 +76,7 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
       await writeToSocket(remoteSocket.value, clientData);
       return remoteSocket.value;
     } catch (err) {
-      console.error('TCP connect and write error:', err);  // 添加详细的错误日志
+      console.error('TCP connect and write error:', err);
     }
   };
   const tryConnect = async (address, port) => {
@@ -90,7 +88,7 @@ const handleTCPOutBound = async (remoteSocket, addressRemote, portRemote, client
     const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
     if (!connected) closeWebSocket(webSocket);
   } catch (err) {
-    console.error('TCP outbound error:', err);  // 添加详细的错误日志
+    console.error('TCP outbound error:', err);
     closeWebSocket(webSocket);
   }
 };
@@ -205,7 +203,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
       closeWebSocket(webSocket);
     });
   } catch (err) {
-    console.error('Forward to data error:', err);  // 添加详细的错误日志
+    console.error('Forward to data error:', err);
   }
   return hasData;
 };
@@ -268,7 +266,6 @@ const handleUDPOutBound = async (webSocket, resHeader) => {
           }
         }
       } catch (err) {
-        console.error('UDP outbound error:', err);  // 添加详细的错误日志
         closeWebSocket(webSocket);
       }
     }
