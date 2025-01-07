@@ -1,7 +1,6 @@
 import { connect } from 'cloudflare:sockets';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
-const bufferSize = 10;
 export default {
   fetch: async (request, env) => {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
@@ -28,7 +27,6 @@ const handleWebSocket = async (request, userID, proxyIP) => {
   const remoteSocket = { value: null };
   let udpWrite = null;
   let isDns = false;
-  let buffer = [];
   readableWebStream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
@@ -65,21 +63,16 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
     const tcpSocket = await connectAndWrite(address, port);
     return forwardToData(tcpSocket, webSocket, resHeader);
   };
-   if (!(await tryConnect(addressRemote, portRemote)) && !(await tryConnect(proxyIP, portRemote))) {
-    closeWebSocket(webSocket);
-  }
+  const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
+  if (!connected) closeWebSocket(webSocket);
 };
 const streamHandler = (webSocket, earlyHeader) => {
   let isCancel = false;
-  return new ReadableStream({
+  const stream = new ReadableStream({
     start: (controller) => {
       webSocket.addEventListener('message', (event) => {
         if (isCancel) return;
-        buffer.push(event.data);
-        if (buffer.length >= bufferSize) {
-          controller.enqueue(new Uint8Array(buffer.flat()));
-          buffer.length = 0;
-        }
+        controller.enqueue(event.data);
       });
       webSocket.addEventListener('close', () => {
         closeWebSocket(webSocket);
@@ -100,14 +93,9 @@ const streamHandler = (webSocket, earlyHeader) => {
       if (isCancel) return;
       isCancel = true;
       closeWebSocket(webSocket);
-    },
-    pull: (controller) => {
-      if (buffer.length) {
-        controller.enqueue(new Uint8Array(buffer.flat()));
-        buffer.length = 0;
-      }
     }
   });
+  return stream;
 };
 const processRessHeader = (ressBuffer, userID) => {
   if (ressBuffer.byteLength < 24) return { hasError: true };
