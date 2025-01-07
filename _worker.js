@@ -61,8 +61,7 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   };
   const tryConnect = async (address, port) => {
     const tcpSocket = await connectAndWrite(address, port);
-    if (tcpSocket) return forwardToData(tcpSocket, webSocket, resHeader);
-    return false;
+    return forwardToData(tcpSocket, webSocket, resHeader);
   };
   const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
@@ -104,8 +103,8 @@ const processRessHeader = (ressBuffer, userID) => {
   let isUDP = false;
   const cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
   const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
-  const hasError = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
-  if (hasError) return { hasError: true };
+  const hasUserID = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
+  if (hasUserID) return { hasError: true };
   const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
   const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
   if (command === 2) {
@@ -156,9 +155,9 @@ const processRessHeader = (ressBuffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
+  if (webSocket.readyState !== WS_READY_STATE_OPEN) return hasData;
   const writableStream = new WritableStream({
     write: async (chunk) => {
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) return hasData;
       const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
       webSocket.send(dataToSend);
       resHeader = null;
