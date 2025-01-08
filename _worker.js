@@ -68,15 +68,29 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
 };
 const streamHandler = (webSocket, earlyHeader) => {
   let isCancel = false;
+  const buffer = [];
+  let debounceTimeout = null;
+  const flushBuffer = (controller) => {
+    if (buffer.length > 0) {
+      controller.enqueue(new Uint8Array(buffer.flat()));
+      buffer.length = 0;
+    }
+  };
   const stream = new ReadableStream({
     start: (controller) => {
+      const enqueueData = (data) => {
+        buffer.push(data);
+        clearTimeout(debounceTimeout);
+        debounceTimeout = setTimeout(() => flushBuffer(controller), 50);
+      };
       webSocket.addEventListener('message', (event) => {
         if (isCancel) return;
-        controller.enqueue(event.data);
+        enqueueData(event.data);
       });
       webSocket.addEventListener('close', () => {
         closeWebSocket(webSocket);
         if (isCancel) return;
+        flushBuffer(controller);
         controller.close();
       });
       webSocket.addEventListener('error', (err) => {
@@ -86,7 +100,7 @@ const streamHandler = (webSocket, earlyHeader) => {
       if (error) {
         controller.error(error);
       } else if (earlyData) {
-        controller.enqueue(earlyData);
+        enqueueData(earlyData);
       }
     },
     cancel: () => {
