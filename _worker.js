@@ -155,15 +155,26 @@ const processRessHeader = (ressBuffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
-  if (webSocket.readyState !== WS_READY_STATE_OPEN) return hasData;
+  const buffer = [];
   const writableStream = new WritableStream({
-    write: async (chunk) => {
-      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
-      webSocket.send(dataToSend);
-      resHeader = null;
-      hasData = true;
+    write: (chunk) => {
+      buffer.push(chunk);
+      if (buffer.length > 10) { // Adjust the buffer size based on performance testing
+        flushBuffer();
+      }
+    },
+    close: () => {
+      flushBuffer();
     },
   });
+  const flushBuffer = () => {
+    if (buffer.length === 0 || webSocket.readyState !== WS_READY_STATE_OPEN) return;
+    const dataToSend = resHeader ? new Uint8Array([...resHeader, ...buffer.flat()]) : buffer.flat();
+    webSocket.send(dataToSend);
+    resHeader = null;
+    buffer.length = 0;
+    hasData = true;
+  };
   await remoteSocket.readable.pipeTo(writableStream).catch(() => closeWebSocket(webSocket));
   return hasData;
 };
