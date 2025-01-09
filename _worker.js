@@ -155,7 +155,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   if (webSocket.readyState !== WS_READY_STATE_OPEN) return hasData;
   const writableStream = new WritableStream({
     write: async (chunk) => {
-      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk.buffer;
+      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk;
       webSocket.send(dataToSend);
       resHeader = null;
       hasData = true;
@@ -202,8 +202,8 @@ const handleUDP = async (webSocket, resHeader) => {
       const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
       if (webSocket.readyState === WS_READY_STATE_OPEN) {
         const combined = headerSent
-          ? new Uint8Array([...udpSizeBuffer]).buffer
-          : new Uint8Array([...resHeader, ...udpSizeBuffer]).buffer;
+          ? new Uint8Array([udpSizeBuffer, dnsQueryResult]).arrayBuffer()
+          : new Uint8Array([resHeader,udpSizeBuffer, dnsQueryResult]).arrayBuffer());
         webSocket.send(combined);
         headerSent = true;
       }
