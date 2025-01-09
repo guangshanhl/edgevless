@@ -198,12 +198,12 @@ const handleUDP = async (webSocket, resHeader) => {
         body: chunk,
       });
       const dnsQueryResult = await resp.arrayBuffer();
-      const udpSizeBuffer = new Uint8Array(2);
-      new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
+			const udpSize = dnsQueryResult.byteLength;
+			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
       if (webSocket.readyState === WS_READY_STATE_OPEN) {
         const combined = headerSent
-          ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-          : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+          ? new Uint8Array([...udpSizeBuffer]).buffer
+          : new Uint8Array([...resHeader, ...udpSizeBuffer]).buffer;
         webSocket.send(combined);
         headerSent = true;
       }
