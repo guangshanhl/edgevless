@@ -68,29 +68,15 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
 };
 const streamHandler = (webSocket, earlyHeader) => {
   let isCancel = false;
-  const buffer = [];
-  let debounceTimeout = null;
-  const flushBuffer = (controller) => {
-    if (buffer.length > 0) {
-      controller.enqueue(new Uint8Array(buffer.flat()));
-      buffer.length = 0;
-    }
-  };
   const stream = new ReadableStream({
     start: (controller) => {
-      const enqueueData = (data) => {
-        buffer.push(data);
-        clearTimeout(debounceTimeout);
-        debounceTimeout = setTimeout(() => flushBuffer(controller), 50);
-      };
       webSocket.addEventListener('message', (event) => {
         if (isCancel) return;
-        enqueueData(event.data);
+        controller.enqueue(event.data);
       });
       webSocket.addEventListener('close', () => {
         closeWebSocket(webSocket);
         if (isCancel) return;
-        flushBuffer(controller);
         controller.close();
       });
       webSocket.addEventListener('error', (err) => {
@@ -100,7 +86,7 @@ const streamHandler = (webSocket, earlyHeader) => {
       if (error) {
         controller.error(error);
       } else if (earlyData) {
-        enqueueData(earlyData);
+        controller.enqueue(earlyData);
       }
     },
     cancel: () => {
@@ -169,26 +155,15 @@ const processRessHeader = (ressBuffer, userID) => {
 };
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
-  const buffer = [];
+  if (webSocket.readyState !== WS_READY_STATE_OPEN) return hasData;
   const writableStream = new WritableStream({
-    write: (chunk) => {
-      buffer.push(chunk);
-      if (buffer.length > 10) { // Adjust the buffer size based on performance testing
-        flushBuffer();
-      }
-    },
-    close: () => {
-      flushBuffer();
+    write: async (chunk) => {
+      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
+      webSocket.send(dataToSend);
+      resHeader = null;
+      hasData = true;
     },
   });
-  const flushBuffer = () => {
-    if (buffer.length === 0 || webSocket.readyState !== WS_READY_STATE_OPEN) return;
-    const dataToSend = resHeader ? new Uint8Array([...resHeader, ...buffer.flat()]) : buffer.flat();
-    webSocket.send(dataToSend);
-    resHeader = null;
-    buffer.length = 0;
-    hasData = true;
-  };
   await remoteSocket.readable.pipeTo(writableStream).catch(() => closeWebSocket(webSocket));
   return hasData;
 };
