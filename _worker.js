@@ -198,8 +198,8 @@ const handleUDP = async (webSocket, resHeader) => {
         body: chunk,
       });
       const dnsQueryResult = await resp.arrayBuffer();
-			const udpSize = dnsQueryResult.byteLength;
-			const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+      const udpSize = dnsQueryResult.byteLength;
+      const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
       if (webSocket.readyState === WS_READY_STATE_OPEN) {
         const combined = headerSent
           ? new Uint8Array([...udpSizeBuffer]).buffer
