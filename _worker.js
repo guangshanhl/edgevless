@@ -10,14 +10,12 @@ export default {
       return await handleWebSocket(request, userID, proxyIP);
     }
     const url = new URL(request.url);
-    const handler = {
-      '/': () => new Response(JSON.stringify(request.cf), { status: 200 }),
-      [`/${userID}`]: () => new Response(getConfig(userID, request.headers.get('Host')), {
+    return (url.pathname === '/' ? new Response(JSON.stringify(request.cf), { status: 200 }) :
+      url.pathname === `/${userID}` ? new Response(getConfig(userID, request.headers.get('Host')), {
         status: 200,
         headers: { "Content-Type": "text/plain;charset=utf-8" }
-      })
-    }[url.pathname] || (() => new Response('Not found', { status: 404 }));
-    return handler();
+      }) :
+      new Response('Not found', { status: 404 }));
   },
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
@@ -25,12 +23,11 @@ const handleWebSocket = async (request, userID, proxyIP) => {
   webSocket.accept();
   const readableWebStream = streamHandler(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
-  let udpWrite = null;
-  let isDns = false;
+  let udpWrite = null, isDns = false;
   readableWebStream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
-      if (remoteSocket.value) return await writeToSocket(remoteSocket.value, chunk);     
+      if (remoteSocket.value) return await writeToSocket(remoteSocket.value, chunk);
       const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
       if (hasError) return;
       const resHeader = new Uint8Array([ressVersion[0], 0]);
@@ -158,7 +155,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   if (webSocket.readyState !== WS_READY_STATE_OPEN) return hasData;
   const writableStream = new WritableStream({
     write: async (chunk) => {
-      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
+      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk;
       webSocket.send(dataToSend);
       resHeader = null;
       hasData = true;
