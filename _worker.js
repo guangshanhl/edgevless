@@ -1,22 +1,33 @@
 import { connect } from 'cloudflare:sockets';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+
 export default {
   fetch: async (request, env) => {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP ?? '';
     const upgradeHeader = request.headers.get('Upgrade');
+    const sanitizedRequest = sanitizeRequest(request);
     if (upgradeHeader === 'websocket') {
-      return await handleWebSocket(request, userID, proxyIP);
+      return await handleWebSocket(sanitizedRequest, userID, proxyIP);
     }
     const url = new URL(request.url);
     return (url.pathname === '/' ? new Response(JSON.stringify(request.cf), { status: 200 }) :
-      url.pathname === `/${userID}` ? new Response(getConfig(userID, request.headers.get('Host')), {
+      url.pathname === `/${userID}` ? new Response(getConfig(userID, sanitizedRequest.headers.get('Host')), {
         status: 200,
         headers: { "Content-Type": "text/plain;charset=utf-8" }
       }) :
       new Response('Not found', { status: 404 }));
   },
+};
+const sanitizeRequest = (request) => {
+  const headers = new Headers(request.headers);
+  ['X-Forwarded-For', 'Via', 'Forwarded', 'X-Real-IP'].forEach(header => headers.delete(header));
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body: request.body,
+  });
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
@@ -117,7 +128,7 @@ const processRessHeader = (ressBuffer, userID) => {
   const addressType = addressBuffer[0];
   let addressLength = 0;
   let addressValueIndex = addressIndex + 1;
-  let addressValue = '';
+  let addressValue = ''; 
   switch (addressType) {
     case 1:
       addressLength = 4;
@@ -192,7 +203,7 @@ const handleUDP = async (webSocket, resHeader) => {
   });
   await transformStream.readable.pipeTo(new WritableStream({
     write: async (chunk) => {
-      const resp = await fetch('https://cloudflare-dns.com/dns-query', {
+      const resp = await fetch('https://dns.google/dns-query', {
         method: 'POST',
         headers: { 'content-type': 'application/dns-message' },
         body: chunk,
