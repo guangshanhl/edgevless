@@ -10,13 +10,22 @@ export default {
       return await handleWebSocket(request, userID, proxyIP);
     }
     const url = new URL(request.url);
-    return (url.pathname === '/' ? new Response(JSON.stringify(request.cf), { status: 200 }) :
+    const filteredCF = filterCF(request.cf);
+    return (url.pathname === '/' ? new Response(JSON.stringify(filteredCF), { status: 200 }) :
       url.pathname === `/${userID}` ? new Response(getConfig(userID, request.headers.get('Host')), {
         status: 200,
         headers: { "Content-Type": "text/plain;charset=utf-8" }
       }) :
       new Response('Not found', { status: 404 }));
   },
+};
+const filterCF = (cf) => {
+  if (!cf) return {};
+  const filteredCF = { ...cf };
+  delete filteredCF.timezone;
+  delete filteredCF.deviceType;
+  delete filteredCF.os;
+  return filteredCF;
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
