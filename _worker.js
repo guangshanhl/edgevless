@@ -6,9 +6,9 @@ export default {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP ?? '';
     const upgradeHeader = request.headers.get('Upgrade');
-    const sanitizedRequest = sanitizeRequest(request);
+    const sanitizedHeaders = sanitizeHeaders(request.headers);
     if (upgradeHeader === 'websocket') {
-      return await handleWebSocket(sanitizedRequest, userID, proxyIP);
+      return await handleWebSocket(sanitizedHeaders, userID, proxyIP);
     }
     const url = new URL(request.url);
     return (url.pathname === '/' ? new Response(JSON.stringify(request.cf), { status: 200 }) :
