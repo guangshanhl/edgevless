@@ -6,25 +6,17 @@ export default {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP ?? '';
     const upgradeHeader = request.headers.get('Upgrade');
-    const sanitizedHeaders = sanitizeHeaders(request.headers);
     if (upgradeHeader === 'websocket') {
-      return await handleWebSocket(sanitizedHeaders, userID, proxyIP);
+      return await handleWebSocket(request, userID, proxyIP);
     }
     const url = new URL(request.url);
     return (url.pathname === '/' ? new Response(JSON.stringify(request.cf), { status: 200 }) :
-      url.pathname === `/${userID}` ? new Response(getConfig(userID, sanitizedRequest.headers.get('Host')), {
+      url.pathname === `/${userID}` ? new Response(getConfig(userID, request.headers.get('Host')), {
         status: 200,
         headers: { "Content-Type": "text/plain;charset=utf-8" }
       }) :
       new Response('Not found', { status: 404 }));
   },
-};
-const sanitizeHeaders = (headers) => {
-  const sanitized = new Headers(headers);
-  sanitized.delete('X-Forwarded-For');
-  sanitized.delete('Via');
-  sanitized.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36');
-  return sanitized;
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
@@ -125,7 +117,7 @@ const processRessHeader = (ressBuffer, userID) => {
   const addressType = addressBuffer[0];
   let addressLength = 0;
   let addressValueIndex = addressIndex + 1;
-  let addressValue = ''; 
+  let addressValue = '';
   switch (addressType) {
     case 1:
       addressLength = 4;
@@ -200,7 +192,7 @@ const handleUDP = async (webSocket, resHeader) => {
   });
   await transformStream.readable.pipeTo(new WritableStream({
     write: async (chunk) => {
-      const resp = await fetch('https://dns.google/dns-query', {
+      const resp = await fetch('https://cloudflare-dns.com/dns-query', {
         method: 'POST',
         headers: { 'content-type': 'application/dns-message' },
         body: chunk,
