@@ -19,14 +19,12 @@ export default {
       new Response('Not found', { status: 404 }));
   },
 };
-const sanitizeRequest = (request) => {
-  const headers = new Headers(request.headers);
-  ['X-Forwarded-For', 'Via', 'Forwarded', 'X-Real-IP'].forEach(header => headers.delete(header));
-  return new Request(request.url, {
-    method: request.method,
-    headers,
-    body: request.body,
-  });
+const sanitizeHeaders = (headers) => {
+  const sanitized = new Headers(headers);
+  sanitized.delete('X-Forwarded-For');
+  sanitized.delete('Via');
+  sanitized.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36');
+  return sanitized;
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
