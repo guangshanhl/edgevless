@@ -68,19 +68,25 @@ const streamHandler = (webSocket, earlyHeader) => {
   let isCancel = false;
   const stream = new ReadableStream({
     start: (controller) => {
-      webSocket.addEventListener('message', (event) => {
+      const enqueueMessage = (event) => {
         if (isCancel) return;
         controller.enqueue(event.data);
-      });
-      webSocket.addEventListener('close', () => {
+      };
+      const closeStream = () => {
         closeWebSocket(webSocket);
         if (isCancel) return;
         controller.close();
-      });
-      webSocket.addEventListener('error', (err) => controller.error(err));
+      };
+      const handleError = (err) => controller.error(err);
+      webSocket.addEventListener('message', enqueueMessage);
+      webSocket.addEventListener('close', closeStream);
+      webSocket.addEventListener('error', handleError);
       const { earlyData, error } = base64ToBuffer(earlyHeader);
-      if (error) controller.error(error);
-      else if (earlyData) controller.enqueue(earlyData);
+      if (error) {
+        controller.error(error);
+      } else if (earlyData) {
+        controller.enqueue(earlyData);
+      }
     },
     cancel: () => {
       if (isCancel) return;
