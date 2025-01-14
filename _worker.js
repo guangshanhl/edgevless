@@ -23,7 +23,7 @@ const handleRequest = (request, userID) => {
   return handler();
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
-  const { client, webSocket } = Object.values(new WebSocketPair());
+  const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
   webSocket.accept();
   const readableWebStream = streamHandler(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
@@ -33,9 +33,9 @@ const handleWebSocket = async (request, userID, proxyIP) => {
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk);
-      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processResHeader(chunk, userID);
+      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
       if (hasError) return;
-      const resHeader = new Uint8Array([resVersion[0], 0]);
+      const resHeader = new Uint8Array([ressVersion[0], 0]);
       const clientData = chunk.slice(rawDataIndex);
       if (isUDP) {
         if (portRemote !== 53) return;
@@ -43,9 +43,8 @@ const handleWebSocket = async (request, userID, proxyIP) => {
         const { write } = await handleUDP(webSocket, resHeader);
         udpWrite = write;
         udpWrite(clientData);
-        return;
-      }
-      handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
+      } else {
+        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
       }
     },
   }));
@@ -91,20 +90,20 @@ const streamHandler = (webSocket, earlyHeader) => {
   });
   return stream;
 };
-const processResHeader = (resBuffer, userID) => {
-  if (resBuffer.byteLength < 24) return { hasError: true };
-  const version = new Uint8Array(resBuffer.slice(0, 1));
+const processRessHeader = (ressBuffer, userID) => {
+  if (ressBuffer.byteLength < 24) return { hasError: true };
+  const version = new Uint8Array(ressBuffer.slice(0, 1));
   let isUDP = false;
   const cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-  const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
+  const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
   const hasUserID = bufferUserID.some((byte, index) => byte !== cachedUserID[index]);
   if (hasUserID) return { hasError: true };
-  const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
-  const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+  const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
+  const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
   if (command === 2) isUDP = true;
   else if (command !== 1) return { hasError: false };
   const portIndex = 18 + optLength + 1;
-  const portBuffer = resBuffer.slice(portIndex, portIndex + 2);
+  const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
   const portRemote = new DataView(portBuffer).getUint16(0);
   let addressIndex = portIndex + 2;
   const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
@@ -115,16 +114,16 @@ const processResHeader = (resBuffer, userID) => {
   switch (addressType) {
     case 1:
       addressLength = 4;
-      addressValue = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+      addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
       break;
     case 2:
-      addressLength = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+      addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
       addressValueIndex += 1;
-      addressValue = new TextDecoder().decode(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+      addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       break;
     case 3:
       addressLength = 16;
-      const dataView = new DataView(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+      const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       const ipv6 = [];
       for (let i = 0; i < 8; i++) {
         ipv6.push(dataView.getUint16(i * 2).toString(16));
@@ -140,7 +139,7 @@ const processResHeader = (resBuffer, userID) => {
     addressType,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    resVersion: version,
+    ressVersion: version,
     isUDP,
   };
 };
@@ -207,5 +206,5 @@ const handleUDP = async (webSocket, resHeader) => {
   return { write: (chunk) => writer.write(chunk) };
 };
 const getConfig = (userID, hostName) => {
-  return `res://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+  return `ress://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
 };
