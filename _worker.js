@@ -50,6 +50,7 @@ const handleWebSocket = async (request, userID, proxyIP) => {
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
+
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
@@ -59,13 +60,9 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connectAndWrite = async (address, port) => {
     remoteSocket.value = connect({ hostname: address, port: port });
     await writeToSocket(remoteSocket.value, clientData);
-    return remoteSocket.value;
+    return forwardToData(remoteSocket.value, webSocket, resHeader);
   };
-  const tryConnect = async (address, port) => {
-    const tcpSocket = await connectAndWrite(address, port);
-    return forwardToData(tcpSocket, webSocket, resHeader);
-  };
-  const connected = await tryConnect(addressRemote, portRemote) || await tryConnect(proxyIP, portRemote);
+  const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
 const streamHandler = (webSocket, earlyHeader) => {
