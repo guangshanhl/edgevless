@@ -50,7 +50,6 @@ const handleWebSocket = async (request, userID, proxyIP) => {
   }));
   return new Response(null, { status: 101, webSocket: client });
 };
-
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
   await writer.write(chunk);
