@@ -1,11 +1,12 @@
 import { connect } from 'cloudflare:sockets';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+const dohURL = 'https://cloudflare-dns.com/dns-query';
 export default {
   fetch: async (request, env) => {
     const proxyIPs = env.PROXYIPS ? env.PROXYIPS.split(',') : [];
-    const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    const proxyIP = proxyIPs.length > 0 ? proxyIPs[Math.floor(Math.random() * proxyIPs.length)] : '';
+    const userID = env.UUID ?? '';
+    let proxyIP = proxyIPs.length > 0 ? proxyIPs[Math.floor(Math.random() * proxyIPs.length)] : '';
     if (request.headers.get('Upgrade') === 'websocket') {
       return handleWebSocket(request, userID, proxyIP);
     }
@@ -198,7 +199,7 @@ const handleUDP = async (webSocket, resHeader) => {
   });
   await transformStream.readable.pipeTo(new WritableStream({
     write: async (chunk) => {
-      const resp = await fetch('https://cloudflare-dns.com/dns-query', {
+      const resp = await fetch(dohURL, {
         method: 'POST',
         headers: { 'content-type': 'application/dns-message' },
         body: chunk,
