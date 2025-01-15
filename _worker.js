@@ -3,9 +3,8 @@ const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 export default {
   fetch: async (request, env) => {
-    const proxyIPs = env.PROXYIPS ? env.PROXYIPS.split(',') : [];
-    const userID = env.UUID ?? '';
-    const proxyIP = proxyIPs.length > 0 ? proxyIPs[Math.floor(Math.random() * proxyIPs.length)] : '';
+    const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+    const proxyIP = env.PROXYIP ?? '';
     if (request.headers.get('Upgrade') === 'websocket') {
       return handleWebSocket(request, userID, proxyIP);
     }
@@ -65,43 +64,37 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
-const streamHandler = (webSocket, earlyDataHeader) => {
-  let isCancelled = false;
-  return new ReadableStream({
-    start(controller) {
-      webSocket.addEventListener('message', (event) => {
-        if (isCancelled) {
-					return;
-				}
-				const message = event.data;
-				controller.enqueue(message);
-      });
-      webSocket.addEventListener('close', () => {
+const streamHandler = (webSocket, earlyHeader) => {
+  let isCancel = false;
+  const stream = new ReadableStream({
+    start: (controller) => {
+      const enqueueMessage = (event) => {
+        if (isCancel) return;
+        controller.enqueue(event.data);
+      };
+      const closeStream = () => {
         closeWebSocket(webSocket);
-				if (isCancelled) {
-					return;
-				}
-				controller.close();
-      });
-      webSocket.addEventListener('error', (err) => {
-				controller.error(err);
-			}
-			);
-      const { earlyData, error } = base64ToBuffer(earlyDataHeader);
+        if (isCancel) return;
+        controller.close();
+      };
+      const handleError = (err) => controller.error(err);
+      webSocket.addEventListener('message', enqueueMessage);
+      webSocket.addEventListener('close', closeStream);
+      webSocket.addEventListener('error', handleError);
+      const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) {
         controller.error(error);
       } else if (earlyData) {
         controller.enqueue(earlyData);
       }
     },
-    cancel() {
-      if (isCancelled) {
-				return;
-			}
-      isCancelled = true;
+    cancel: () => {
+      if (isCancel) return;
+      isCancel = true;
       closeWebSocket(webSocket);
     }
   });
+  return stream;
 };
 const processRessHeader = (ressBuffer, userID) => {
   if (ressBuffer.byteLength < 24) return { hasError: true };
