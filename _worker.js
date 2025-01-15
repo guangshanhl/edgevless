@@ -69,15 +69,23 @@ const streamHandler = (webSocket, earlyDataHeader) => {
   return new ReadableStream({
     start(controller) {
       webSocket.addEventListener('message', (event) => {
-        if (!isCancelled) controller.enqueue(event.data);
+        if (isCancelled) {
+					return;
+				}
+				const message = event.data;
+				controller.enqueue(message);
       });
       webSocket.addEventListener('close', () => {
-        if (!isCancelled) {
-          closeWebSocket(webSocket);
-          controller.close();
-        }
+        closeWebSocket(webSocket);
+				if (isCancelled) {
+					return;
+				}
+				controller.close();
       });
-      webSocket.addEventListener('error', (err) => controller.error(err));
+      webSocket.addEventListener('error', (err) => {
+				controller.error(err);
+			}
+			);
       const { earlyData, error } = base64ToBuffer(earlyDataHeader);
       if (error) {
         controller.error(error);
@@ -86,6 +94,9 @@ const streamHandler = (webSocket, earlyDataHeader) => {
       }
     },
     cancel() {
+      if (isCancelled) {
+				return;
+			}
       isCancelled = true;
       closeWebSocket(webSocket);
     }
