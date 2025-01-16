@@ -64,23 +64,29 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
-const streamHandler = (webSocket, earlyHeader) => {
+const streamHandler = (webSocketServer, earlyHeader) => {
   let isCancel = false;
   const stream = new ReadableStream({
     start: (controller) => {
-      const enqueueMessage = (event) => {
-        if (isCancel) return;
-        controller.enqueue(event.data);
-      };
-      const closeStream = () => {
-        closeWebSocket(webSocket);
-        if (isCancel) return;
-        controller.close();
-      };
-      const handleError = (err) => controller.error(err);
-      webSocket.addEventListener('message', enqueueMessage);
-      webSocket.addEventListener('close', closeStream);
-      webSocket.addEventListener('error', handleError);
+      webSocketServer.addEventListener('message', (event) => {
+				if (isCancel) {
+					return;
+				}
+				const message = event.data;
+				controller.enqueue(message);
+			});
+      webSocketServer.addEventListener('close', () => {
+				closeWebSocket(webSocketServer);
+				if (isCancel) {
+					return;
+				}
+				controller.close();
+			}
+			);
+      webSocketServer.addEventListener('error', (err) => {
+				controller.error(err);
+			}
+			);
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) {
         controller.error(error);
@@ -88,13 +94,15 @@ const streamHandler = (webSocket, earlyHeader) => {
         controller.enqueue(earlyData);
       }
     },
-    cancel: () => {
-      if (isCancel) return;
-      isCancel = true;
-      closeWebSocket(webSocket);
-    }
-  });
-  return stream;
+    cancel(reason) {
+			if (isCancel) {
+				return;
+			}
+			isCancel = true;
+			closeWebSocket(webSocketServer);
+		}
+	});
+	return stream;
 };
 const processRessHeader = (ressBuffer, userID) => {
   if (ressBuffer.byteLength < 24) return { hasError: true };
