@@ -22,7 +22,7 @@ const handlerHttp = (request, userID) => {
   return handler();
 };
 const handlerWs = async (request, userID, proxyIP) => {
-  const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
+  const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
   const readableWstream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
