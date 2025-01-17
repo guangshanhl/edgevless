@@ -5,7 +5,7 @@ export default {
   fetch: async (request, env) => {
     const proxyIPs = env.PROXYIPS ? env.PROXYIPS.split(',') : [];
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    const proxyIP = proxyIPs.length > 0 ? proxyIPs[Math.floor(Math.random() * proxyIPs.length)] : '';
+    let proxyIP = proxyIPs.length > 0 ? proxyIPs[Math.floor(Math.random() * proxyIPs.length)] : '';
     if (request.headers.get('Upgrade') === 'websocket') {
       return handleWebSocket(request, userID, proxyIP);
     }
