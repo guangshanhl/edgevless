@@ -5,11 +5,11 @@ export default {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP ?? '';
     return request.headers.get('Upgrade') === 'websocket'
-      ? handleWebSocket(request, userID, proxyIP)
-      : handleRequest(request, userID);
+      ? handleWs(request, userID, proxyIP)
+      : handleHttp(request, userID);
   },
 };
-const handleRequest = (request, userID) => {
+const handleHttp = (request, userID) => {
   const url = new URL(request.url).pathname;
   const handler = url === '/' 
     ? () => new Response(JSON.stringify(request.cf), { status: 200 })
@@ -21,19 +21,19 @@ const handleRequest = (request, userID) => {
     : () => new Response('Not found', { status: 404 });
   return handler();
 };
-const handleWebSocket = async (request, userID, proxyIP) => {
+const handleWs = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
   webSocket.accept();
-  const readableWebStream = streamHandler(webSocket, request.headers.get('sec-websocket-protocol') || '');
+  const readableWebStream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
   let udpWrite = null, isDns = false;  
   readableWebStream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk);
-      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, ressVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
+      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processRessHeader(chunk, userID);
       if (hasError) return;
-      const resHeader = new Uint8Array([ressVersion[0], 0]);
+      const resHeader = new Uint8Array([resVersion[0], 0]);
       const clientData = chunk.slice(rawDataIndex);
       if (isUDP) {
         if (portRemote !== 53) return;
@@ -62,7 +62,7 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
-const streamHandler = (webSocketServer, earlyHeader) => {
+const handlerStream = (webSocketServer, earlyHeader) => {
   let isCancel = false;
   const stream = new ReadableStream({
     start: (controller) => {
@@ -90,36 +90,36 @@ const streamHandler = (webSocketServer, earlyHeader) => {
   });
   return stream;
 };
-const processRessHeader = (ressBuffer, userID) => {
-  if (ressBuffer.byteLength < 24) return { hasError: true };
-  const version = new Uint8Array(ressBuffer.slice(0, 1));
+const processRessHeader = (resBuffer, userID) => {
+  if (resBuffer.byteLength < 24) return { hasError: true };
+  const version = new Uint8Array(resBuffer.slice(0, 1));
   const cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
-  const bufferUserID = new Uint8Array(ressBuffer.slice(1, 17));
+  const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
   if (bufferUserID.some((byte, index) => byte !== cachedUserID[index])) return { hasError: true };  
-  const optLength = new Uint8Array(ressBuffer.slice(17, 18))[0];
-  const command = new Uint8Array(ressBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+  const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
+  const command = new Uint8Array(resBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
   const isUDP = command === 2;
   if (!isUDP && command !== 1) return { hasError: false }; 
   const portIndex = 18 + optLength + 1;
-  const portBuffer = ressBuffer.slice(portIndex, portIndex + 2);
+  const portBuffer = resBuffer.slice(portIndex, portIndex + 2);
   const portRemote = new DataView(portBuffer).getUint16(0);
   let addressIndex = portIndex + 2;
-  const addressBuffer = new Uint8Array(ressBuffer.slice(addressIndex, addressIndex + 1));
+  const addressBuffer = new Uint8Array(resBuffer.slice(addressIndex, addressIndex + 1));
   const addressType = addressBuffer[0];
   let addressLength = 0, addressValueIndex = addressIndex + 1, addressValue = ''; 
   switch (addressType) {
     case 1:
       addressLength = 4;
-      addressValue = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
+      addressValue = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
       break;
     case 2:
-      addressLength = new Uint8Array(ressBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+      addressLength = new Uint8Array(resBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
       addressValueIndex += 1;
-      addressValue = new TextDecoder().decode(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+      addressValue = new TextDecoder().decode(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       break;
     case 3:
       addressLength = 16;
-      const dataView = new DataView(ressBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+      const dataView = new DataView(resBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
       const ipv6 = [];
       for (let i = 0; i < 8; i++) {
         ipv6.push(dataView.getUint16(i * 2).toString(16));
@@ -135,7 +135,7 @@ const processRessHeader = (ressBuffer, userID) => {
     addressType,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    ressVersion: version,
+    resVersion: version,
     isUDP,
   };
 };
@@ -197,4 +197,4 @@ const handleUDP = async (webSocket, resHeader) => {
   const writer = transformStream.writable.getWriter();
   return { write: (chunk) => writer.write(chunk) };
 };
-const getConfig = (userID, hostName) => `ress://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+const getConfig = (userID, hostName) => `res://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
