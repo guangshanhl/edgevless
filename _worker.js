@@ -24,17 +24,9 @@ const handleRequest = (request, userID) => {
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
-  const headers = new Headers(request.headers);
-  headers.set('Upgrade', 'WebSocket');
-  headers.set('Connection', 'Upgrade');
-  headers.set('Sec-WebSocket-Key', generateWebSocketKey());
-  headers.set('Sec-WebSocket-Version', '13');
-  headers.set('Sec-WebSocket-Protocol', 'custom-protocol');
-  const modifiedRequest = new Request(request.url, {
-    method: 'GET',
-    headers: headers,
-    body: null,
-  });
+  const headers = new Headers();
+  headers.set('Connection', 'keep-alive');
+  headers.set('Content-Type', 'application/json');
   webSocket.accept();
   const readableWebStream = streamHandler(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
@@ -60,11 +52,6 @@ const handleWebSocket = async (request, userID, proxyIP) => {
     },
   }));
   return new Response(null, { status: 101, webSocket: client });
-};
-const generateWebSocketKey = () => {
-  const array = new Uint8Array(16);
-  window.crypto.getRandomValues(array);
-  return btoa(String.fromCharCode.apply(null, array));
 };
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
