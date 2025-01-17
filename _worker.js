@@ -69,24 +69,18 @@ const streamHandler = (webSocketServer, earlyHeader) => {
   const stream = new ReadableStream({
     start: (controller) => {
       webSocketServer.addEventListener('message', (event) => {
-				if (isCancel) {
-					return;
-				}
-				const message = event.data;
-				controller.enqueue(message);
-			});
+        if (isCancel) return;
+        const message = event.data;
+        controller.enqueue(message);
+      });
       webSocketServer.addEventListener('close', () => {
-				closeWebSocket(webSocketServer);
-				if (isCancel) {
-					return;
-				}
-				controller.close();
-			}
-			);
+        closeWebSocket(webSocketServer);
+        if (isCancel) return;
+        controller.close();
+      });
       webSocketServer.addEventListener('error', (err) => {
-				controller.error(err);
-			}
-			);
+        controller.error(err);
+      });
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) {
         controller.error(error);
@@ -95,14 +89,12 @@ const streamHandler = (webSocketServer, earlyHeader) => {
       }
     },
     cancel(reason) {
-			if (isCancel) {
-				return;
-			}
-			isCancel = true;
-			closeWebSocket(webSocketServer);
-		}
-	});
-	return stream;
+      if (isCancel) return;
+      isCancel = true;
+      closeWebSocket(webSocketServer);
+    }
+  });
+  return stream;
 };
 const processRessHeader = (ressBuffer, userID) => {
   if (ressBuffer.byteLength < 24) return { hasError: true };
@@ -162,7 +154,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   const writableStream = new WritableStream({
     write: async (chunk, controller) => {
       if (webSocket.readyState !== WS_READY_STATE_OPEN) {
-	 controller.error('webSocket is not open');
+        controller.error('webSocket is not open');
       }
       const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
       webSocket.send(dataToSend);
