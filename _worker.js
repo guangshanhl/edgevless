@@ -71,7 +71,7 @@ const streamHandler = (webSocketServer, earlyHeader) => {
       webSocketServer.addEventListener('message', (event) => {
         if (isCancel) return;
         const message = event.data;
-        controller.enqueue(message);
+        controller.enqueue(message.buffer);
       });
       webSocketServer.addEventListener('close', () => {
         closeWebSocket(webSocketServer);
@@ -85,7 +85,7 @@ const streamHandler = (webSocketServer, earlyHeader) => {
       if (error) {
         controller.error(error);
       } else if (earlyData) {
-        controller.enqueue(earlyData);
+        controller.enqueue(earlyData.buffer);
       }
     },
     cancel(reason) {
@@ -156,7 +156,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
       if (webSocket.readyState !== WS_READY_STATE_OPEN) {
         controller.error('webSocket is not open');
       }
-      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk;
+      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk;
       webSocket.send(dataToSend);
       resHeader = null;
       hasData = true;
@@ -203,8 +203,8 @@ const handleUDP = async (webSocket, resHeader) => {
       new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
       if (webSocket.readyState === WS_READY_STATE_OPEN) {
         const combined = headerSent
-          ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
-          : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]);
+          ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]).buffer
+          : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]).buffer;
         webSocket.send(combined);
         headerSent = true;
       }
