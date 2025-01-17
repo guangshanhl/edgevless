@@ -156,7 +156,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
       if (webSocket.readyState !== WS_READY_STATE_OPEN) {
         controller.error('webSocket is not open');
       }
-      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk;
+      const dataToSend = resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk.buffer;
       webSocket.send(dataToSend);
       resHeader = null;
       hasData = true;
