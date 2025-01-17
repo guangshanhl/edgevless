@@ -24,6 +24,9 @@ const handleRequest = (request, userID) => {
 };
 const handleWebSocket = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
+  const headers = new Headers();
+  headers.set('Connection', 'keep-alive');
+  headers.set('Content-Type', 'application/json');
   webSocket.accept();
   const readableWebStream = streamHandler(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
