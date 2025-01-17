@@ -1,11 +1,13 @@
 import { connect } from 'cloudflare:sockets';
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
+let userID = 'd0b0db77-5ad8-4bae-9a86-1be3c7fd82d2';
+const proxyIPs = ['192.9.158.188', '192.9.138.241', '150.230.42.80', '150.230.34.116', '152.70.155.147'];
+let proxyIP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
 export default {
   fetch: async (request, env) => {
-    const proxyIPs = env.PROXYIPS ? env.PROXYIPS.split(',') : [];
-    const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    let proxyIP = proxyIPs.length > 0 ? proxyIPs[Math.floor(Math.random() * proxyIPs.length)] : '';
+    userID = env.UUID || userID;
+    proxyIP = env.PROXYIP || proxyIP;
     if (request.headers.get('Upgrade') === 'websocket') {
       return handleWebSocket(request, userID, proxyIP);
     }
