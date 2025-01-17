@@ -71,7 +71,7 @@ const streamHandler = (webSocketServer, earlyHeader) => {
       webSocketServer.addEventListener('message', (event) => {
         if (isCancel) return;
         const message = event.data;
-        controller.enqueue(message.buffer);
+        controller.enqueue(message);
       });
       webSocketServer.addEventListener('close', () => {
         closeWebSocket(webSocketServer);
@@ -85,7 +85,7 @@ const streamHandler = (webSocketServer, earlyHeader) => {
       if (error) {
         controller.error(error);
       } else if (earlyData) {
-        controller.enqueue(earlyData.buffer);
+        controller.enqueue(earlyData);
       }
     },
     cancel(reason) {
