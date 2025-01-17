@@ -5,11 +5,11 @@ export default {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const proxyIP = env.PROXYIP ?? '';
     return request.headers.get('Upgrade') === 'websocket'
-      ? handleWs(request, userID, proxyIP)
-      : handleHttp(request, userID);
+      ? handlerWs(request, userID, proxyIP)
+      : handlerHttp(request, userID);
   },
 };
-const handleHttp = (request, userID) => {
+const handlerHttp = (request, userID) => {
   const url = new URL(request.url).pathname;
   const handler = url === '/' 
     ? () => new Response(JSON.stringify(request.cf), { status: 200 })
@@ -21,13 +21,13 @@ const handleHttp = (request, userID) => {
     : () => new Response('Not found', { status: 404 });
   return handler();
 };
-const handleWs = async (request, userID, proxyIP) => {
+const handlerWs = async (request, userID, proxyIP) => {
   const { 0: client, 1: webSocket } = Object.values(new WebSocketPair());
   webSocket.accept();
-  const readableWebStream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+  const readableWstream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
   let udpWrite = null, isDns = false;  
-  readableWebStream.pipeTo(new WritableStream({
+  readableWstream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk);
