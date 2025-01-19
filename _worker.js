@@ -1,5 +1,5 @@
 import { connect } from 'cloudflare:sockets';
-const WS_READY_STATE_OPEN = 1, WS_READY_STATE_CLOSING = 2;
+const WS_OPEN = 1, WS_CLOSING = 2;
 export default {
   fetch: async (request, env) => {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
@@ -26,7 +26,7 @@ const handlerWs = async (request, userID, proxyIP) => {
   webSocket.accept();
   const readableWstream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
   const remoteSocket = { value: null };
-  let udpWrite = null, isDns = false;  
+  let udpWrite = null, isDns = false;
   readableWstream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
@@ -45,7 +45,7 @@ const handlerWs = async (request, userID, proxyIP) => {
         handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
       }
     },
-  })); 
+  }));
   return new Response(null, { status: 101, webSocket: client });
 };
 const writeToSocket = async (socket, chunk) => {
@@ -143,7 +143,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
   const writableStream = new WritableStream({
     write: async (chunk, controller) => {
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) controller.error('webSocket is not open');
+      if (webSocket.readyState !== WS_OPEN) controller.error('webSocket is not open');
       webSocket.send(resHeader ? new Uint8Array([...resHeader, ...chunk]).buffer : chunk);
       resHeader = null;
       hasData = true;
@@ -162,7 +162,7 @@ const base64ToBuffer = (base64Str) => {
   }
 };
 const closeWebSocket = (socket) => {
-  if ([WS_READY_STATE_OPEN, WS_READY_STATE_CLOSING].includes(socket.readyState)) socket.close();
+  if ([WS_OPEN, WS_CLOSING].includes(socket.readyState)) socket.close();
 };
 const handleUDP = async (webSocket, resHeader) => {
   let headerSent = false;
@@ -186,7 +186,7 @@ const handleUDP = async (webSocket, resHeader) => {
       const dnsQueryResult = await resp.arrayBuffer();
       const udpSizeBuffer = new Uint8Array(2);
       new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
-      if (webSocket.readyState === WS_READY_STATE_OPEN) {
+      if (webSocket.readyState === WS_OPEN) {
         webSocket.send(headerSent
           ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
           : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]));
