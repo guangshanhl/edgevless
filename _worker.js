@@ -57,7 +57,7 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connectAndWrite = async (address, port) => {
     remoteSocket.value = connect({ hostname: address, port });
     await writeToSocket(remoteSocket.value, clientData);
-    return forwardToData(remoteSocket.value, webSocket, resHeader);
+    await forwardToData(remoteSocket.value, webSocket, resHeader);
   };
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
