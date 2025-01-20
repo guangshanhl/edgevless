@@ -1,5 +1,7 @@
 import { connect } from 'cloudflare:sockets';
+
 const WS_READY_STATE_OPEN = 1, WS_READY_STATE_CLOSING = 2;
+
 export default {
   fetch: async (request, env) => {
     const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
@@ -9,9 +11,10 @@ export default {
       : handlerHttp(request, userID);
   },
 };
+
 const handlerHttp = (request, userID) => {
   const url = new URL(request.url).pathname;
-  const handler = url === '/' 
+  const handler = url === '/'
     ? () => new Response(JSON.stringify(request.cf), { status: 200 })
     : url === `/${userID}`
     ? () => new Response(getConfig(userID, request.headers.get('Host')), {
@@ -21,20 +24,28 @@ const handlerHttp = (request, userID) => {
     : () => new Response('Not found', { status: 404 });
   return handler();
 };
+
 const handlerWs = async (request, userID, proxyIP) => {
   const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
-  const readableWstream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+  
+  // 只在第一次创建流时进行初始化，后续复用相同流
+  const readableWstream = await createReadableStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
+  
   const remoteSocket = { value: null };
-  let udpWrite = null, isDns = false;  
+  let udpWrite = null, isDns = false;
+
   readableWstream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk);
+      
       const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processResHeader(chunk, userID);
       if (hasError) return;
+      
       const resHeader = new Uint8Array([resVersion[0], 0]);
       const clientData = chunk.slice(rawDataIndex);
+      
       if (isUDP) {
         if (portRemote !== 53) return;
         isDns = true;
@@ -45,8 +56,47 @@ const handlerWs = async (request, userID, proxyIP) => {
         handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
       }
     },
-  })); 
+  }));
+
   return new Response(null, { status: 101, webSocket: client });
+};
+
+let currentReadableStream = null;
+
+const createReadableStream = (webSocketServer, earlyHeader) => {
+  // 如果已经有流实例，则复用，不重新创建
+  if (currentReadableStream) {
+    return Promise.resolve(currentReadableStream);
+  }
+
+  // 否则创建新的流
+  let isCancel = false;
+  currentReadableStream = new ReadableStream({
+    start: (controller) => {
+      webSocketServer.addEventListener('message', (event) => {
+        if (isCancel) return;
+        controller.enqueue(event.data);
+      });
+      webSocketServer.addEventListener('close', () => {
+        closeWebSocket(webSocketServer);
+        if (isCancel) return;
+        controller.close();
+      });
+      webSocketServer.addEventListener('error', (err) => {
+        controller.error(err);
+      });
+      const { earlyData, error } = base64ToBuffer(earlyHeader);
+      if (error) controller.error(error);
+      else if (earlyData) controller.enqueue(earlyData);
+    },
+    cancel(reason) {
+      if (isCancel) return;
+      isCancel = true;
+      closeWebSocket(webSocketServer);
+    }
+  });
+
+  return Promise.resolve(currentReadableStream);
 };
 const writeToSocket = async (socket, chunk) => {
   const writer = socket.writable.getWriter();
