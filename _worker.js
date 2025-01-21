@@ -144,7 +144,9 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   const writableStream = new WritableStream({
     write: async (chunk, controller) => {
       if (webSocket.readyState !== WS_READY_STATE_OPEN) controller.error('webSocket is not open');
-      webSocket.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
+      const blob = resHeader ? new Blob([resHeader, chunk]) : new Blob([chunk]);
+      const arrayBuffer = await blob.arrayBuffer();
+      webSocket.send(arrayBuffer);
       resHeader = null;
       hasData = true;
     },
