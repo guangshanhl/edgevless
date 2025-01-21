@@ -11,15 +11,18 @@ export default {
 };
 const handlerHttp = (request, userID) => {
   const url = new URL(request.url).pathname;
-  const handler = url === '/' 
-    ? () => new Response(JSON.stringify(request.cf), { status: 200 })
-    : url === `/${userID}`
-    ? () => new Response(getConfig(userID, request.headers.get('Host')), {
-        status: 200,
-        headers: { "Content-Type": "text/plain;charset=utf-8" }
-      })
-    : () => new Response('Not found', { status: 404 });
-  return handler();
+  let response;  
+  if (url === '/') {
+    response = new Response(JSON.stringify(request.cf), { status: 200 });
+  } else if (url === `/${userID}`) {
+    response = new Response(getConfig(userID, request.headers.get('Host')), {
+      status: 200,
+      headers: { "Content-Type": "text/plain;charset=utf-8" }
+    });
+  } else {
+    response = new Response('Not found', { status: 404 });
+  }  
+  return response;
 };
 const handlerWs = async (request, userID, proxyIP) => {
   const [client, webSocket] = Object.values(new WebSocketPair());
