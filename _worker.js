@@ -81,9 +81,9 @@ const handlerStream = (webSocketServer, earlyHeader) => {
       webSocketServer.addEventListener('error', (err) => {
         controller.error(err);
       });
-      //const { earlyData, error } = base64ToBuffer(earlyHeader);
-      //if (error) controller.error(error);
-      //else if (earlyData) controller.enqueue(earlyData);
+      const { earlyData, error } = base64ToBuffer(earlyHeader);
+      if (error) controller.error(error);
+      else if (earlyData) controller.enqueue(earlyData);
     },
     cancel(reason) {
       if (isCancel) return;
