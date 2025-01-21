@@ -41,9 +41,9 @@ const handlerWs = async (request, userID, proxyIP) => {
         const { write } = await handleUDP(webSocket, resHeader);
         udpWrite = write;
         udpWrite(clientData);
-      } else {
-        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
+        return;
       }
+      handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
     },
   })); 
   return new Response(null, { status: 101, webSocket: client });
