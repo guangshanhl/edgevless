@@ -11,18 +11,15 @@ export default {
 };
 const handlerHttp = (request, userID) => {
   const url = new URL(request.url).pathname;
-  let response;  
-  if (url === '/') {
-    response = new Response(JSON.stringify(request.cf), { status: 200 });
-  } else if (url === `/${userID}`) {
-    response = new Response(getConfig(userID, request.headers.get('Host')), {
-      status: 200,
-      headers: { "Content-Type": "text/plain;charset=utf-8" }
-    });
-  } else {
-    response = new Response('Not found', { status: 404 });
-  }  
-  return response;
+  const handler = url === '/' 
+    ? () => new Response(JSON.stringify(request.cf), { status: 200 })
+    : url === `/${userID}`
+    ? () => new Response(getConfig(userID, request.headers.get('Host')), {
+        status: 200,
+        headers: { "Content-Type": "text/plain;charset=utf-8" }
+      })
+    : () => new Response('Not found', { status: 404 });
+  return handler();
 };
 const handlerWs = async (request, userID, proxyIP) => {
   const [client, webSocket] = Object.values(new WebSocketPair());
@@ -44,9 +41,9 @@ const handlerWs = async (request, userID, proxyIP) => {
         const { write } = await handleUDP(webSocket, resHeader);
         udpWrite = write;
         udpWrite(clientData);
-        return;
+      } else {
+        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
       }
-      handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
     },
   })); 
   return new Response(null, { status: 101, webSocket: client });
@@ -60,7 +57,7 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connectAndWrite = async (address, port) => {
     remoteSocket.value = connect({ hostname: address, port });
     await writeToSocket(remoteSocket.value, clientData);
-    await forwardToData(remoteSocket.value, webSocket, resHeader);
+    return forwardToData(remoteSocket.value, webSocket, resHeader);
   };
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
@@ -147,9 +144,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   const writableStream = new WritableStream({
     write: async (chunk, controller) => {
       if (webSocket.readyState !== WS_READY_STATE_OPEN) controller.error('webSocket is not open');
-      const blob = resHeader ? new Blob([resHeader, chunk]) : new Blob([chunk]);
-      const arrayBuffer = await blob.arrayBuffer();
-      webSocket.send(arrayBuffer);
+      webSocket.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
       resHeader = null;
       hasData = true;
     },
