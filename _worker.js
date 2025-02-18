@@ -1,27 +1,27 @@
 import { connect } from 'cloudflare:sockets';
-const WS_READY_STATE_OPEN = 1, WS_READY_STATE_CLOSING = 2;
+const WS_OPEN = 1, WS_CLOSING = 2;
 export default {
   fetch: async (request, env) => {
-    const userID = env.UUID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    const proxyIP = env.PROXYIP ?? '';
+    const myID = env.MYID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+    const worldIP = env.WORLDIP ?? '';
     return request.headers.get('Upgrade') === 'websocket'
-      ? handlerWs(request, userID, proxyIP)
-      : handlerHttp(request, userID);
+      ? handlerWs(request, myID, worldIP)
+      : handlerHttp(request, myID);
   },
 };
-const handlerHttp = (request, userID) => {
+const handlerHttp = (request, myID) => {
   const url = new URL(request.url).pathname;
   const handler = url === '/' 
     ? () => new Response(JSON.stringify(request.cf), { status: 200 })
-    : url === `/${userID}`
-    ? () => new Response(getConfig(userID, request.headers.get('Host')), {
+    : url === `/${myID}`
+    ? () => new Response(getConfig(myID, request.headers.get('Host')), {
         status: 200,
         headers: { "Content-Type": "text/plain;charset=utf-8" }
       })
     : () => new Response('Not found', { status: 404 });
   return handler();
 };
-const handlerWs = async (request, userID, proxyIP) => {
+const handlerWs = async (request, myID, worldIP) => {
   const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
   const readableWstream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
@@ -31,7 +31,7 @@ const handlerWs = async (request, userID, proxyIP) => {
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
       if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk);
-      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processResHeader(chunk, userID);
+      const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processResHeader(chunk, myID);
       if (hasError) return;
       const resHeader = new Uint8Array([resVersion[0], 0]);
       const clientData = chunk.slice(rawDataIndex);
@@ -42,7 +42,7 @@ const handlerWs = async (request, userID, proxyIP) => {
         udpWrite = write;
         udpWrite(clientData);
       } else {
-        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP);
+        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, worldIP);
       }
     },
   })); 
@@ -53,13 +53,13 @@ const writeToSocket = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, proxyIP) => {
+const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, worldIP) => {
   const connectAndWrite = async (address, port) => {
     remoteSocket.value = connect({ hostname: address, port });
     await writeToSocket(remoteSocket.value, clientData);
     return forwardToData(remoteSocket.value, webSocket, resHeader);
   };
-  const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(proxyIP, portRemote);
+  const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(worldIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
 const handlerStream = (webSocketServer, earlyHeader) => {
@@ -90,10 +90,10 @@ const handlerStream = (webSocketServer, earlyHeader) => {
   });
   return stream;
 };
-const processResHeader = (resBuffer, userID) => {
+const processResHeader = (resBuffer, myID) => {
   if (resBuffer.byteLength < 24) return { hasError: true };
   const version = new Uint8Array(resBuffer.slice(0, 1));
-  const cachedUserID = Uint8Array.from(userID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
+  const cachedUserID = Uint8Array.from(myID.replace(/-/g, '').match(/../g).map(byte => parseInt(byte, 16)));
   const bufferUserID = new Uint8Array(resBuffer.slice(1, 17));
   if (bufferUserID.some((byte, index) => byte !== cachedUserID[index])) return { hasError: true };  
   const optLength = new Uint8Array(resBuffer.slice(17, 18))[0];
@@ -143,7 +143,7 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   let hasData = false;
   const writableStream = new WritableStream({
     write: async (chunk, controller) => {
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) controller.error('webSocket is not open');
+      if (webSocket.readyState !== WS_OPEN) controller.error('webSocket is not open');
       webSocket.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
       resHeader = null;
       hasData = true;
@@ -162,7 +162,7 @@ const base64ToBuffer = (base64Str) => {
   }
 };
 const closeWebSocket = (socket) => {
-  if ([WS_READY_STATE_OPEN, WS_READY_STATE_CLOSING].includes(socket.readyState)) socket.close();
+  if ([WS_OPEN, WS_CLOSING].includes(socket.readyState)) socket.close();
 };
 const handleUDP = async (webSocket, resHeader) => {
   let headerSent = false;
@@ -186,7 +186,7 @@ const handleUDP = async (webSocket, resHeader) => {
       const dnsQueryResult = await resp.arrayBuffer();
       const udpSizeBuffer = new Uint8Array(2);
       new DataView(udpSizeBuffer.buffer).setUint16(0, dnsQueryResult.byteLength, false);
-      if (webSocket.readyState === WS_READY_STATE_OPEN) {
+      if (webSocket.readyState === WS_OPEN) {
         webSocket.send(headerSent
           ? new Uint8Array([...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)])
           : new Uint8Array([...resHeader, ...udpSizeBuffer, ...new Uint8Array(dnsQueryResult)]));
@@ -197,4 +197,4 @@ const handleUDP = async (webSocket, resHeader) => {
   const writer = transformStream.writable.getWriter();
   return { write: (chunk) => writer.write(chunk) };
 };
-const getConfig = (userID, hostName) => `res://${userID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
+const getConfig = (myID, hostName) => `res://${myID}@${hostName}:443?encryption=none&security=tls&sni=${hostName}&fp=randomized&type=ws&host=${hostName}&path=%2F%3Fed%3D2560#${hostName}`;
