@@ -31,7 +31,7 @@ const handlerWs = async (request, myID, worldIP) => {
   readableWstream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
-      if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk, TCP_SEGMENT_SIZE);
+      if (remoteSocket.value) return segmentAndWriteToSocket(remoteSocket.value, chunk, TCP_SEGMENT_SIZE);
       const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processResHeader(chunk, myID);
       if (hasError) return;
       const resHeader = new Uint8Array([resVersion[0], 0]);
