@@ -1,6 +1,5 @@
 import { connect } from 'cloudflare:sockets';
 const WS_OPEN = 1, WS_CLOSING = 2;
-const TCP_SEGMENT_SIZE = 1024;
 export default {
   fetch: async (request, env) => {
     const myID = env.MYID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
@@ -31,7 +30,7 @@ const handlerWs = async (request, myID, worldIP) => {
   readableWstream.pipeTo(new WritableStream({
     write: async (chunk) => {
       if (isDns && udpWrite) return udpWrite(chunk);
-      if (remoteSocket.value) return segmentAndWriteToSocket(remoteSocket.value, chunk, TCP_SEGMENT_SIZE);
+      if (remoteSocket.value) return writeToSocket(remoteSocket.value, chunk);
       const { hasError, portRemote = 443, addressRemote = '', rawDataIndex, resVersion = new Uint8Array([0, 0]), isUDP } = processResHeader(chunk, myID);
       if (hasError) return;
       const resHeader = new Uint8Array([resVersion[0], 0]);
@@ -49,22 +48,19 @@ const handlerWs = async (request, myID, worldIP) => {
   })); 
   return new Response(null, { status: 101, webSocket: client });
 };
+const writeToSocket = async (socket, chunk) => {
+  const writer = socket.writable.getWriter();
+  await writer.write(chunk);
+  writer.releaseLock();
+};
 const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, worldIP) => {
   const connectAndWrite = async (address, port) => {
     remoteSocket.value = connect({ hostname: address, port });
-    await segmentAndWriteToSocket(remoteSocket.value, clientData, TCP_SEGMENT_SIZE);
+    await writeToSocket(remoteSocket.value, clientData);
     return forwardToData(remoteSocket.value, webSocket, resHeader);
   };
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(worldIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
-};
-const segmentAndWriteToSocket = async (socket, data, segmentSize) => {
-  const writer = socket.writable.getWriter();
-  for (let i = 0; i < data.byteLength; i += segmentSize) {
-    const segment = data.slice(i, i + segmentSize);
-    await writer.write(segment);
-  }
-  writer.releaseLock();
 };
 const handlerStream = (webSocketServer, earlyHeader) => {
   let isCancel = false;
