@@ -63,9 +63,9 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   if (!connected) closeWebSocket(webSocket);
 };
 const handlerStream = (webSocketServer, earlyHeader) => {
-  const { earlyData, error } = base64ToBuffer(earlyHeader);
   return new ReadableStream({
     start(controller) {
+      const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
       webSocketServer.addEventListener('message', ({ data }) => controller.enqueue(data));
