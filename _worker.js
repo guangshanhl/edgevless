@@ -63,32 +63,19 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   if (!connected) closeWebSocket(webSocket);
 };
 const handlerStream = (webSocketServer, earlyHeader) => {
-  let isCancel = false;
-  const stream = new ReadableStream({
-    start: (controller) => {
-      webSocketServer.addEventListener('message', (event) => {
-        if (isCancel) return;
-        controller.enqueue(event.data);
-      });
-      webSocketServer.addEventListener('close', () => {
-        closeWebSocket(webSocketServer);
-        if (isCancel) return;
-        controller.close();
-      });
-      webSocketServer.addEventListener('error', (err) => {
-        controller.error(err);
-      });
-      const { earlyData, error } = base64ToBuffer(earlyHeader);
-      if (error) controller.error(error);
-      else if (earlyData) controller.enqueue(earlyData);
+  const { earlyData, error } = base64ToBuffer(earlyHeader);
+  return new ReadableStream({
+    start(controller) {
+      if (error) return controller.error(error);
+      if (earlyData) controller.enqueue(earlyData);
+      webSocketServer.addEventListener('message', ({ data }) => controller.enqueue(data));
+      webSocketServer.addEventListener('close', () => controller.close());
+      webSocketServer.addEventListener('error', (err) => controller.error(err));
     },
-    cancel(reason) {
-      if (isCancel) return;
-      isCancel = true;
+    cancel() {
       closeWebSocket(webSocketServer);
     }
   });
-  return stream;
 };
 const processResHeader = (resBuffer, myID) => {
   if (resBuffer.byteLength < 24) return { hasError: true };
