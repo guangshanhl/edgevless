@@ -3,9 +3,9 @@ const WS_OPEN = 1, WS_CLOSING = 2;
 export default {
   fetch: async (request, env) => {
     const myID = env.MYID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    const worldIP = env.WORLDIP ?? '';
+    const ownIP = env.OWNIP ?? '';
     return request.headers.get('Upgrade') === 'websocket'
-      ? handlerWs(request, myID, worldIP)
+      ? handlerWs(request, myID, ownIP)
       : handlerHttp(request, myID);
   },
 };
@@ -21,7 +21,7 @@ const handlerHttp = (request, myID) => {
     : () => new Response('Not found', { status: 404 });
   return handler();
 };
-const handlerWs = async (request, myID, worldIP) => {
+const handlerWs = async (request, myID, ownIP) => {
   const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
   const readableWstream = handlerStream(webSocket, request.headers.get('sec-websocket-protocol') || '');
@@ -42,7 +42,7 @@ const handlerWs = async (request, myID, worldIP) => {
         udpWrite = write;
         udpWrite(clientData);
       } else {
-        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, worldIP);
+        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP);
       }
     },
   })); 
@@ -53,13 +53,13 @@ const writeToSocket = async (socket, chunk) => {
   await writer.write(chunk);
   writer.releaseLock();
 };
-const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, worldIP) => {
+const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP) => {
   const connectAndWrite = async (address, port) => {
     remoteSocket.value = connect({ hostname: address, port });
     await writeToSocket(remoteSocket.value, clientData);
     return forwardToData(remoteSocket.value, webSocket, resHeader);
   };
-  const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(worldIP, portRemote);
+  const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(ownIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
 const handlerStream = (webSocketServer, earlyHeader) => {
