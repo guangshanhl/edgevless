@@ -62,18 +62,18 @@ const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, we
   const connected = await connectAndWrite(addressRemote, portRemote) || await connectAndWrite(ownIP, portRemote);
   if (!connected) closeWebSocket(webSocket);
 };
-const handlerStream = (webSocketServer, earlyHeader) => {
+const handlerStream = (webSocket, earlyHeader) => {
   return new ReadableStream({
     start(controller) {
       const { earlyData, error } = base64ToBuffer(earlyHeader);
       if (error) return controller.error(error);
       if (earlyData) controller.enqueue(earlyData);
-      webSocketServer.addEventListener('message', ({ data }) => controller.enqueue(data));
-      webSocketServer.addEventListener('close', () => controller.close());
-      webSocketServer.addEventListener('error', (err) => controller.error(err));
+      webSocket.addEventListener('message', ({ data }) => controller.enqueue(data));
+      webSocket.addEventListener('close', () => controller.close());
+      webSocket.addEventListener('error', (err) => controller.error(err));
     },
     cancel() {
-      closeWebSocket(webSocketServer);
+      closeWebSocket(webSocket);
     }
   });
 };
