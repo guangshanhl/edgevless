@@ -161,19 +161,35 @@ const processResHeader = (resBuffer, myID) => {
 };
 
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
+  if (webSocket.readyState !== WS_OPEN) {
+    console.error('WebSocket is not open');
+    return false;
+  }
   let hasData = false;
+  let firstChunk = true;
   const writableStream = new WritableStream({
     write: async (chunk, controller) => {
-      if (webSocket.readyState !== WS_OPEN) {
-        controller.error('webSocket is not open');
-        return;
+      try {
+        if (firstChunk && resHeader) {
+          const combinedChunk = new Uint8Array(resHeader.length + chunk.length);
+          combinedChunk.set(resHeader, 0);
+          combinedChunk.set(chunk, resHeader.length);
+          webSocket.send(combinedChunk);
+          firstChunk = false;
+        } else {
+          webSocket.send(chunk);
+        }
+        hasData = true;
+      } catch (error) {
+        controller.error(error);
       }
-      webSocket.send(resHeader ? new Uint8Array([...resHeader, ...chunk]) : chunk);
-      resHeader = null;
-      hasData = true;
     },
   });
-  await remoteSocket.readable.pipeTo(writableStream).catch(() => closeWebSocket(webSocket));
+  try {
+    await remoteSocket.readable.pipeTo(writableStream);
+  } catch (error) {
+    closeWebSocket(webSocket);
+  }
   return hasData;
 };
 
