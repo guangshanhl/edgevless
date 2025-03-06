@@ -100,9 +100,17 @@ const handlerStream = (webSocket, earlyHeader) => {
       if (earlyData) {
         controller.enqueue(earlyData);
       }
-      webSocket.addEventListener('message', ({ data }) => controller.enqueue(data));
+      webSocket.addEventListener('message', ({ data }) => {
+        try {
+          controller.enqueue(data);
+        } catch (err) {
+          controller.error(err);
+        }
+      });
       webSocket.addEventListener('close', () => controller.close());
-      webSocket.addEventListener('error', (err) => controller.error(err));
+      webSocket.addEventListener('error', (err) => {
+        controller.error(err);
+      });
     },
     cancel() {
       closeWebSocket(webSocket);
@@ -162,7 +170,6 @@ const processResHeader = (resBuffer, myID) => {
 
 const forwardToData = async (remoteSocket, webSocket, resHeader) => {
   if (webSocket.readyState !== WS_OPEN) {
-    console.error('WebSocket is not open');
     return false;
   }
   let hasData = false;
