@@ -58,7 +58,6 @@ const handlerWs = async (request, myID, ownIP) => {
       }
       const headerResult = processResHeader(chunk, myID);
       if (headerResult.hasError) {
-        closeWebSocket(webSocket);
         return;
       }
       const { portRemote = 443, addressRemote = '', rawDataIndex, resVersion, isUDP } = headerResult;
@@ -93,13 +92,9 @@ const writeToSocket = async (socket, chunk) => {
 
 const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP) => {
   const connectAndWrite = async (address, port) => {
-    try {
-      remoteSocket.value = connect({ hostname: address, port });
-      await writeToSocket(remoteSocket.value, clientData);
-      return await forwardToData(remoteSocket.value, webSocket, resHeader);
-    } catch (error) {
-      return false;
-    }
+    remoteSocket.value = connect({ hostname: address, port });
+    await writeToSocket(remoteSocket.value, clientData);
+    return await forwardToData(remoteSocket.value, webSocket, resHeader);
   };
   const connected = await connectAndWrite(addressRemote, portRemote) ||
                     await connectAndWrite(ownIP, portRemote);
