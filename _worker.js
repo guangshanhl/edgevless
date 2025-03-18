@@ -1,6 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 
-const WS_OPEN = 1, WS_CLOSING = 2;
+const WS_OPEN = 1,
+      WS_CLOSING = 2;
 
 let cachedMyIDBuffer = null;
 let cachedMyID = null;
@@ -16,12 +17,16 @@ const getCachedMyIDBuffer = (myID) => {
 
 export default {
   fetch: async (request, env) => {
-    const myID = env.MYID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
-    const ownIP = env.OWNIP ?? '';
-    if (request.headers.get('Upgrade') === 'websocket') {
-      return handlerWs(request, myID, ownIP);
-    } else {
-      return handlerHttp(request, myID);
+    try {
+      const myID = env.MYID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+      const ownIP = env.OWNIP ?? '';
+      if (request.headers.get('Upgrade') === 'websocket') {
+        return handlerWs(request, myID, ownIP);
+      } else {
+        return handlerHttp(request, myID);
+      }
+    } catch (error) {
+      return new Response('Internal Server Error', { status: 500 });
     }
   },
 };
@@ -50,32 +55,37 @@ const handlerWs = async (request, myID, ownIP) => {
 
   const writableStream = new WritableStream({
     write: async (chunk) => {
-      if (isDns && udpWrite) {
-        return udpWrite(chunk);
-      }
-      if (remoteSocket.value) {
-        return writeToSocket(remoteSocket.value, chunk);
-      }
-      const headerResult = processResHeader(chunk, myID);
-      if (headerResult.hasError) {
-        return;
-      }
-      const { portRemote = 443, addressRemote = '', rawDataIndex, resVersion, isUDP } = headerResult;
-      const resHeader = new Uint8Array(2);
-      resHeader[0] = resVersion[0];
-      resHeader[1] = 0;
-      const clientData = chunk.slice(rawDataIndex);
-      if (isUDP) {
-        if (portRemote !== 53) {
+      try {
+        if (isDns && udpWrite) {
+          return udpWrite(chunk);
+        }
+        if (remoteSocket.value) {
+          return writeToSocket(remoteSocket.value, chunk);
+        }
+        const headerResult = processResHeader(chunk, myID);
+        if (headerResult.hasError) {
           closeWebSocket(webSocket);
           return;
         }
-        isDns = true;
-        const { write } = await handleUDP(webSocket, resHeader);
-        udpWrite = write;
-        udpWrite(clientData);
-      } else {
-        handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP);
+        const { portRemote = 443, addressRemote = '', rawDataIndex, resVersion, isUDP } = headerResult;
+        const resHeader = new Uint8Array(2);
+        resHeader[0] = resVersion[0];
+        resHeader[1] = 0;
+        const clientData = chunk.slice(rawDataIndex);
+        if (isUDP) {
+          if (portRemote !== 53) {
+            closeWebSocket(webSocket);
+            return;
+          }
+          isDns = true;
+          const { write } = await handleUDP(webSocket, resHeader);
+          udpWrite = write;
+          await udpWrite(clientData);
+        } else {
+          await handleTCP(remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP);
+        }
+      } catch (error) {
+        closeWebSocket(webSocket);
       }
     },
   });
@@ -85,16 +95,25 @@ const handlerWs = async (request, myID, ownIP) => {
 };
 
 const writeToSocket = async (socket, chunk) => {
-  const writer = socket.writable.getWriter();
-  await writer.write(chunk);
-  writer.releaseLock();
+  try {
+    const writer = socket.writable.getWriter();
+    await writer.write(chunk);
+    writer.releaseLock();
+  } catch (error) {
+    throw error;
+  }
 };
 
 const handleTCP = async (remoteSocket, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP) => {
   const connectAndWrite = async (address, port) => {
-    remoteSocket.value = connect({ hostname: address, port });
-    await writeToSocket(remoteSocket.value, clientData);
-    return await forwardToData(remoteSocket.value, webSocket, resHeader);
+    try {
+      const socket = connect({ hostname: address, port });
+      remoteSocket.value = socket;
+      await writeToSocket(socket, clientData);
+      return await forwardToData(socket, webSocket, resHeader);
+    } catch (err) {
+      return false;
+    }
   };
   const connected = await connectAndWrite(addressRemote, portRemote) ||
                     await connectAndWrite(ownIP, portRemote);
@@ -242,29 +261,33 @@ const handleUDP = async (webSocket, resHeader) => {
   });
   const writableStream = new WritableStream({
     write: async (chunk) => {
-      const resp = await fetch('https://cloudflare-dns.com/dns-query', {
-        method: 'POST',
-        headers: { 'content-type': 'application/dns-message' },
-        body: chunk,
-      });
-      const dnsQueryResult = await resp.arrayBuffer();
-      const dnsResultArray = new Uint8Array(dnsQueryResult);
-      const udpSizeBuffer = new Uint8Array(2);
-      new DataView(udpSizeBuffer.buffer).setUint16(0, dnsResultArray.byteLength, false);
-      const resultBuffer = headerSent
-        ? new Uint8Array(2 + dnsResultArray.byteLength)
-        : new Uint8Array(resHeader.length + 2 + dnsResultArray.byteLength);
-      let offset = 0;
-      if (!headerSent) {
-        resultBuffer.set(resHeader, offset);
-        offset += resHeader.length;
-      }
-      resultBuffer.set(udpSizeBuffer, offset);
-      offset += 2;
-      resultBuffer.set(dnsResultArray, offset);
-      if (webSocket.readyState === WS_OPEN) {
-        webSocket.send(resultBuffer);
-        headerSent = true;
+      try {
+        const resp = await fetch('https://cloudflare-dns.com/dns-query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/dns-message' },
+          body: chunk,
+        });
+        const dnsQueryResult = await resp.arrayBuffer();
+        const dnsResultArray = new Uint8Array(dnsQueryResult);
+        const udpSizeBuffer = new Uint8Array(2);
+        new DataView(udpSizeBuffer.buffer).setUint16(0, dnsResultArray.byteLength, false);
+        const resultBuffer = headerSent
+          ? new Uint8Array(2 + dnsResultArray.byteLength)
+          : new Uint8Array(resHeader.length + 2 + dnsResultArray.byteLength);
+        let offset = 0;
+        if (!headerSent) {
+          resultBuffer.set(resHeader, offset);
+          offset += resHeader.length;
+        }
+        resultBuffer.set(udpSizeBuffer, offset);
+        offset += 2;
+        resultBuffer.set(dnsResultArray, offset);
+        if (webSocket.readyState === WS_OPEN) {
+          webSocket.send(resultBuffer);
+          headerSent = true;
+        }
+      } catch (e) {
+        closeWebSocket(webSocket);
       }
     }
   });
