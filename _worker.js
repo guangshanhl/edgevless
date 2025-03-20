@@ -104,7 +104,11 @@ const handlerStream = (webSocket, earlyHeader) => {
         controller.enqueue(earlyData);
       }
       webSocket.addEventListener('message', ({ data }) => {
-        controller.enqueue(data);
+        try {
+          controller.enqueue(data);
+        } catch (err) {
+          controller.error(err);
+        }
       });
       webSocket.addEventListener('close', () => controller.close());
       webSocket.addEventListener('error', (err) => controller.error(err));
