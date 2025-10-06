@@ -11,12 +11,38 @@ const getCachedMyIDBuffer = (myID) => {
   }
   return cachedMyIDBuffer;
 };
+
+class ThrottleTransform extends TransformStream {
+  constructor(bytesPerSecond) {
+    let lastSendTime = Date.now();
+    super({
+      async transform(chunk, controller) {
+        if (bytesPerSecond === Infinity) {
+          controller.enqueue(chunk);
+          return;
+        }
+        const currentTime = Date.now();
+        const timeSinceLast = currentTime - lastSendTime;
+        const expectedTime = (chunk.byteLength * 1000) / bytesPerSecond;
+        const sleepTime = expectedTime - timeSinceLast;
+        if (sleepTime > 0) {
+          await new Promise(resolve => setTimeout(resolve, sleepTime));
+        }
+        controller.enqueue(chunk);
+        lastSendTime = Date.now();
+      }
+    });
+  }
+}
+
 export default {
   fetch: async (request, env) => {
     const myID = env.MYID ?? 'd342d11e-d424-4583-b36e-524ab1f0afa4';
     const ownIP = env.OWNIP ?? '';
+    const uploadRate = parseFloat(env.UPLOAD_RATE) || Infinity;
+    const downloadRate = parseFloat(env.DOWNLOAD_RATE) || Infinity;
     if (request.headers.get('Upgrade') === 'websocket') {
-      return handlerWs(request, myID, ownIP);
+      return handlerWs(request, myID, ownIP, uploadRate, downloadRate);
     } else {
       return handlerHttp(request, myID);
     }
@@ -35,7 +61,7 @@ const handlerHttp = (request, myID) => {
     return new Response('Not found', { status: 404 });
   }
 };
-const handlerWs = async (request, myID, ownIP) => {
+const handlerWs = async (request, myID, ownIP, uploadRate, downloadRate) => {
   const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
   const protocolHeader = request.headers.get('sec-websocket-protocol') || '';
@@ -66,15 +92,17 @@ const handlerWs = async (request, myID, ownIP) => {
           return;
         }
         isDns = true;
-        const { write } = await handleUDP(webSocket, resHeader);
+        const { write } = await handleUDP(webSocket, resHeader, downloadRate);
         udpWrite = (chunk) => write(chunk);
         return udpWrite(clientData);
       } else {
-        return handleTCP(remoteSocket, remoteWriter, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP);
+        return handleTCP(remoteSocket, remoteWriter, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP, downloadRate);
       }
     },
   });
-  readableWstream.pipeTo(writableStream)
+  readableWstream
+    .pipeThrough(new ThrottleTransform(uploadRate))
+    .pipeTo(writableStream)
     .catch(() => closeWebSocket(webSocket))
     .finally(() => {
       if (remoteSocket.value) {
@@ -83,14 +111,14 @@ const handlerWs = async (request, myID, ownIP) => {
     });
   return new Response(null, { status: 101, webSocket: client });
 };
-const handleTCP = async (remoteSocket, remoteWriter, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP) => {
+const handleTCP = async (remoteSocket, remoteWriter, addressRemote, portRemote, clientData, webSocket, resHeader, ownIP, downloadRate) => {
   let connected = false;
   try {
-    connected = await connectAndWrite(remoteSocket, remoteWriter, addressRemote, portRemote, clientData, webSocket, resHeader);
+    connected = await connectAndWrite(remoteSocket, remoteWriter, addressRemote, portRemote, clientData, webSocket, resHeader, downloadRate);
   } catch (e) {
     if (ownIP) {
       try {
-        connected = await connectAndWrite(remoteSocket, remoteWriter, ownIP, portRemote, clientData, webSocket, resHeader);
+        connected = await connectAndWrite(remoteSocket, remoteWriter, ownIP, portRemote, clientData, webSocket, resHeader, downloadRate);
       } catch (e2) {}
     }
   }
@@ -99,12 +127,12 @@ const handleTCP = async (remoteSocket, remoteWriter, addressRemote, portRemote, 
   }
   return connected;
 };
-const connectAndWrite = async (remoteSocket, remoteWriter, address, port, clientData, webSocket, resHeader) => {
+const connectAndWrite = async (remoteSocket, remoteWriter, address, port, clientData, webSocket, resHeader, downloadRate) => {
   const socket = connect({ hostname: address, port });
   remoteSocket.value = socket;
   remoteWriter = socket.writable.getWriter();
   await remoteWriter.write(clientData);
-  const forwarded = await forwardToData(socket, webSocket, resHeader);
+  const forwarded = await forwardToData(socket, webSocket, resHeader, downloadRate);
   return forwarded;
 };
 const handlerStream = (webSocket, earlyHeader) => {
@@ -181,7 +209,7 @@ const processResHeader = (resBuffer, myID) => {
     isUDP,
   };
 };
-const forwardToData = async (remoteSocket, webSocket, resHeader) => {
+const forwardToData = async (remoteSocket, webSocket, resHeader, downloadRate) => {
   if (webSocket.readyState !== WS_OPEN) {
     return false;
   }
@@ -202,7 +230,9 @@ const forwardToData = async (remoteSocket, webSocket, resHeader) => {
     },
   });
   try {
-    await remoteSocket.readable.pipeTo(writableStream);
+    await remoteSocket.readable
+      .pipeThrough(new ThrottleTransform(downloadRate))
+      .pipeTo(writableStream);
   } catch (error) {
     closeWebSocket(webSocket);
   }
@@ -226,7 +256,7 @@ const base64ToBuffer = (base64Str) => {
 const closeWebSocket = (socket) => {
   if ([WS_OPEN, WS_CLOSING].includes(socket.readyState)) socket.close();
 };
-const handleUDP = async (webSocket, resHeader) => {
+const handleUDP = async (webSocket, resHeader, downloadRate) => {
   let headerSent = false;
   const transformStream = new TransformStream({
     transform: (chunk, controller) => {
@@ -267,7 +297,10 @@ const handleUDP = async (webSocket, resHeader) => {
       }
     }
   });
-  transformStream.readable.pipeTo(writableStream).catch(() => closeWebSocket(webSocket));
+  transformStream.readable
+    .pipeThrough(new ThrottleTransform(downloadRate))
+    .pipeTo(writableStream)
+    .catch(() => closeWebSocket(webSocket));
   const writer = transformStream.writable.getWriter();
   return { write: (chunk) => writer.write(chunk) };
 };
