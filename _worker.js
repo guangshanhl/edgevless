@@ -1,1 +1,338 @@
-const _0xcd85bc=_0x5f12;function _0x2e5b(){const _0xdff9bc=['2588tnqBSz','values','message','Not\x20found','buffer','headers','Upgrade','2588504KMyoFy','join','slice','enqueue','MYID','length','pathname','3792fCzuUq','&path=%2F%3Fed%3D2560#','push','replace','7HcWdkS','getWriter','getUint16','send','accept','&fp=randomized&type=ws&host=',':443?encryption=none&security=tls&sni=','5440545FSGekG','readyState','vless://','error','map','catch','toString','Host','value','write','readable','553884ekNbJP','POST','376148CmJFZN','application/dns-message','arrayBuffer','writable','34826670AhYJyV','text/plain;charset=utf-8','980935aIRKrw','pipeTo','match','getUint8','url','setUint16','set','byteLength','decode','charCodeAt','includes','addEventListener','d342d11e-d424-4583-b36e-524ab1f0afa4','websocket','get','OWNIP','sec-websocket-protocol'];_0x2e5b=function(){return _0xdff9bc;};return _0x2e5b();}(function(_0x5f4a69,_0x45e98a){const _0x14a143=_0x5f12,_0x307cf7=_0x5f4a69();while(!![]){try{const _0x511c7c=-parseInt(_0x14a143(0xc0))/0x1+-parseInt(_0x14a143(0xf7))/0x2+parseInt(_0x14a143(0xdf))/0x3*(-parseInt(_0x14a143(0xd1))/0x4)+-parseInt(_0x14a143(0xea))/0x5+parseInt(_0x14a143(0xf5))/0x6+parseInt(_0x14a143(0xe3))/0x7*(-parseInt(_0x14a143(0xd8))/0x8)+parseInt(_0x14a143(0xbe))/0x9;if(_0x511c7c===_0x45e98a)break;else _0x307cf7['push'](_0x307cf7['shift']());}catch(_0x16870a){_0x307cf7['push'](_0x307cf7['shift']());}}}(_0x2e5b,0x898ff));import{connect}from'cloudflare:sockets';const WS_OPEN=0x1,WS_CLOSING=0x2;let cachedMyIDBuffer=null,cachedMyID=null;function _0x5f12(_0x3a695d,_0x22eb0b){const _0x2e5b01=_0x2e5b();return _0x5f12=function(_0x5f12d5,_0x450c1f){_0x5f12d5=_0x5f12d5-0xbc;let _0x17deff=_0x2e5b01[_0x5f12d5];return _0x17deff;},_0x5f12(_0x3a695d,_0x22eb0b);}const getCachedMyIDBuffer=_0x39383f=>{const _0x18f788=_0x5f12;return cachedMyID!==_0x39383f&&(cachedMyID=_0x39383f,cachedMyIDBuffer=new Uint8Array(_0x39383f[_0x18f788(0xe2)](/-/g,'')[_0x18f788(0xc2)](/../g)[_0x18f788(0xee)](_0x2eee5a=>parseInt(_0x2eee5a,0x10)))),cachedMyIDBuffer;};export default{'fetch':async(_0x4b03dc,_0x2d1242)=>{const _0x5df79d=_0x5f12,_0x1b1896=_0x2d1242[_0x5df79d(0xdc)]??_0x5df79d(0xcc),_0x26584b=_0x2d1242[_0x5df79d(0xcf)]??'';return _0x4b03dc[_0x5df79d(0xd6)][_0x5df79d(0xce)](_0x5df79d(0xd7))===_0x5df79d(0xcd)?handlerWs(_0x4b03dc,_0x1b1896,_0x26584b):handlerHttp(_0x4b03dc,_0x1b1896);}};const handlerHttp=(_0xed0e34,_0x41d6ac)=>{const _0x49d3be=_0x5f12,_0x1350f3=new URL(_0xed0e34[_0x49d3be(0xc4)])[_0x49d3be(0xde)];if(_0x1350f3==='/')return new Response(JSON['stringify'](_0xed0e34['cf']),{'status':0xc8});else return _0x1350f3==='/'+_0x41d6ac?new Response(getConfig(_0x41d6ac,_0xed0e34[_0x49d3be(0xd6)][_0x49d3be(0xce)](_0x49d3be(0xf1))),{'status':0xc8,'headers':{'Content-Type':_0x49d3be(0xbf)}}):new Response(_0x49d3be(0xd4),{'status':0x194});},handlerWs=async(_0x4aece0,_0xc4f311,_0x24e204)=>{const _0x18d6d9=_0x5f12,[_0x1de71d,_0x39f003]=Object[_0x18d6d9(0xd2)](new WebSocketPair());_0x39f003[_0x18d6d9(0xe7)]();const _0x2b6aa=_0x4aece0[_0x18d6d9(0xd6)][_0x18d6d9(0xce)](_0x18d6d9(0xd0))||'',_0x125907=handlerStream(_0x39f003,_0x2b6aa),_0x59e53a={'value':null};let _0x351cb0=null,_0x31b5db=null,_0x320128=![];const _0x53af22=new WritableStream({'write':async _0x1bf7a7=>{const _0x1bd8eb=_0x18d6d9;if(_0x320128&&_0x31b5db)return _0x31b5db(_0x1bf7a7);if(_0x59e53a[_0x1bd8eb(0xf2)])return _0x351cb0[_0x1bd8eb(0xf3)](_0x1bf7a7);const _0x9f4d63=processResHeader(_0x1bf7a7,_0xc4f311);if(_0x9f4d63['hasError'])return;const {portRemote:portRemote=0x1bb,addressRemote:addressRemote='',rawDataIndex:_0x2b2a31,resVersion:_0x1feffd,isUDP:_0x51b5d6}=_0x9f4d63,_0x1cc390=new Uint8Array(0x2);_0x1cc390[0x0]=_0x1feffd[0x0],_0x1cc390[0x1]=0x0;const _0x593494=_0x1bf7a7[_0x1bd8eb(0xda)](_0x2b2a31);if(_0x51b5d6){if(portRemote!==0x35)return;_0x320128=!![];const {write:_0x298be9}=await handleUDP(_0x39f003,_0x1cc390);return _0x31b5db=_0x54ce1e=>_0x298be9(_0x54ce1e),_0x31b5db(_0x593494);}else return handleTCP(_0x59e53a,_0x351cb0,addressRemote,portRemote,_0x593494,_0x39f003,_0x1cc390,_0x24e204);}});return _0x125907['pipeTo'](_0x53af22)[_0x18d6d9(0xef)](()=>closeWebSocket(_0x39f003))['finally'](()=>{const _0x1edddb=_0x18d6d9;_0x59e53a[_0x1edddb(0xf2)]&&_0x59e53a[_0x1edddb(0xf2)]['close']();}),new Response(null,{'status':0x65,'webSocket':_0x1de71d});},handleTCP=async(_0x120217,_0x366dcd,_0x2c2c75,_0x273d6f,_0x4b293c,_0x50c595,_0x142822,_0x4bb383)=>{let _0x3bb09c=![];try{_0x3bb09c=await connectAndWrite(_0x120217,_0x366dcd,_0x2c2c75,_0x273d6f,_0x4b293c,_0x50c595,_0x142822);}catch(_0x3c9760){if(_0x4bb383)try{_0x3bb09c=await connectAndWrite(_0x120217,_0x366dcd,_0x4bb383,_0x273d6f,_0x4b293c,_0x50c595,_0x142822);}catch(_0x1bad79){}}return!_0x3bb09c&&closeWebSocket(_0x50c595),_0x3bb09c;},connectAndWrite=async(_0x454cf6,_0x7d6c6,_0x407452,_0x46659f,_0x531bdc,_0x1f5a95,_0x3e4d12)=>{const _0x271017=_0x5f12,_0x3c37a4=connect({'hostname':_0x407452,'port':_0x46659f});_0x454cf6['value']=_0x3c37a4,_0x7d6c6=_0x3c37a4[_0x271017(0xbd)][_0x271017(0xe4)](),await _0x7d6c6[_0x271017(0xf3)](_0x531bdc);const _0x4e62d7=await forwardToData(_0x3c37a4,_0x1f5a95,_0x3e4d12);return _0x4e62d7;},handlerStream=(_0x28cee0,_0x295280)=>{return new ReadableStream({'start'(_0x4f3575){const _0x175e8b=_0x5f12,{earlyData:_0x89beae,error:_0x4ccfe0}=base64ToBuffer(_0x295280);if(_0x4ccfe0){_0x4f3575['error'](_0x4ccfe0);return;}_0x89beae&&_0x4f3575['enqueue'](_0x89beae),_0x28cee0[_0x175e8b(0xcb)](_0x175e8b(0xd3),({data:_0x1af2c0})=>{const _0x566235=_0x175e8b;try{_0x4f3575[_0x566235(0xdb)](_0x1af2c0);}catch(_0x2e82f9){_0x4f3575[_0x566235(0xed)](_0x2e82f9);}}),_0x28cee0[_0x175e8b(0xcb)]('close',()=>_0x4f3575['close']()),_0x28cee0['addEventListener'](_0x175e8b(0xed),_0x4b679f=>_0x4f3575[_0x175e8b(0xed)](_0x4b679f));},'cancel'(){closeWebSocket(_0x28cee0);}});},processResHeader=(_0x4819f5,_0x33cab9)=>{const _0x2a9592=_0x5f12;if(_0x4819f5[_0x2a9592(0xc7)]<0x18)return{'hasError':!![]};const _0x3547f1=new DataView(_0x4819f5),_0x49241d=new Uint8Array([_0x3547f1[_0x2a9592(0xc3)](0x0)]),_0x4e3608=getCachedMyIDBuffer(_0x33cab9);for(let _0x54962b=0x0;_0x54962b<0x10;_0x54962b++){if(_0x4e3608[_0x54962b]!==_0x3547f1[_0x2a9592(0xc3)](0x1+_0x54962b))return{'hasError':!![]};}const _0x3f4463=_0x3547f1[_0x2a9592(0xc3)](0x11),_0x5a0aa0=_0x3547f1[_0x2a9592(0xc3)](0x12+_0x3f4463),_0x32349f=_0x5a0aa0===0x2;if(!_0x32349f&&_0x5a0aa0!==0x1)return{'hasError':!![]};const _0x306a14=_0x3547f1[_0x2a9592(0xe5)](0x12+_0x3f4463+0x1,![]);let _0x5ab164=0x12+_0x3f4463+0x1+0x2;const _0x54d7e2=_0x3547f1[_0x2a9592(0xc3)](_0x5ab164++);let _0x5b3611='',_0x207186=0x0;switch(_0x54d7e2){case 0x1:_0x207186=0x4,_0x5b3611=_0x3547f1['getUint8'](_0x5ab164)+'.'+_0x3547f1[_0x2a9592(0xc3)](_0x5ab164+0x1)+'.'+_0x3547f1[_0x2a9592(0xc3)](_0x5ab164+0x2)+'.'+_0x3547f1[_0x2a9592(0xc3)](_0x5ab164+0x3);break;case 0x2:_0x207186=_0x3547f1[_0x2a9592(0xc3)](_0x5ab164),_0x5ab164++,_0x5b3611=new TextDecoder()[_0x2a9592(0xc8)](new Uint8Array(_0x4819f5,_0x5ab164,_0x207186));break;case 0x3:_0x207186=0x10;const _0x461714=[];for(let _0x253fa1=0x0;_0x253fa1<0x8;_0x253fa1++){_0x461714[_0x2a9592(0xe1)](_0x3547f1[_0x2a9592(0xe5)](_0x5ab164+_0x253fa1*0x2,![])[_0x2a9592(0xf0)](0x10));}_0x5b3611=_0x461714[_0x2a9592(0xd9)](':');break;default:return{'hasError':!![]};}return{'hasError':![],'addressRemote':_0x5b3611,'addressType':_0x54d7e2,'portRemote':_0x306a14,'rawDataIndex':_0x5ab164+_0x207186,'resVersion':_0x49241d,'isUDP':_0x32349f};},forwardToData=async(_0x2ce8ba,_0x3da66f,_0x4bf268)=>{const _0x2af2ae=_0x5f12;if(_0x3da66f[_0x2af2ae(0xeb)]!==WS_OPEN)return![];let _0x298ef4=![],_0x29ec5e=!![];const _0x2a6fb0=new WritableStream({'write':async(_0x18a61b,_0x4f2e33)=>{const _0x20c0bc=_0x2af2ae;if(_0x29ec5e&&_0x4bf268){const _0x27102d=new Uint8Array(_0x4bf268[_0x20c0bc(0xdd)]+_0x18a61b[_0x20c0bc(0xdd)]);_0x27102d['set'](_0x4bf268,0x0),_0x27102d['set'](_0x18a61b,_0x4bf268[_0x20c0bc(0xdd)]),_0x3da66f[_0x20c0bc(0xe6)](_0x27102d),_0x29ec5e=![];}else _0x3da66f[_0x20c0bc(0xe6)](_0x18a61b);_0x298ef4=!![];}});try{await _0x2ce8ba[_0x2af2ae(0xf4)][_0x2af2ae(0xc1)](_0x2a6fb0);}catch(_0x20daf1){closeWebSocket(_0x3da66f);}return _0x298ef4;},base64ToBuffer=_0x1807bd=>{const _0x1c60e1=_0x5f12;try{const _0x319825=atob(_0x1807bd['replace'](/-/g,'+')['replace'](/_/g,'/')),_0x277960=_0x319825[_0x1c60e1(0xdd)],_0x58c57c=new Uint8Array(_0x277960);for(let _0x16e57c=0x0;_0x16e57c<_0x277960;_0x16e57c++){_0x58c57c[_0x16e57c]=_0x319825[_0x1c60e1(0xc9)](_0x16e57c);}return{'earlyData':_0x58c57c[_0x1c60e1(0xd5)],'error':null};}catch(_0x4cb98a){return{'error':_0x4cb98a};}},closeWebSocket=_0x330159=>{const _0x3fb65d=_0x5f12;if([WS_OPEN,WS_CLOSING][_0x3fb65d(0xca)](_0x330159[_0x3fb65d(0xeb)]))_0x330159['close']();},handleUDP=async(_0x5eaa95,_0x306292)=>{const _0x102fe0=_0x5f12;let _0x1e15c5=![];const _0x1f54ee=new TransformStream({'transform':(_0x838f9c,_0x3553c6)=>{const _0x4dec14=_0x5f12;let _0x25790e=0x0;while(_0x25790e<_0x838f9c[_0x4dec14(0xc7)]){const _0x1af822=new DataView(_0x838f9c['slice'](_0x25790e,_0x25790e+0x2))[_0x4dec14(0xe5)](0x0),_0x20cffd=new Uint8Array(_0x838f9c[_0x4dec14(0xda)](_0x25790e+0x2,_0x25790e+0x2+_0x1af822));_0x3553c6[_0x4dec14(0xdb)](_0x20cffd),_0x25790e+=0x2+_0x1af822;}}}),_0x4f69a2=new WritableStream({'write':async _0x1f1a98=>{const _0x4eac1d=_0x5f12,_0x4ea629=await fetch('https://cloudflare-dns.com/dns-query',{'method':_0x4eac1d(0xf6),'headers':{'content-type':_0x4eac1d(0xf8)},'body':_0x1f1a98}),_0x4c5b73=await _0x4ea629[_0x4eac1d(0xbc)](),_0x36ef0f=new Uint8Array(_0x4c5b73),_0x25113a=new Uint8Array(0x2);new DataView(_0x25113a['buffer'])[_0x4eac1d(0xc5)](0x0,_0x36ef0f[_0x4eac1d(0xc7)],![]);const _0x1a1071=_0x1e15c5?new Uint8Array(0x2+_0x36ef0f[_0x4eac1d(0xc7)]):new Uint8Array(_0x306292[_0x4eac1d(0xdd)]+0x2+_0x36ef0f['byteLength']);let _0x1f7689=0x0;!_0x1e15c5&&(_0x1a1071['set'](_0x306292,_0x1f7689),_0x1f7689+=_0x306292['length']),_0x1a1071['set'](_0x25113a,_0x1f7689),_0x1f7689+=0x2,_0x1a1071[_0x4eac1d(0xc6)](_0x36ef0f,_0x1f7689),_0x5eaa95[_0x4eac1d(0xeb)]===WS_OPEN&&(_0x5eaa95[_0x4eac1d(0xe6)](_0x1a1071),_0x1e15c5=!![]);}});_0x1f54ee[_0x102fe0(0xf4)][_0x102fe0(0xc1)](_0x4f69a2)['catch'](()=>closeWebSocket(_0x5eaa95));const _0x394dff=_0x1f54ee[_0x102fe0(0xbd)][_0x102fe0(0xe4)]();return{'write':_0x4d30ef=>_0x394dff['write'](_0x4d30ef)};},getConfig=(_0xe382ff,_0x1ffc3a)=>_0xcd85bc(0xec)+_0xe382ff+'@'+_0x1ffc3a+_0xcd85bc(0xe9)+_0x1ffc3a+_0xcd85bc(0xe8)+_0x1ffc3a+_0xcd85bc(0xe0)+_0x1ffc3a;
+// VLESS UUID
+let userID = '12345678-1234-1234-1234-123456789012';
+
+// Public NAT64 Prefix
+let nat64Prefix = '2602:fc59:11:64::';
+
+
+
+import { connect } from 'cloudflare:sockets';
+const WS_READY_STATE_OPEN = 1;
+const WS_READY_STATE_CLOSING = 2;
+export default {
+    async fetch(request, env, ctx) {
+        try {
+            userID = env.uuid || userID;
+            nat64Prefix = env.nat64prefix || nat64Prefix;
+            const upgradeHeader = request.headers.get('Upgrade');
+            if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+                const url = new URL(request.url);
+                if (url.pathname === '/') {
+                    return new Response('Hello World!', { status: 200 });
+                }
+                if (url.pathname === `/${userID}`) {
+                    const host = request.headers.get('Host');
+                    const vlessConfig = `cfworker-vless-nat64 VLESS 链接（默认优选 10 个 CFIP/域名），自选是否开TLS，复制下面 10 个链接导入 V2ray 中使用
+#######[开TLS]#######
+vless://${userID}@104.16.16.16:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选IP1
+vless://${userID}@104.17.17.17:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选IP2
+vless://${userID}@104.18.18.18:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选IP3
+vless://${userID}@104.19.19.19:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选IP4
+vless://${userID}@www.visa.com:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选域名5
+vless://${userID}@www.visa.com.hk:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选域名6
+vless://${userID}@www.visa.com.sg:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选域名7
+vless://${userID}@www.speedtest.net:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选域名8
+vless://${userID}@[2606:4700:20::1234:5678]:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选IPV6IP9
+vless://${userID}@[${nat64Prefix}6810:0]:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=/#NAT64VLESS优选NAT64IP10
+#######[关TLS]#######
+vless://${userID}@104.16.16.16:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选IP1
+vless://${userID}@104.17.17.17:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选IP2
+vless://${userID}@104.18.18.18:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选IP3
+vless://${userID}@104.19.19.19:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选IP4
+vless://${userID}@www.visa.com:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选域名5
+vless://${userID}@www.visa.com.hk:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选域名6
+vless://${userID}@www.visa.com.sg:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选域名7
+vless://${userID}@www.speedtest.net:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选域名8
+vless://${userID}@[2606:4700:20::1234:5678]:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选IPV6IP9
+vless://${userID}@[${nat64Prefix}6810:0]:80?encryption=none&type=ws&host=${host}&path=/#NAT64VLESS优选NAT64IP10`;
+                    return new Response(vlessConfig, {
+                        status: 200,
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    });
+                }
+                return new Response('404 Not Found', { status: 404 });
+            }
+            return await handleVLESSWebSocket(request);
+        } catch (err) {
+            return new Response(err.toString(), { status: 500 });
+        }
+    },
+};
+async function handleVLESSWebSocket(request) {
+    const wsPair = new WebSocketPair();
+    const [clientWS, serverWS] = Object.values(wsPair);
+    serverWS.accept();
+    const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
+    const wsReadable = createWebSocketReadableStream(serverWS, earlyDataHeader);
+    let remoteSocket = null;
+    let udpStreamWrite = null;
+    let isDns = false;
+    wsReadable.pipeTo(new WritableStream({
+        async write(chunk) {
+            if (isDns && udpStreamWrite) {
+                return udpStreamWrite(chunk);
+            }
+            if (remoteSocket) {
+                const writer = remoteSocket.writable.getWriter();
+                await writer.write(chunk);
+                writer.releaseLock();
+                return;
+            }
+            const result = parseVLESSHeader(chunk, userID);
+            if (result.hasError) {
+                throw new Error(result.message);
+            }
+            const vlessRespHeader = new Uint8Array([result.vlessVersion[0], 0]);
+            const rawClientData = chunk.slice(result.rawDataIndex);
+            if (result.isUDP) {
+                if (result.portRemote === 53) {
+                    isDns = true;
+                    const { write } = await handleUDPOutBound(serverWS, vlessRespHeader);
+                    udpStreamWrite = write;
+                    udpStreamWrite(rawClientData);
+                    return;
+                } else {
+                    throw new Error('UDP代理仅支持DNS(端口53)');
+                }
+            }
+            async function connectAndWrite(address, port) {
+                const tcpSocket = await connect({
+                    hostname: address,
+                    port: port
+                });
+                remoteSocket = tcpSocket;
+                const writer = tcpSocket.writable.getWriter();
+                await writer.write(rawClientData);
+                writer.releaseLock();
+                return tcpSocket;
+            }
+            function convertToNAT64IPv6(ipv4Address) {
+                const parts = ipv4Address.split('.');
+                if (parts.length !== 4) {
+                    throw new Error('无效的IPv4地址');
+                }
+                const hex = parts.map(part => {
+                    const num = parseInt(part, 10);
+                    if (num < 0 || num > 255) {
+                        throw new Error('无效的IPv4地址段');
+                    }
+                    return num.toString(16).padStart(2, '0');
+                });
+                return `[${nat64Prefix}${hex[0]}${hex[1]}:${hex[2]}${hex[3]}]`;
+            }
+            async function getIPv6ProxyAddress(domain) {
+                try {
+                    const dnsQuery = await fetch(`https://dns.google/resolve?name=${domain}&type=A`, {
+                        headers: {
+                            'Accept': 'application/dns-json'
+                        }
+                    });
+                    const dnsResult = await dnsQuery.json();
+                    if (dnsResult.Answer && dnsResult.Answer.length > 0) {
+                        const aRecord = dnsResult.Answer.find(record => record.type === 1);
+                        if (aRecord) {
+                            const ipv4Address = aRecord.data;
+                            return convertToNAT64IPv6(ipv4Address);
+                        }
+                    }
+                    throw new Error('无法解析域名的IPv4地址');
+                } catch (err) {
+                    throw new Error(`DNS解析失败: ${err.message}`);
+                }
+            }
+            let proxyIP;
+            const ipv4Regex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+            if (ipv4Regex.test(result.addressRemote)) {
+                proxyIP = convertToNAT64IPv6(result.addressRemote);
+            } else {
+                proxyIP = await getIPv6ProxyAddress(result.addressRemote);
+            }
+            try {
+                const tcpSocket = await connectAndWrite(proxyIP, result.portRemote);
+                pipeRemoteToWebSocket(tcpSocket, serverWS, vlessRespHeader, null);
+            } catch (err) {
+                serverWS.close(1011, '连接失败');
+            }
+        },
+        close() {
+            if (remoteSocket) {
+                closeSocket(remoteSocket);
+            }
+        }
+    })).catch(err => {
+        closeSocket(remoteSocket);
+        serverWS.close(1011, '内部错误');
+    });
+    return new Response(null, {
+        status: 101,
+        webSocket: clientWS,
+    });
+}
+function createWebSocketReadableStream(ws, earlyDataHeader) {
+    return new ReadableStream({
+        start(controller) {
+            ws.addEventListener('message', event => {
+                controller.enqueue(event.data);
+            });
+            ws.addEventListener('close', () => {
+                controller.close();
+            });
+            ws.addEventListener('error', err => {
+                controller.error(err);
+            });
+            if (earlyDataHeader) {
+                try {
+                    const decoded = atob(earlyDataHeader.replace(/-/g, '+').replace(/_/g, '/'));
+                    const data = Uint8Array.from(decoded, c => c.charCodeAt(0));
+                    controller.enqueue(data.buffer);
+                } catch (e) {
+                }
+            }
+        }
+    });
+}
+function parseVLESSHeader(buffer, userID) {
+    if (buffer.byteLength < 24) {
+        return { hasError: true, message: '无效的头部长度' };
+    }
+    const view = new DataView(buffer);
+    const version = new Uint8Array(buffer.slice(0, 1));
+    const uuid = formatUUID(new Uint8Array(buffer.slice(1, 17)));
+    if (uuid !== userID) {
+        return { hasError: true, message: '无效的用户' };
+    }
+    const optionsLength = view.getUint8(17);
+    const command = view.getUint8(18 + optionsLength);
+    let isUDP = false;
+    if (command === 1) {
+    } else if (command === 2) {
+        isUDP = true;
+    } else {
+        return { hasError: true, message: '不支持的命令，仅支持TCP(01)和UDP(02)' };
+    }
+    let offset = 19 + optionsLength;
+    const port = view.getUint16(offset);
+    offset += 2;
+    const addressType = view.getUint8(offset++);
+    let address = '';
+    switch (addressType) {
+        case 1:
+            address = Array.from(new Uint8Array(buffer.slice(offset, offset + 4))).join('.');
+            offset += 4;
+            break;
+        case 2:
+            const domainLength = view.getUint8(offset++);
+            address = new TextDecoder().decode(buffer.slice(offset, offset + domainLength));
+            offset += domainLength;
+            break;
+        default:
+            return { hasError: true, message: '不支持的地址类型' };
+    }
+    return {
+        hasError: false,
+        addressRemote: address,
+        portRemote: port,
+        rawDataIndex: offset,
+        vlessVersion: version,
+        isUDP
+    };
+}
+function pipeRemoteToWebSocket(remoteSocket, ws, vlessHeader, retry = null) {
+    let headerSent = false;
+    let hasIncomingData = false;
+    remoteSocket.readable.pipeTo(new WritableStream({
+        write(chunk) {
+            hasIncomingData = true;
+            if (ws.readyState === WS_READY_STATE_OPEN) {
+                if (!headerSent) {
+                    const combined = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
+                    combined.set(new Uint8Array(vlessHeader), 0);
+                    combined.set(new Uint8Array(chunk), vlessHeader.byteLength);
+                    ws.send(combined.buffer);
+                    headerSent = true;
+                } else {
+                    ws.send(chunk);
+                }
+            }
+        },
+        close() {
+            if (!hasIncomingData && retry) {
+                retry();
+                return;
+            }
+            if (ws.readyState === WS_READY_STATE_OPEN) {
+                ws.close(1000, '正常关闭');
+            }
+        },
+        abort() {
+            closeSocket(remoteSocket);
+        }
+    })).catch(err => {
+        closeSocket(remoteSocket);
+        if (ws.readyState === WS_READY_STATE_OPEN) {
+            ws.close(1011, '数据传输错误');
+        }
+    });
+}
+function closeSocket(socket) {
+    if (socket) {
+        try {
+            socket.close();
+        } catch (e) {
+        }
+    }
+}
+function formatUUID(bytes) {
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+async function handleUDPOutBound(webSocket, vlessResponseHeader) {
+    let isVlessHeaderSent = false;
+    const transformStream = new TransformStream({
+        start(controller) {
+        },
+        transform(chunk, controller) {
+            for (let index = 0; index < chunk.byteLength;) {
+                const lengthBuffer = chunk.slice(index, index + 2);
+                const udpPacketLength = new DataView(lengthBuffer).getUint16(0);
+                const udpData = new Uint8Array(
+                    chunk.slice(index + 2, index + 2 + udpPacketLength)
+                );
+                index = index + 2 + udpPacketLength;
+                controller.enqueue(udpData);
+            }
+        },
+        flush(controller) {
+        }
+    });
+    transformStream.readable.pipeTo(new WritableStream({
+        async write(chunk) {
+            const resp = await fetch('https://dns.google/dns-query',
+                {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/dns-message',
+                    },
+                    body: chunk,
+                })
+            const dnsQueryResult = await resp.arrayBuffer();
+            const udpSize = dnsQueryResult.byteLength;
+            const udpSizeBuffer = new Uint8Array([(udpSize >> 8) & 0xff, udpSize & 0xff]);
+            if (webSocket.readyState === WS_READY_STATE_OPEN) {
+                if (isVlessHeaderSent) {
+                    webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+                } else {
+                    webSocket.send(await new Blob([vlessResponseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+                    isVlessHeaderSent = true;
+                }
+            }
+        }
+    })).catch((error) => {
+    });
+    const writer = transformStream.writable.getWriter();
+    return {
+        write(chunk) {
+            writer.write(chunk);
+        }
+    };
+}
